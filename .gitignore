@@ -57,3 +57,5 @@ docs/
 scripts/
 deployment/
 database/
+
+ARCHITECTURE_GUIDE.md
