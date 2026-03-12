@@ -4,7 +4,6 @@ version = 0.1
 stack_name = "prepai-lambda"
 resolve_s3 = true
 s3_prefix = "prepai-lambda"
-region = "us-east-1"
 confirm_changeset = true
 capabilities = "CAPABILITY_NAMED_IAM"
 parameter_overrides = "BedrockAgentRoleArn=\"\""
