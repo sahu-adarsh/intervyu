@@ -1,5 +1,5 @@
 """
-Configuration package for PrepAI application.
+Configuration package for intervyu application.
 Contains interview type configurations and other settings.
 """
 

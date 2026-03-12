@@ -1,4 +1,4 @@
-# PrepAI - AI-Powered Interview Preparation Platform
+# intervyu - AI-Powered Interview Preparation Platform
 
 ![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock-FF9900?style=flat&logo=amazon-aws)
 ![Next.js](https://img.shields.io/badge/Next.js-15.5-black?style=flat&logo=next.js)

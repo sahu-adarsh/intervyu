@@ -1,7 +1,7 @@
-# PrepAI - Claude Code Context
+# intervyu - Claude Code Context
 
 ## What This Project Is
-PrepAI (branded as **intervyu.io**) is an AI-powered interview preparation platform. Candidates do real voice interviews with an AI interviewer, get their code evaluated live, upload their CV, and receive a performance report at the end.
+**intervyu.io** is an AI-powered interview preparation platform. Candidates do real voice interviews with an AI interviewer, get their code evaluated live, upload their CV, and receive a performance report at the end.
 
 ## Project Structure
 
