@@ -297,7 +297,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   const handleEndInterview = async () => {
     if (confirm('Are you sure you want to end this interview?')) {
       try {
-        await fetch(`/api/interviews/${sessionId}/end`, {
+        await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/interviews/${sessionId}/end`, {
           method: 'POST',
         });
         router.push('/');

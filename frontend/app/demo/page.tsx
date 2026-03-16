@@ -35,7 +35,7 @@ export default function DemoIndexPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">PrepAI Component Demos</h1>
+              <h1 className="text-3xl font-bold text-gray-900">intervyu Component Demos</h1>
               <p className="mt-2 text-sm text-gray-600">
                 Test and explore all Phase 4 frontend components
               </p>
@@ -83,7 +83,7 @@ export default function DemoIndexPage() {
           <h2 className="text-2xl font-bold text-gray-900 mb-4">About These Demos</h2>
           <div className="prose text-gray-600">
             <p className="mb-4">
-              These demo pages showcase the Phase 4 frontend components built for the PrepAI platform:
+              These demo pages showcase the Phase 4 frontend components built for the intervyu platform:
             </p>
             <ul className="list-disc list-inside space-y-2">
               <li><strong>CV Upload & Analysis:</strong> Drag-and-drop interface with real-time parsing and editable results</li>

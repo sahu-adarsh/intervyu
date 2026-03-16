@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import sessions, interviews, websocket, code, analytics
 
 app = FastAPI(
-    title="PrepAI Backend API",
+    title="intervyu Backend API",
     description="AI-Powered Interview Preparation Platform with Real-time Voice Communication",
     version="1.0.0"
 )
@@ -32,7 +32,7 @@ app.include_router(analytics.router)
 async def root():
     """Root endpoint"""
     return {
-        "service": "PrepAI Backend API",
+        "service": "intervyu Backend API",
         "version": "1.0.0",
         "status": "running"
     }
@@ -42,7 +42,7 @@ async def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "service": "prepai-backend"
+        "service": "intervyu-backend"
     }
 
 if __name__ == "__main__":

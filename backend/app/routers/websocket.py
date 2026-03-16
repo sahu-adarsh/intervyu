@@ -17,7 +17,7 @@ router = APIRouter()
 # Initialize models (lazy loading recommended for production)
 whisper_model = None
 # Edge TTS voice - Indian English female (fast and natural)
-EDGE_TTS_VOICE = "en-IN-NeerjaExpressiveNeural"
+EDGE_TTS_VOICE = "en-IN-NeerjaNeural"
 
 
 def clean_agent_response(text: str) -> str:
@@ -276,7 +276,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
 
             # Use a simple, fast greeting without Bedrock for instant response
             # This eliminates the 2-5 second Bedrock cold start delay
-            greeting_text = f"Hello {candidate_name}, I'm Alex Rivera, your interviewer for today's {interview_type}. Let's begin. Please tell me about yourself."
+            greeting_text = f"Hello {candidate_name}, I'm Neerja, your interviewer for today's {interview_type}. Let's begin. Please tell me about yourself."
 
             print(f"[{datetime.now()}] Sending fast introduction...")
 
@@ -296,7 +296,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
             # Alternative: Use Bedrock if you need dynamic greetings (slower but more personalized)
             # Uncomment below to use Bedrock Agent instead
             """
-            greeting_prompt = f"Start the interview by introducing yourself (Alex Rivera) as the interviewer and welcoming {candidate_name} to the {interview_type}. Keep it brief and professional."
+            greeting_prompt = f"Start the interview by introducing yourself (Neerja) as the interviewer and welcoming {candidate_name} to the {interview_type}. Keep it brief and professional."
             print(f"[{datetime.now()}] Sending interviewer introduction...")
             full_response = ""
             text_buffer = ""

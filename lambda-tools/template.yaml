@@ -11,7 +11,7 @@ Globals:
       - x86_64
     Environment:
       Variables:
-        S3_BUCKET_USER_DATA: prepai-user-data
+        S3_BUCKET_USER_DATA: prepai-user-data-2026
 
 Parameters:
   BedrockAgentRoleArn:
@@ -44,8 +44,8 @@ Resources:
                   - s3:PutObject
                   - s3:ListBucket
                 Resource:
-                  - arn:aws:s3:::prepai-user-data/*
-                  - arn:aws:s3:::prepai-user-data
+                  - arn:aws:s3:::prepai-user-data-2026/*
+                  - arn:aws:s3:::prepai-user-data-2026
 
   # Lambda Function: Code Executor
   CodeExecutorFunction:

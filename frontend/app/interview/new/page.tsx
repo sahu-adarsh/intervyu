@@ -23,7 +23,8 @@ function InterviewSessionContent() {
     // Create a new interview session
     const createSession = async () => {
       try {
-        const response = await fetch('/api/sessions', {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const response = await fetch(`${apiUrl}/api/sessions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
