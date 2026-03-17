@@ -1,7 +1,7 @@
 # intervyu - Claude Code Context
 
 ## What This Project Is
-**intervyu.io** is an AI-powered interview preparation platform. Candidates do real voice interviews with an AI interviewer, get their code evaluated live, upload their CV, and receive a performance report at the end.
+**intervyu.io** is an AI-powered interview preparation platform. Candidates do real voice interviews with an AI interviewer (Neerja), get their code evaluated live, upload their CV, and receive a performance report at the end.
 
 ## Project Structure
 
@@ -30,7 +30,7 @@ intervyu/
 │       │   ├── code.py          # Code execution via Lambda
 │       │   └── analytics.py     # Aggregate stats, benchmarks, trends
 │       ├── services/
-│       │   ├── bedrock_service.py   # Claude 3.5 Haiku via Bedrock Agent
+│       │   ├── bedrock_service.py   # Claude Haiku 4.5 via Bedrock Agent
 │       │   ├── s3_service.py        # Session/CV/audio storage
 │       │   ├── lambda_service.py    # Lambda invocation helper
 │       │   └── textract_service.py  # CV text extraction + skill parsing
@@ -40,7 +40,7 @@ intervyu/
 │       └── config/
 │           ├── settings.py          # Env-var settings
 │           ├── interview_types.py   # 8 interview configs + phases
-│           └── agent_instruction.txt # Bedrock Agent system prompt
+│           └── agent_instruction.txt # Bedrock Agent system prompt (Neerja persona)
 │
 ├── lambda-tools/                # AWS SAM — 3 Lambda functions
 │   ├── code-executor/           # Sandboxed Python/JS execution
@@ -54,8 +54,9 @@ intervyu/
 │   ├── migrations/              # 001_initial, 002_s3_to_postgres
 │   └── scripts/migrate_from_s3.py
 │
-├── deployment/                  # AWS deployment guides
 ├── knowledge-base/              # RAG content for Bedrock Agent
+├── deployment/                  # AWS deployment guides
+├── scripts/                     # deploy-frontend.sh, deploy-backend.sh, deployment-info.txt
 └── docs/                        # Architecture, optimization notes
 ```
 
@@ -63,8 +64,8 @@ intervyu/
 
 ### Backend (FastAPI)
 - **STT**: faster-whisper (`small` model, Apple Silicon int8 quantized)
-- **TTS**: edge-tts (`en-IN-NeerjaNeural` voice, WAV chunks streamed)
-- **AI**: AWS Bedrock Agent (Claude 3.5 Haiku) + RAG Knowledge Base
+- **TTS**: edge-tts (`en-IN-NeerjaExpressiveNeural` voice, WAV chunks streamed)
+- **AI**: AWS Bedrock Agent (Claude Haiku 4.5 — `us.anthropic.claude-haiku-4-5-20251001-v1:0`) + RAG Knowledge Base
 - **Storage**: S3 (`prepai-user-data-2026`) — sessions JSON, CVs, audio, reports
 - **CV Parsing**: AWS Textract + `prepai-cv-analyzer` Lambda
 - **Real-time**: WebSocket at `/ws/interview/{session_id}`
@@ -79,6 +80,17 @@ intervyu/
 1. `prepai-code-executor` — Python/JS sandboxed execution, test case runner
 2. `prepai-cv-analyzer` — PDF/DOCX parsing, skills extraction by category
 3. `prepai-performance-evaluator` — 5-dimension scoring, HIRE/NO_HIRE recommendation
+
+## Deployment (Current — Production)
+
+- **Frontend**: S3 (`prepai-frontend-1773670407`) + CloudFront (`EEQ8MGLCMSZXT`)
+- **Custom Domain**: `https://intervyu.io` (Namecheap BasicDNS → CloudFront)
+- **SSL**: ACM cert `b4030462-0a7e-4ede-a076-09da4f122dc2` attached to CloudFront
+- **Backend**: EC2 `i-032c3535f7a8f1d89` (t3.small, Ubuntu), IP `44.200.25.1`, port 8000
+- **EC2 SSH**: `ssh -i ~/.ssh/prepai-backend-key.pem ubuntu@44.200.25.1`
+- **Restart backend**: `sudo systemctl restart prepai-backend`
+- **Redeploy frontend**: `cd frontend && npm run build && aws s3 sync out/ s3://prepai-frontend-1773670407/ --delete && aws cloudfront create-invalidation --distribution-id EEQ8MGLCMSZXT --paths "/*"`
+- **Lambda deploy**: `cd lambda-tools && sam build && sam deploy`
 
 ## Key APIs
 
@@ -124,15 +136,6 @@ Binary frames = raw WebM/WAV audio chunks (sent between speech_start/speech_end)
 ```
 Binary frames = WAV TTS audio chunks
 
-## Deployment
-
-- **Frontend**: S3 + CloudFront (`E1QHM81F6DD5IR`, domain: `intervyu.io`)
-- **Backend**: EC2 (`i-06959f5b800df8328`, Ubuntu, systemd `prepai-backend`, port 8000)
-- **SSL**: ACM certificate + Route53 hosted zone
-- **EC2 SSH**: `ssh -i ~/.ssh/prepai-backend-key.pem ubuntu@34.202.231.149`
-- **Restart backend**: `sudo systemctl restart prepai-backend`
-- **Lambda deploy**: `cd lambda-tools && sam build && sam deploy`
-
 ## Environment Variables
 
 **Backend `backend/.env`:**
@@ -143,28 +146,24 @@ AWS_REGION=us-east-1
 S3_BUCKET_USER_DATA=prepai-user-data-2026
 S3_BUCKET_KNOWLEDGE_BASE=prepai-knowledge-base-2026
 BEDROCK_AGENT_ID=QWKJJLWIUO
-BEDROCK_AGENT_ALIAS_ID=XLMJWHPALK
+BEDROCK_AGENT_ALIAS_ID=TSTALIASID
 BEDROCK_KNOWLEDGE_BASE_ID=FGBOJOTC4C
 WHISPER_MODEL=small
-TTS_VOICE=en-IN-NeerjaNeural
+TTS_VOICE=en-IN-NeerjaExpressiveNeural
 LAMBDA_CODE_EXECUTOR=prepai-code-executor
 LAMBDA_CV_ANALYZER=prepai-cv-analyzer
 LAMBDA_PERFORMANCE_EVALUATOR=prepai-performance-evaluator
+CORS_ORIGINS=http://localhost:3000,https://intervyu.io,https://www.intervyu.io
 HOST=0.0.0.0
 PORT=8000
 LOG_LEVEL=INFO
-ENVIRONMENT=development
+ENVIRONMENT=production
 ```
 
 **Frontend `frontend/.env.local`:**
 ```
 NEXT_PUBLIC_API_URL=http://localhost:8000
 NEXT_PUBLIC_WS_URL=ws://localhost:8000
-```
-
-**Database `database/.env` (local dev):**
-```
-DATABASE_URL=postgresql://prepai:prepai_dev_password@localhost:5432/prepai
 ```
 
 ## Running Locally
@@ -183,7 +182,7 @@ cd database && docker-compose up -d
 cd lambda-tools && sam build && sam deploy
 ```
 
-## Database Schema (PostgreSQL — not yet active in backend)
+## Database Schema (PostgreSQL — not yet active)
 
 9 tables: `candidates`, `sessions`, `transcript_messages`, `cv_documents`, `cv_analysis`, `code_submissions`, `test_case_results`, `performance_reports`, `audio_recordings`
 
@@ -192,11 +191,13 @@ cd lambda-tools && sam build && sam deploy
 Current storage: S3 JSON. Migration script at `database/scripts/migrate_from_s3.py`.
 
 ## Current Phase
-Phase 5 (Production) — in progress:
+
+Phase 5 (Production) — live at `https://intervyu.io`:
 - [ ] Auth (JWT/OAuth)
 - [ ] Migrate storage from S3 JSON → PostgreSQL (`database/schema.sql`)
 - [ ] Redis caching (replace in-memory Bedrock session state cache)
 - [ ] Rate limiting
+- [ ] Backend HTTPS (EC2 behind ALB or Nginx + Let's Encrypt)
 
 ## Interview Types (8)
 
