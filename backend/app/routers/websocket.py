@@ -14,10 +14,23 @@ from datetime import datetime
 
 router = APIRouter()
 
-# Initialize models (lazy loading recommended for production)
+# Initialize models
 whisper_model = None
 # Edge TTS voice - Indian English female (fast and natural)
 EDGE_TTS_VOICE = "en-IN-NeerjaNeural"
+
+
+def _preload_whisper():
+    """Preload Whisper model at server startup to eliminate first-connection lag."""
+    try:
+        get_whisper_model()
+        print("[WHISPER] Pre-loaded at startup — first connection will be instant")
+    except Exception as e:
+        print(f"[WHISPER] Pre-load failed: {e}")
+
+
+import threading
+threading.Thread(target=_preload_whisper, daemon=True).start()
 
 
 def clean_agent_response(text: str) -> str:

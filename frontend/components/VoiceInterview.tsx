@@ -184,12 +184,26 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
       const checkSilence = () => {
         if (!analyserRef.current) return;
 
+        // Don't pick up microphone while interviewer audio is playing —
+        // avoids background noise / speaker bleed triggering recording
+        if (isPlayingRef.current) {
+          if (isSpeaking && mediaRecorder.state === 'recording') {
+            mediaRecorder.stop();
+            isSpeaking = false;
+          }
+          if (silenceTimeoutRef.current) {
+            clearTimeout(silenceTimeoutRef.current);
+            silenceTimeoutRef.current = null;
+          }
+          return;
+        }
+
         const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
         analyserRef.current.getByteFrequencyData(dataArray);
         const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
 
-        const SPEECH_THRESHOLD = 10;
-        const SILENCE_DURATION = 1000;
+        const SPEECH_THRESHOLD = 22;   // raised from 10 — filters ambient noise
+        const SILENCE_DURATION = 1500; // raised from 1000 — less hair-trigger cut-off
 
         if (average > SPEECH_THRESHOLD) {
           if (!isSpeaking) {
