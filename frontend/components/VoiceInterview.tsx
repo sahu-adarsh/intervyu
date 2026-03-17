@@ -202,8 +202,8 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
         analyserRef.current.getByteFrequencyData(dataArray);
         const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
 
-        const SPEECH_THRESHOLD = 22;   // raised from 10 — filters ambient noise
-        const SILENCE_DURATION = 1500; // raised from 1000 — less hair-trigger cut-off
+        const SPEECH_THRESHOLD = 22;   // filters ambient noise
+        const SILENCE_DURATION = 800;  // fast cut-off to reduce transcript lag
 
         if (average > SPEECH_THRESHOLD) {
           if (!isSpeaking) {

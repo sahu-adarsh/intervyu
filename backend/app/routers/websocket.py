@@ -172,10 +172,10 @@ def get_whisper_model():
         print(f"[WHISPER] Hardware: {acceleration_info}")
 
         whisper_model = WhisperModel(
-            "small",  # Use "small" for balance, or "tiny" for even faster processing
+            "tiny",  # Fast on CPU — ~0.5-1s transcription vs 2-4s for "small"
             device=device,
             compute_type=compute_type,
-            num_workers=4  # Utilize multiple cores on Apple Silicon
+            num_workers=4
         )
 
         if device == "cuda":
