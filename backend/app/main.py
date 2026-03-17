@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import sessions, interviews, websocket, code, analytics
@@ -8,14 +9,13 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS Configuration
+# CORS Configuration — reads from CORS_ORIGINS env var (comma-separated)
+_cors_env = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")
+cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        # Add production URLs here
-    ],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
