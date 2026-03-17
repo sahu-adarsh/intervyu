@@ -32,8 +32,8 @@ jobs:
         working-directory: frontend
         run: |
           cat > .env.local <<EOF
-          NEXT_PUBLIC_API_URL=http://44.200.25.1:8000
-          NEXT_PUBLIC_WS_URL=ws://44.200.25.1:8000
+          NEXT_PUBLIC_API_URL=https://api.intervyu.io
+          NEXT_PUBLIC_WS_URL=wss://api.intervyu.io
           EOF
 
       - name: Build
