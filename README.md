@@ -1,106 +1,204 @@
-# intervyu - AI-Powered Interview Preparation Platform
+# intervyu
+
+**AI-powered mock interview platform.** Practice real voice interviews with an AI interviewer, get your code evaluated live, and receive a detailed performance report all in your browser.
+
+🌐 **[intervyu.io](https://intervyu.io)**
 
 ![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock-FF9900?style=flat&logo=amazon-aws)
-![Next.js](https://img.shields.io/badge/Next.js-15.5-black?style=flat&logo=next.js)
+![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat&logo=next.js)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=flat&logo=fastapi)
-![Python](https://img.shields.io/badge/Python-3.11.14-blue?style=flat&logo=python)
-![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat&logo=typescript)
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat&logo=python)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat&logo=typescript)
 
-Real-time voice-enabled AI interview preparation platform powered by AWS Bedrock, featuring live conversation practice, code execution, CV analysis, and comprehensive performance analytics.
+---
 
-## Features
+## What It Does
 
-- **Voice Conversations** - Real-time Speech-to-Text and Text-to-Speech via WebSocket streaming
-- **8 Interview Types** - Google/Amazon/Microsoft SDE, AWS/Azure/GCP Solutions Architect, Behavioral, Coding
-- **Live Code Editor** - Monaco editor with code execution, test cases, and quality metrics
-- **CV Analysis** - PDF/DOCX parsing with AWS Textract and industry-specific skill extraction
-- **Performance Analytics** - Percentile benchmarks, trend analysis, and detailed reports
-- **AI Agent** - Claude 3 Haiku with 3 specialized Lambda action groups
+- **Voice Interview** — Speak naturally with Neerja, an AI interviewer powered by AWS Bedrock (Claude Haiku 4.5). She adapts difficulty based on your answers.
+- **Live Code Editor** — Monaco-based editor with sandboxed execution for coding questions. Supports Python and JavaScript.
+- **CV Upload & Analysis** — Upload your resume (PDF/DOCX) for Neerja to reference during the interview.
+- **Performance Report** — Get scored across 5 dimensions with a HIRE/NO_HIRE recommendation and percentile benchmarks.
 
-## Quick Start
+---
 
-### 1. Backend Setup
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
+## Interview Types
 
-### 2. Frontend Setup
-```bash
-cd frontend
-npm install
-npm run dev
-```
+| Type | Focus |
+|------|-------|
+| Google SDE | Algorithms, data structures, system design |
+| Amazon SDE | Leadership principles, coding, behavioral |
+| Microsoft SDE | Problem solving, collaboration, design |
+| AWS Solutions Architect | Cloud architecture, AWS best practices |
+| Azure Solutions Architect | Azure services, enterprise solutions |
+| GCP Solutions Architect | GCP services, data analytics |
+| CV Grilling | Resume deep dive, STAR method |
+| Coding Practice | Pure coding problems, optimization |
 
-### 3. Deploy Lambda Functions
-```bash
-cd lambda-tools
-sam build
-sam deploy --guided --capabilities CAPABILITY_NAMED_IAM
-```
-
-### 4. Configure Bedrock Agent
-- Create agent with Claude 3 Haiku model
-- Add action groups: `CodeExecutor`, `CVAnalyzer`, `PerformanceEvaluator`
-- Attach Lambda ARNs from SAM deployment output
-- Update agent instructions (see `condensed-agent-instructions.txt`)
+---
 
 ## Architecture
 
 ```
-┌─────────────┐      WebSocket       ┌──────────────┐
-│   Next.js   │ ◄──────────────────► │   FastAPI    │
-│   Frontend  │                      │   Backend    │
-└─────────────┘                      └───────┬──────┘
-                                             │
-                 ┌───────────────────────────┼────────────────┐
-                 │                           │                │
-            ┌────▼────┐               ┌──────▼─────┐   ┌──────▼──────┐
-            │ Bedrock │               │    S3      │   │   Lambda    │
-            │  Agent  │               │  Storage   │   │  Functions  │
-            └─────────┘               └────────────┘   └─────────────┘
+Browser
+  │
+  ├── HTTPS ──→ CloudFront (intervyu.io) ──→ S3 (Next.js static export)
+  │
+  └── WebSocket / REST ──→ EC2 (FastAPI, port 8000)
+                                │
+                      ┌─────────┼──────────────┐
+                      │         │              │
+                Bedrock Agent  S3 Bucket   Lambda (×3)
+                (Claude Haiku  (sessions,  ├── code-executor
+                 4.5 + RAG)    CVs,        ├── cv-analyzer
+                               reports)    └── performance-evaluator
+                      │
+                 Textract (CV parsing)
+                 Whisper  (speech-to-text)
+                 edge-tts (text-to-speech)
 ```
 
-## Tech Stack
+**Frontend**: Next.js 15, React 19, TypeScript, Tailwind CSS 4, Monaco Editor, Recharts
 
-- **Frontend:** Next.js 15.5, React 19, TypeScript, TailwindCSS, Monaco Editor, Recharts
-- **Backend:** FastAPI, Python 3.12, WebSockets, Boto3
-- **AI/ML:** AWS Bedrock (Claude 3 Haiku), AWS Textract
-- **Serverless:** AWS Lambda, SAM CLI
-- **Storage:** AWS S3
+**Backend**: FastAPI (Python 3.11), faster-whisper (STT), edge-tts (TTS), WebSockets
 
-## Demo Pages
+**AWS**: Bedrock Agent, S3, Lambda (SAM), Textract, CloudFront, ACM, EC2
 
-Visit `http://localhost:3000/demo` to explore:
-- CV Upload & Analysis
-- Code Editor with Test Runner
-- Performance Dashboard & History
+---
 
-## API Endpoints
+## Running Locally
 
-- **Sessions:** `POST /api/sessions`, `GET /api/sessions/{id}`, `DELETE /api/sessions/{id}`
-- **Interviews:** `POST /api/interviews/{id}/start`, `POST /api/interviews/{id}/upload-cv`
-- **Code:** `POST /api/code/execute`, `GET /api/code/{id}/submissions`
-- **Analytics:** `GET /api/analytics/aggregate`, `GET /api/analytics/benchmarks/{type}`
-- **WebSocket:** `ws://localhost:8000/ws/{session_id}`
+### Prerequisites
+- Python 3.11+
+- Node.js 18+
+- AWS account with Bedrock, S3, Lambda access
 
-## Configuration
+### Backend
 
-### Environment Variables
 ```bash
-# Backend (.env)
-AWS_REGION=us-east-1
-S3_BUCKET_USER_DATA=prepai-user-data
-BEDROCK_AGENT_ID=your-agent-id
-BEDROCK_AGENT_ALIAS_ID=your-alias-id
+cd backend
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
 
-# Frontend (.env.local)
+cp .env.example .env   # fill in your AWS credentials and resource IDs
+
+uvicorn app.main:app --reload
+# → http://localhost:8000
+# → http://localhost:8000/docs  (Swagger UI)
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+
+echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
+echo "NEXT_PUBLIC_WS_URL=ws://localhost:8000" >> .env.local
+
+npm run dev
+# → http://localhost:3000
+```
+
+### Lambda Functions (deploy to AWS)
+
+```bash
+cd lambda-tools
+sam build && sam deploy
+```
+
+---
+
+## API Reference
+
+```
+POST /api/sessions                         Create interview session
+GET  /api/sessions/{id}                    Get session details
+
+WS   /ws/interview/{session_id}            Real-time voice interview
+
+POST /api/interviews/{id}/upload-cv        Upload resume (PDF/DOCX/TXT)
+GET  /api/interviews/{id}/cv-analysis      Get parsed CV data
+GET  /api/interviews/{id}/transcript       Full conversation transcript
+POST /api/interviews/{id}/end              End session + generate report
+GET  /api/interviews/{id}/performance-report
+
+POST /api/code/execute                     Run code (sandboxed via Lambda)
+GET  /api/code/{session_id}/submissions    All code submissions
+GET  /api/code/{session_id}/quality-summary
+
+GET  /api/analytics/aggregate              Platform-wide stats
+GET  /api/analytics/benchmarks/{type}      Percentile scores by interview type
+GET  /api/analytics/trends?days=30         Score trends over time
+GET  /api/analytics/candidate/{name}/history
+```
+
+---
+
+## Environment Variables
+
+**`backend/.env`**
+
+```env
+AWS_ACCESS_KEY=
+AWS_SECRET_ACCESS_KEY=
+AWS_REGION=us-east-1
+
+S3_BUCKET_USER_DATA=
+S3_BUCKET_KNOWLEDGE_BASE=
+
+BEDROCK_AGENT_ID=
+BEDROCK_AGENT_ALIAS_ID=
+BEDROCK_KNOWLEDGE_BASE_ID=
+
+WHISPER_MODEL=small
+TTS_VOICE=en-IN-NeerjaExpressiveNeural
+
+LAMBDA_CODE_EXECUTOR=prepai-code-executor
+LAMBDA_CV_ANALYZER=prepai-cv-analyzer
+LAMBDA_PERFORMANCE_EVALUATOR=prepai-performance-evaluator
+
+CORS_ORIGINS=http://localhost:3000,https://intervyu.io
+HOST=0.0.0.0
+PORT=8000
+ENVIRONMENT=development
+```
+
+**`frontend/.env.local`**
+
+```env
 NEXT_PUBLIC_API_URL=http://localhost:8000
 NEXT_PUBLIC_WS_URL=ws://localhost:8000
 ```
+
 ---
 
-Built with AWS Bedrock Agents | Real-time Voice AI Interview Practice
+## Deployment
+
+### Frontend (S3 + CloudFront)
+
+```bash
+cd frontend && npm run build
+aws s3 sync out/ s3://YOUR_BUCKET/ --delete
+aws cloudfront create-invalidation --distribution-id YOUR_CF_ID --paths "/*"
+```
+
+### Backend (EC2)
+
+```bash
+# Copy .env to server
+scp -i ~/.ssh/your-key.pem backend/.env ubuntu@YOUR_EC2_IP:/home/ubuntu/prepai/backend/.env
+
+# Restart service
+ssh -i ~/.ssh/your-key.pem ubuntu@YOUR_EC2_IP "sudo systemctl restart prepai-backend"
+```
+---
+
+## Backlog
+
+- Auth (JWT/OAuth)
+- PostgreSQL migration (schema ready in `database/schema.sql`)
+- Redis caching
+- Rate limiting
+- Backend HTTPS (ALB or Nginx + Let's Encrypt)
+
+---
