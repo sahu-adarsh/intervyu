@@ -32,6 +32,18 @@ def _preload_whisper():
 import threading
 threading.Thread(target=_preload_whisper, daemon=True).start()
 
+# In-memory session cache — avoids repeated S3 round-trips each voice turn
+_session_cache: dict = {}
+
+def _get_cached_session(s3_service, session_id: str) -> dict:
+    if session_id not in _session_cache:
+        data = s3_service.get_session(session_id)
+        _session_cache[session_id] = data or {}
+    return _session_cache[session_id]
+
+def _invalidate_session_cache(session_id: str):
+    _session_cache.pop(session_id, None)
+
 
 def clean_agent_response(text: str) -> str:
     """
@@ -252,9 +264,23 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
         import time
         start_time = time.time()
 
+        # Expand acronyms so TTS reads them as individual letters
+        ACRONYMS = {
+            r'\bSDE\b': 'S.D.E.',
+            r'\bSDEs\b': 'S.D.E.s',
+            r'\bLLM\b': 'L.L.M.',
+            r'\bLLMs\b': 'L.L.M.s',
+            r'\bML\b': 'M.L.',
+            r'\bDSA\b': 'D.S.A.',
+            r'\bOOP\b': 'O.O.P.',
+            r'\bSQL\b': 'S.Q.L.',
+        }
+        for pattern, replacement in ACRONYMS.items():
+            text = re.sub(pattern, replacement, text)
+
         try:
-            # Create Edge TTS communication
-            communicate = edge_tts.Communicate(text, EDGE_TTS_VOICE)
+            # Create Edge TTS communication — rate +20% for a brisker pace
+            communicate = edge_tts.Communicate(text, EDGE_TTS_VOICE, rate="+20%")
 
             # Generate audio and collect chunks
             audio_buffer = io.BytesIO()
@@ -428,7 +454,8 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
             await asyncio.sleep(0)  # Force context switch, let message send
             print(f"[{datetime.now().strftime('%H:%M:%S')}] Transcript sent: {transcript}")
 
-            # Save to S3 in background (don't wait)
+            # Save to S3 in background (don't wait) and invalidate session cache
+            _invalidate_session_cache(session_id)
             asyncio.create_task(asyncio.to_thread(
                 s3_service.update_session_transcript,
                 session_id,
@@ -450,11 +477,11 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
             bedrock_start = time.time()
 
             try:
-                # Get session state to pass interview configuration to Bedrock
+                # Get session state (cached — avoids S3 round-trip on every turn)
                 session_state_start = time.time()
-                session_data = s3_service.get_session(session_id)
+                session_data = _get_cached_session(s3_service, session_id)
                 session_state_elapsed = time.time() - session_state_start
-                print(f"[PERF] Step 2a (S3 session fetch): {session_state_elapsed:.2f}s")
+                print(f"[PERF] Step 2a (session fetch, cached={session_id in _session_cache}): {session_state_elapsed:.4f}s")
 
                 # Debug: Log session data
                 print(f"[{session_id}] Session data retrieved:")
@@ -524,6 +551,9 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 )
                 print(f"[{datetime.now()}] Bedrock Agent invoked with session state")
 
+                # Fire TTS tasks immediately as sentences arrive (parallel with Bedrock streaming)
+                tts_tasks = []
+
                 for event in event_stream:
                     if 'chunk' in event:
                         chunk_data = event['chunk']
@@ -537,40 +567,38 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                             full_response += chunk_text
                             text_buffer += chunk_text
 
-                            # Send text chunk to frontend
+                            # Send text chunk to frontend immediately
                             await websocket.send_json({
                                 "type": "llm_chunk",
                                 "text": chunk_text
                             })
 
-                            # Generate TTS for complete sentences
+                            # Fire TTS task for each complete sentence (don't await — runs in parallel)
                             sentences = sentence_endings.split(text_buffer)
-
                             for sentence in sentences[:-1]:
                                 sentence = sentence.strip()
                                 if sentence:
-                                    # Clean stage directions before TTS
                                     cleaned_sentence = clean_agent_response(sentence)
-                                    if cleaned_sentence:  # Only generate TTS if there's content after cleaning
-                                        audio_bytes = await text_to_speech(cleaned_sentence)
-                                        if len(audio_bytes) > 44:  # More than WAV header
-                                            await websocket.send_bytes(audio_bytes)
+                                    if cleaned_sentence:
+                                        tts_tasks.append(asyncio.create_task(text_to_speech(cleaned_sentence)))
 
-                            # Keep incomplete fragment
                             text_buffer = sentences[-1] if sentences else ""
 
-                # Process remaining text
+                # Fire TTS for any remaining text
                 if text_buffer.strip():
-                    # Clean stage directions before TTS
                     cleaned_text = clean_agent_response(text_buffer)
-                    if cleaned_text:  # Only generate TTS if there's content after cleaning
-                        audio_bytes = await text_to_speech(cleaned_text)
-                        if len(audio_bytes) > 44:
-                            await websocket.send_bytes(audio_bytes)
+                    if cleaned_text:
+                        tts_tasks.append(asyncio.create_task(text_to_speech(cleaned_text)))
 
                 # Log Bedrock total time
                 bedrock_total = time.time() - bedrock_start
-                print(f"[PERF] Step 2 (Bedrock complete): {bedrock_total:.2f}s")
+                print(f"[PERF] Step 2 (Bedrock complete, {len(tts_tasks)} TTS tasks fired): {bedrock_total:.2f}s")
+
+                # Send audio in order — by now most tasks are already done
+                for task in tts_tasks:
+                    audio_bytes = await task
+                    if len(audio_bytes) > 44:
+                        await websocket.send_bytes(audio_bytes)
 
             except Exception as e:
                 print(f"Bedrock Agent error: {e}")
@@ -626,12 +654,13 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 })
                 print(f"[{session_id}] Code editor signal sent to frontend")
 
-            # Save assistant response to transcript
+            # Save assistant response to transcript and invalidate cache
             s3_service.update_session_transcript(session_id, {
                 "role": "assistant",
                 "content": full_response,
                 "timestamp": datetime.utcnow().isoformat()
             })
+            _invalidate_session_cache(session_id)  # next turn re-fetches fresh transcript
 
             accumulated_transcript = ""
 
