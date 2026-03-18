@@ -313,9 +313,14 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
             candidate_name = session_data.get("candidate_name", "candidate") if session_data else "candidate"
             interview_type = session_data.get("interview_type", "Technical Interview") if session_data else "Technical Interview"
 
+            # Use display_name so TTS gets "Google India - SDE" instead of raw "google-sde"
+            from app.config.interview_types import get_interview_config as _get_config
+            _interview_config = _get_config(interview_type)
+            interview_display = _interview_config.get("display_name", interview_type)
+
             # Use a simple, fast greeting without Bedrock for instant response
             # This eliminates the 2-5 second Bedrock cold start delay
-            greeting_text = f"Hello {candidate_name}, I'm Neerja, your interviewer for today's {interview_type}. Let's begin. Please tell me about yourself."
+            greeting_text = f"Hello {candidate_name}, I'm Neerja, your interviewer for today's {interview_display}. Let's begin. Please tell me about yourself."
 
             print(f"[{datetime.now()}] Sending fast introduction...")
 
