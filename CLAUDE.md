@@ -197,7 +197,6 @@ Phase 5 (Production) — live at `https://intervyu.io`:
 - [ ] Migrate storage from S3 JSON → PostgreSQL (`database/schema.sql`)
 - [ ] Redis caching (replace in-memory Bedrock session state cache)
 - [ ] Rate limiting
-- [ ] Backend HTTPS (EC2 behind ALB or Nginx + Let's Encrypt)
 
 ## Interview Types (8)
 

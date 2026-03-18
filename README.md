@@ -199,6 +199,5 @@ ssh -i ~/.ssh/your-key.pem ubuntu@YOUR_EC2_IP "sudo systemctl restart prepai-bac
 - PostgreSQL migration (schema ready in `database/schema.sql`)
 - Redis caching
 - Rate limiting
-- Backend HTTPS (ALB or Nginx + Let's Encrypt)
 
 ---
