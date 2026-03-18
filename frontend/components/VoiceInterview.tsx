@@ -189,7 +189,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
         const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
 
         const SPEECH_THRESHOLD = 22;   // filters ambient noise
-        const SILENCE_DURATION = 600;  // 600ms — fast cut-off, allows natural pauses
+        const SILENCE_DURATION = 1200; // 1200ms — allows natural mid-sentence pauses
 
         if (average > SPEECH_THRESHOLD) {
           if (!isSpeaking) {
