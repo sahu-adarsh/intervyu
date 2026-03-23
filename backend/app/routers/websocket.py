@@ -336,14 +336,18 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
 
             print(f"[{datetime.now()}] Sending fast introduction...")
 
-            # Send text immediately
-            await websocket.send_json({
-                "type": "llm_chunk",
-                "text": greeting_text
-            })
+            # Start TTS generation in parallel while streaming text word-by-word
+            tts_task = asyncio.create_task(text_to_speech(greeting_text))
 
-            # Generate TTS for the greeting
-            audio_bytes = await text_to_speech(greeting_text)
+            # Stream text word-by-word so frontend can animate it in
+            words = greeting_text.split()
+            for i, word in enumerate(words):
+                chunk = word + (" " if i < len(words) - 1 else "")
+                await websocket.send_json({"type": "llm_chunk", "text": chunk})
+                await asyncio.sleep(0.07)  # ~70ms/word ≈ natural reading pace
+
+            # Wait for TTS (likely already done by now) and send audio
+            audio_bytes = await tts_task
             if len(audio_bytes) > 44:
                 await websocket.send_bytes(audio_bytes)
 

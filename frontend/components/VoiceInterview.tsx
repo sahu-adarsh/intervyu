@@ -10,7 +10,7 @@ if (typeof window !== 'undefined') {
 }
 
 import { useState, useRef, useEffect } from 'react';
-import { flushSync } from 'react-dom';
+
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { useMicVAD } from '@ricky0123/vad-react';
@@ -75,9 +75,12 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioQueueRef = useRef<ArrayBuffer[]>([]);
   const isPlayingRef = useRef(false);
+  const isTTSPlayingRef = useRef(false);  // true while TTS audio is in the queue or playing
   const currentAudioSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const wordQueueRef = useRef<string[]>([]);         // pending words to reveal
+  const wordRevealRef = useRef<NodeJS.Timeout | null>(null); // interval dripping words onto screen
 
   // Silero VAD — neural speech detection via ONNX model in a Web Worker
   const vad = useMicVAD({
@@ -91,6 +94,8 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     },
     getStream: async () => navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false } }),
     onSpeechStart: () => {
+      // Ignore if TTS is playing — mic echo would otherwise interrupt Neerja mid-sentence
+      if (isTTSPlayingRef.current) return;
       stopAudioPlayback();
       setIsRecording(true);
       if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -127,20 +132,43 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
         const data = JSON.parse(event.data);
 
         if (data.type === 'transcript' && data.role === 'user') {
+          // Flush any pending word reveals immediately
+          if (wordRevealRef.current) { clearInterval(wordRevealRef.current); wordRevealRef.current = null; }
+          wordQueueRef.current = [];
           setMessages(prev => [...prev, { role: 'user', content: data.text, timestamp: new Date() }]);
           setCurrentTranscript('');
           setCurrentResponse('');
           setError('');
           setIsProcessing(true);
         } else if (data.type === 'llm_chunk') {
-          flushSync(() => {
-            setCurrentResponse(prev => prev + data.text);
-            setIsProcessing(true);
-          });
+          // Queue words for gradual reveal (~150ms/word) to match TTS speech pace
+          const words = data.text.split(/(\s+)/);
+          wordQueueRef.current.push(...words.filter((w: string) => w.length > 0));
+          setIsProcessing(true);
+          if (!wordRevealRef.current) {
+            wordRevealRef.current = setInterval(() => {
+              if (wordQueueRef.current.length === 0) {
+                clearInterval(wordRevealRef.current!);
+                wordRevealRef.current = null;
+                return;
+              }
+              const word = wordQueueRef.current.shift()!;
+              setCurrentResponse(prev => prev + word);
+            }, 150);
+          }
         } else if (data.type === 'assistant_complete') {
-          setMessages(prev => [...prev, { role: 'assistant', content: data.text, timestamp: new Date() }]);
-          setCurrentResponse('');
-          setIsProcessing(false);
+          // Flush remaining queued words immediately, then move to message list
+          if (wordRevealRef.current) { clearInterval(wordRevealRef.current); wordRevealRef.current = null; }
+          if (wordQueueRef.current.length > 0) {
+            const remaining = wordQueueRef.current.join('');
+            wordQueueRef.current = [];
+            setCurrentResponse(prev => prev + remaining);
+          }
+          setTimeout(() => {
+            setMessages(prev => [...prev, { role: 'assistant', content: data.text, timestamp: new Date() }]);
+            setCurrentResponse('');
+            setIsProcessing(false);
+          }, 200);
         } else if (data.type === 'coding_question') {
           const lang = data.language || 'python';
           setCodingQuestion({
@@ -161,6 +189,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     return () => {
       wsRef.current?.close();
       if (timerRef.current) clearInterval(timerRef.current);
+      if (wordRevealRef.current) clearInterval(wordRevealRef.current);
       if (audioContextRef.current) audioContextRef.current.close();
       vad.pause();
     };
@@ -199,16 +228,19 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     }
     audioQueueRef.current = [];
     isPlayingRef.current = false;
+    isTTSPlayingRef.current = false;
   };
 
   const playNextAudioChunk = async () => {
     if (audioQueueRef.current.length === 0) {
       isPlayingRef.current = false;
+      isTTSPlayingRef.current = false;
       currentAudioSourceRef.current = null;
       return;
     }
 
     isPlayingRef.current = true;
+    isTTSPlayingRef.current = true;
     const audioBuffer = audioQueueRef.current.shift()!;
 
     try {
