@@ -58,5 +58,6 @@ scripts/
 deployment/
 database/
 
-ARCHITECTURE_GUIDE.md
+docs/ARCHITECTURE_GUIDE.md
+OPTIMIZATION_CHANGES.md
 .claude

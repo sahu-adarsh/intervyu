@@ -219,3 +219,31 @@ Each type has configurable phases with duration targets and evaluation guideline
 - TTS is sentence-chunked for low latency streaming
 - S3 saves are non-blocking (asyncio background tasks)
 - Hardcoded fast intro to avoid Bedrock cold start on session open
+
+---
+
+## Keeping Docs Up to Date
+
+After any significant change, update these three files **in the same session**. They are gitignored — local only.
+
+| File | What to update |
+|------|---------------|
+| `ARCHITECTURE_GUIDE.md` | Update the relevant section(s). If a design decision changes, update §5. If the pipeline changes, update §3 or §7. If a new service is added, update §2 and §6. |
+| `OPTIMIZATION_CHANGES.md` | Prepend a new entry with: date, what changed, why, measured/estimated impact, files changed. |
+| `CLAUDE.md` | Update Performance Notes, Project Structure, Tech Stack, or Key APIs if they've changed. |
+
+### What counts as a "significant change" (update docs for all of these):
+- Any change that measurably reduces end-to-end latency (>100ms)
+- Replacing or upgrading a core service (STT, TTS, LLM, storage, auth)
+- Adding or removing an API route, WebSocket message type, or Lambda function
+- Changing the VAD/audio pipeline behavior
+- Architectural shifts (e.g., S3 → PostgreSQL, in-memory → Redis)
+- New interview types or major changes to existing phase configs
+- Infrastructure changes (new EC2, CloudFront, domain, SSL)
+- Any optimization you'd explain in a technical interview or design review
+
+### What does NOT need a doc update:
+- Bug fixes that don't change architecture or performance
+- UI/copy changes
+- Dependency version bumps with no behavior change
+- Test additions
