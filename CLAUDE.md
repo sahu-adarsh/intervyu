@@ -74,7 +74,7 @@ intervyu/
 - **Pages**: `/` (home), `/interview/new` (live session), `/demo/*` (feature demos)
 - **Key libs**: Monaco Editor, Recharts, react-dropzone, html2canvas, jspdf, lucide-react
 - **WebSocket messages handled**: `transcript`, `llm_chunk`, `assistant_complete`, `coding_question`, `error`
-- **Audio**: MediaRecorder API → binary frames to backend; VAD silence detection (500ms)
+- **Audio**: Silero VAD (`@ricky0123/vad-react`, ONNX model in Web Worker) → single WAV blob per utterance to backend; `onnxruntime-web` 1.17.3, `numThreads=1` (no SharedArrayBuffer/COOP/COEP required)
 
 ### AWS Lambda Functions (3)
 1. `prepai-code-executor` — Python/JS sandboxed execution, test case runner
@@ -219,6 +219,7 @@ Each type has configurable phases with duration targets and evaluation guideline
 - TTS is sentence-chunked for low latency streaming
 - S3 saves are non-blocking (asyncio background tasks)
 - Hardcoded fast intro to avoid Bedrock cold start on session open
+- Silero VAD (neural ONNX) replaces amplitude VAD — eliminates mid-sentence cut-offs; audio sent as single WAV blob per utterance
 
 ---
 
