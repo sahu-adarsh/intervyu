@@ -53,10 +53,10 @@ function InterviewSessionContent() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-lg text-gray-700">Setting up your interview...</p>
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
+        <div className="text-center space-y-4">
+          <div className="w-10 h-10 border-2 border-slate-700 border-t-blue-500 rounded-full animate-spin mx-auto" />
+          <p className="text-sm text-slate-400">Setting up your interview...</p>
         </div>
       </div>
     );
@@ -64,14 +64,13 @@ function InterviewSessionContent() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center max-w-md">
-          <div className="text-6xl mb-4">❌</div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Error</h2>
-          <p className="text-gray-600 mb-4">{error}</p>
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
+        <div className="max-w-sm w-full mx-4 bg-red-950/60 border border-red-800 rounded-xl px-6 py-6 space-y-4 text-center">
+          <p className="text-sm font-semibold text-red-400">Failed to start session</p>
+          <p className="text-sm text-red-300">{error}</p>
           <button
             onClick={() => router.push('/')}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="w-full px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-sm font-medium transition-colors"
           >
             Go Back
           </button>
@@ -96,8 +95,8 @@ function InterviewSessionContent() {
 export default function InterviewSessionPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
+        <div className="w-10 h-10 border-2 border-slate-700 border-t-blue-500 rounded-full animate-spin" />
       </div>
     }>
       <InterviewSessionContent />

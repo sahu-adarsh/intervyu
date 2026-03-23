@@ -7,7 +7,6 @@ type InterviewType = {
   id: string;
   title: string;
   description: string;
-  icon: string;
   category: string;
 };
 
@@ -15,60 +14,59 @@ const interviewTypes: InterviewType[] = [
   {
     id: 'google-sde',
     title: 'Google SDE',
-    description: 'Technical interview preparation for Software Development Engineer role at Google',
-    icon: '💻',
-    category: 'Technical'
+    description: 'Algorithms, data structures, system design',
+    category: 'Engineering'
   },
   {
     id: 'amazon-sde',
     title: 'Amazon SDE',
-    description: 'Software Development Engineer interview with Amazon leadership principles',
-    icon: '📦',
-    category: 'Technical'
+    description: 'Leadership principles, coding, behavioral',
+    category: 'Engineering'
   },
   {
     id: 'microsoft-sde',
     title: 'Microsoft SDE',
-    description: 'Technical interview for Software Engineer position at Microsoft',
-    icon: '⊞',
-    category: 'Technical'
+    description: 'Problem solving, collaboration, design',
+    category: 'Engineering'
   },
   {
     id: 'aws-sa',
     title: 'AWS Solutions Architect',
-    description: 'Cloud architecture and AWS services focused interview',
-    icon: '☁️',
-    category: 'Solutions Architect'
+    description: 'Cloud architecture, AWS best practices',
+    category: 'Cloud'
   },
   {
     id: 'azure-sa',
     title: 'Azure Solutions Architect',
-    description: 'Microsoft Azure cloud architecture interview preparation',
-    icon: '🌐',
-    category: 'Solutions Architect'
+    description: 'Azure services, enterprise solutions',
+    category: 'Cloud'
   },
   {
     id: 'gcp-sa',
     title: 'GCP Solutions Architect',
-    description: 'Google Cloud Platform architecture interview',
-    icon: '🔷',
-    category: 'Solutions Architect'
+    description: 'GCP services, data analytics',
+    category: 'Cloud'
   },
   {
     id: 'behavioral',
-    title: 'Behavioral Interview',
-    description: 'CV grilling and behavioral questions based on your experience',
-    icon: '🗣️',
+    title: 'Behavioral',
+    description: 'CV grilling, STAR method, experience deep dive',
     category: 'Behavioral'
   },
   {
     id: 'coding-round',
     title: 'Coding Round',
-    description: 'Live coding practice with algorithmic problems',
-    icon: '⌨️',
+    description: 'Live coding, algorithmic problems, optimization',
     category: 'Coding'
   }
 ];
+
+const categoryColors: Record<string, string> = {
+  Engineering: 'text-blue-400 bg-blue-400/10',
+  Cloud: 'text-violet-400 bg-violet-400/10',
+  Behavioral: 'text-emerald-400 bg-emerald-400/10',
+  Coding: 'text-amber-400 bg-amber-400/10',
+};
 
 export default function Home() {
   const router = useRouter();
@@ -76,93 +74,113 @@ export default function Home() {
   const [candidateName, setCandidateName] = useState('');
 
   const handleStartInterview = () => {
-    if (!selectedType || !candidateName.trim()) {
-      alert('Please select an interview type and enter your name');
-      return;
-    }
-
-    // Navigate to interview session page
+    if (!selectedType || !candidateName.trim()) return;
     router.push(`/interview/new?type=${selectedType}&name=${encodeURIComponent(candidateName)}`);
   };
 
+  const canStart = selectedType && candidateName.trim();
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+
       {/* Header */}
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <h1 className="text-3xl font-bold text-gray-900">Intervyu</h1>
-          <p className="mt-2 text-sm text-gray-600">
-            AI-Powered Interview Preparation with Real-time Voice Communication
-          </p>
+      <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm sticky top-0 z-10">
+        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div>
+            <span className="text-lg font-bold tracking-tight text-white">intervyu.io</span>
+            <span className="ml-3 text-xs text-slate-500 hidden sm:inline">AI-powered interview preparation</span>
+          </div>
+          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="System online" />
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 text-black">
-        {/* Candidate Info */}
-        <div className="mb-8 bg-white rounded-lg shadow-md p-6">
-          <label htmlFor="candidateName" className="block text-sm font-medium text-gray-700 mb-2">
+      {/* Main */}
+      <main className="flex-1 max-w-5xl mx-auto w-full px-6 py-12 space-y-10">
+
+        {/* Hero */}
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold text-white">Start an Interview</h1>
+          <p className="text-slate-400 text-sm">
+            Real-time voice interview with AI. Select a type, enter your name, and begin.
+          </p>
+        </div>
+
+        {/* Name input */}
+        <div className="space-y-2">
+          <label htmlFor="candidateName" className="text-xs font-semibold text-slate-400 uppercase tracking-widest">
             Your Name
           </label>
           <input
-            type="text"
             id="candidateName"
+            type="text"
             value={candidateName}
             onChange={(e) => setCandidateName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleStartInterview()}
             placeholder="Enter your name"
-            className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full max-w-sm bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
           />
         </div>
 
-        {/* Interview Type Selection */}
-        <div className="mb-8">
-          <h2 className="text-2xl font-semibold text-gray-900 mb-6">
-            Select Interview Type
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {interviewTypes.map((type) => (
-              <button
-                key={type.id}
-                onClick={() => setSelectedType(type.id)}
-                className={`p-6 rounded-lg border-2 transition-all duration-200 text-left ${
-                  selectedType === type.id
-                    ? 'border-blue-500 bg-blue-50 shadow-lg transform scale-105'
-                    : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md'
-                }`}
-              >
-                <div className="text-4xl mb-3">{type.icon}</div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                  {type.title}
-                </h3>
-                <p className="text-sm text-gray-600 mb-3">{type.description}</p>
-                <span className="inline-block px-3 py-1 text-xs font-medium bg-gray-100 text-gray-700 rounded-full">
-                  {type.category}
-                </span>
-              </button>
-            ))}
+        {/* Interview type grid */}
+        <div className="space-y-3">
+          <label className="text-xs font-semibold text-slate-400 uppercase tracking-widest block">
+            Interview Type
+          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {interviewTypes.map((type) => {
+              const isSelected = selectedType === type.id;
+              return (
+                <button
+                  key={type.id}
+                  onClick={() => setSelectedType(type.id)}
+                  className={`text-left p-4 rounded-xl border transition-all duration-150 ${
+                    isSelected
+                      ? 'border-blue-500 bg-blue-500/10 ring-1 ring-blue-500'
+                      : 'border-slate-700 bg-slate-800/50 hover:border-slate-600 hover:bg-slate-800'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <h3 className={`text-sm font-semibold leading-tight ${isSelected ? 'text-white' : 'text-slate-200'}`}>
+                      {type.title}
+                    </h3>
+                    {isSelected && (
+                      <div className="w-4 h-4 rounded-full bg-blue-500 flex-shrink-0 flex items-center justify-center mt-0.5">
+                        <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed mb-3">{type.description}</p>
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${categoryColors[type.category]}`}>
+                    {type.category}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* Start Interview Button */}
-        <div className="flex justify-center">
+        {/* CTA */}
+        <div className="pt-2">
           <button
             onClick={handleStartInterview}
-            disabled={!selectedType || !candidateName.trim()}
-            className={`px-8 py-4 text-lg font-semibold rounded-lg transition-all duration-200 ${
-              selectedType && candidateName.trim()
-                ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg hover:shadow-xl transform hover:scale-105'
-                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            disabled={!canStart}
+            className={`px-8 py-3 rounded-lg text-sm font-semibold transition-all duration-150 ${
+              canStart
+                ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20'
+                : 'bg-slate-800 text-slate-500 cursor-not-allowed'
             }`}
           >
-            Start Interview
+            {canStart ? `Start Interview →` : 'Select a type and enter your name'}
           </button>
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="mt-16 py-8 bg-white border-t border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-gray-600 text-sm">
-          <p>Built with AWS Bedrock Agents | Real-time Voice AI Interview Practice</p>
+      <footer className="border-t border-slate-800 py-5">
+        <div className="max-w-5xl mx-auto px-6 text-xs text-slate-600 text-center">
+          Powered by AWS Bedrock · Claude Haiku 4.5 · Real-time voice
         </div>
       </footer>
     </div>

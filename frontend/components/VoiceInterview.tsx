@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
+import { Code2, ChevronDown, ChevronUp, Mic, Bot, Circle } from 'lucide-react';
 
 // Dynamically import CodeEditor to avoid SSR issues
 const CodeEditor = dynamic(() => import('./code-editor/CodeEditor'), { ssr: false });
@@ -30,6 +31,8 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   const [isProcessing, setIsProcessing] = useState(false);
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [showCodeEditor, setShowCodeEditor] = useState(false);
+  const [problemStatementCollapsed, setProblemStatementCollapsed] = useState(false);
+  const [currentLanguage, setCurrentLanguage] = useState('python');
   const [codingQuestion, setCodingQuestion] = useState<{
     question: string;
     language?: string;
@@ -50,13 +53,11 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    // Connect to WebSocket
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
     wsRef.current = new WebSocket(`${wsUrl}/ws/interview/${sessionId}`);
 
     wsRef.current.onopen = () => {
       console.log('WebSocket connected');
-      // Auto-start interview when WebSocket is connected
       initializeInterview();
     };
 
@@ -64,7 +65,6 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
       if (event.data instanceof Blob) {
         const audioBuffer = await event.data.arrayBuffer();
         audioQueueRef.current.push(audioBuffer);
-
         if (!isPlayingRef.current) {
           playNextAudioChunk();
         }
@@ -72,7 +72,6 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
         const data = JSON.parse(event.data);
 
         if (data.type === 'transcript' && data.role === 'user') {
-          console.log(`[${new Date().toLocaleTimeString()}] Transcript received:`, data.text);
           setMessages(prev => [...prev, { role: 'user', content: data.text, timestamp: new Date() }]);
           setCurrentTranscript('');
           setCurrentResponse('');
@@ -86,15 +85,15 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
           setCurrentResponse('');
           setIsProcessing(false);
         } else if (data.type === 'coding_question') {
-          // Coding question detected - show code editor
-          console.log('Coding question detected:', data);
-          setShowCodeEditor(true);
+          const lang = data.language || 'python';
           setCodingQuestion({
             question: data.question || data.text || '',
-            language: data.language || 'python',
+            language: lang,
             testCases: data.testCases || [],
             initialCode: data.initialCode || ''
           });
+          setCurrentLanguage(lang);
+          setShowCodeEditor(true);
         } else if (data.type === 'error') {
           setError(data.message);
           setIsProcessing(false);
@@ -104,16 +103,9 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
 
     return () => {
       wsRef.current?.close();
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-      // Clean up media resources
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop());
+      if (audioContextRef.current) audioContextRef.current.close();
     };
   }, [sessionId]);
 
@@ -123,20 +115,15 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
         setTimeElapsed(prev => prev + 1);
       }, 1000);
     } else {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
+      if (timerRef.current) clearInterval(timerRef.current);
     }
     return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
+      if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [isActive]);
 
   const initializeInterview = async () => {
     try {
-      // Request microphone permissions and set up audio
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -165,7 +152,6 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunks.push(event.data);
-
           if (wsRef.current?.readyState === WebSocket.OPEN && isSpeaking) {
             const chunk = new Blob([event.data], { type: mimeType });
             wsRef.current.send(chunk);
@@ -183,32 +169,24 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
 
       const checkSilence = () => {
         if (!analyserRef.current) return;
-
         const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
         analyserRef.current.getByteFrequencyData(dataArray);
         const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
 
-        const SPEECH_THRESHOLD = 22;   // filters ambient noise
-        const SILENCE_DURATION = 1200; // 1200ms — allows natural mid-sentence pauses
+        const SPEECH_THRESHOLD = 22;
+        const SILENCE_DURATION = 1200;
 
         if (average > SPEECH_THRESHOLD) {
           if (!isSpeaking) {
             isSpeaking = true;
             setIsRecording(true);
-
-            // Stop any currently playing audio when user starts speaking
             stopAudioPlayback();
-
             if (wsRef.current?.readyState === WebSocket.OPEN) {
               wsRef.current.send(JSON.stringify({ type: 'speech_start' }));
             }
-
             mediaRecorder.start(500);
           }
-
-          if (silenceTimeoutRef.current) {
-            clearTimeout(silenceTimeoutRef.current);
-          }
+          if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
           silenceTimeoutRef.current = setTimeout(() => {
             if (mediaRecorder.state === 'recording') {
               mediaRecorder.stop();
@@ -224,7 +202,6 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
       setIsActive(true);
       setError('');
 
-      // Signal to backend that client is ready for the interview to start
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: 'interview_ready' }));
       }
@@ -235,19 +212,15 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   };
 
   const stopAudioPlayback = () => {
-    // Stop currently playing audio
     if (currentAudioSourceRef.current) {
       try {
         currentAudioSourceRef.current.stop();
         currentAudioSourceRef.current.disconnect();
       } catch (err) {
-        // Audio source may already be stopped
         console.log('Error stopping audio source:', err);
       }
       currentAudioSourceRef.current = null;
     }
-
-    // Clear the audio queue
     audioQueueRef.current = [];
     isPlayingRef.current = false;
   };
@@ -266,26 +239,18 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
       if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
         audioContextRef.current = new AudioContext();
       }
-
       const context = audioContextRef.current;
-
-      if (context.state === 'suspended') {
-        await context.resume();
-      }
+      if (context.state === 'suspended') await context.resume();
 
       const buffer = await context.decodeAudioData(audioBuffer);
       const source = context.createBufferSource();
       source.buffer = buffer;
       source.connect(context.destination);
-
-      // Store reference to current audio source
       currentAudioSourceRef.current = source;
-
       source.onended = () => {
         currentAudioSourceRef.current = null;
         playNextAudioChunk();
       };
-
       source.start();
     } catch (err) {
       setError('Failed to play audio: ' + (err as Error).message);
@@ -318,24 +283,32 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, currentResponse, currentTranscript]);
 
+  const statusConfig = isRecording
+    ? { label: 'Listening', sublabel: 'Speak your answer...', ringColor: 'ring-emerald-400', bgColor: 'bg-emerald-500', icon: <Mic size={28} className="text-white" /> }
+    : isProcessing
+    ? { label: 'Processing', sublabel: 'Interviewer is responding...', ringColor: 'ring-blue-400', bgColor: 'bg-blue-500', icon: <Bot size={28} className="text-white" /> }
+    : { label: 'Ready', sublabel: 'Speak when ready', ringColor: 'ring-slate-300', bgColor: 'bg-slate-400', icon: <Circle size={28} className="text-white" /> };
+
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
+    <div className="flex flex-col h-screen bg-slate-950 text-slate-100">
+
       {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200 px-6 py-4">
+      <header className="flex-shrink-0 bg-slate-900 border-b border-slate-800 px-6 py-3">
         <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">Interview Session</h1>
-            <p className="text-sm text-gray-600">
-              {candidateName} • {interviewType}
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <div>
+              <h1 className="text-sm font-semibold text-slate-100 tracking-wide">intervyu.io</h1>
+              <p className="text-xs text-slate-400">{candidateName} · {interviewType}</p>
+            </div>
           </div>
           <div className="flex items-center gap-4">
-            <div className="text-lg font-mono text-gray-700">
+            <span className="font-mono text-sm text-slate-300 bg-slate-800 px-3 py-1 rounded-md">
               {formatTime(timeElapsed)}
-            </div>
+            </span>
             <button
               onClick={handleEndInterview}
-              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              className="px-4 py-1.5 text-sm bg-red-600 hover:bg-red-500 text-white rounded-md transition-colors font-medium"
             >
               End Session
             </button>
@@ -345,45 +318,45 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
 
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Transcript Panel (Left) */}
-        <div className="w-1/2 flex flex-col border-r border-gray-300 bg-white">
-          <div className="p-4 bg-gray-100 border-b border-gray-300">
-            <h2 className="text-lg font-semibold text-gray-800">Conversation Transcript</h2>
+
+        {/* Left — Transcript */}
+        <div className="w-1/2 flex flex-col border-r border-slate-800">
+          <div className="flex-shrink-0 px-5 py-3 border-b border-slate-800 bg-slate-900">
+            <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Transcript</h2>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
             {messages.map((msg, idx) => (
-              <div
-                key={idx}
-                className={`p-3 rounded-lg ${
+              <div key={idx} className={`flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                <span className="text-xs text-slate-500 px-1">
+                  {msg.role === 'user' ? 'You' : 'Neerja'} · {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+                <div className={`max-w-[85%] px-4 py-2.5 rounded-xl text-sm leading-relaxed ${
                   msg.role === 'user'
-                    ? 'bg-blue-100 ml-8 text-gray-900'
-                    : 'bg-gray-100 mr-8 text-gray-900'
-                }`}
-              >
-                <div className="flex justify-between items-center mb-1">
-                  <p className="font-semibold text-sm">
-                    {msg.role === 'user' ? 'You' : 'Interviewer'}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {msg.timestamp.toLocaleTimeString()}
-                  </p>
+                    ? 'bg-blue-600 text-white rounded-br-sm'
+                    : 'bg-slate-800 text-slate-100 rounded-bl-sm'
+                }`}>
+                  {msg.content}
                 </div>
-                <p>{msg.content}</p>
               </div>
             ))}
 
             {currentTranscript && (
-              <div className="p-3 rounded-lg bg-blue-50 ml-8 text-gray-900 border-2 border-blue-300 border-dashed">
-                <p className="font-semibold text-sm mb-1 text-blue-600">You (transcribing...)</p>
-                <p className="italic opacity-80">{currentTranscript}</p>
+              <div className="flex flex-col gap-1 items-end">
+                <span className="text-xs text-slate-500 px-1">You · transcribing...</span>
+                <div className="max-w-[85%] px-4 py-2.5 rounded-xl rounded-br-sm text-sm bg-blue-600/40 text-blue-200 border border-blue-500/30 italic">
+                  {currentTranscript}
+                </div>
               </div>
             )}
 
             {currentResponse && (
-              <div className="p-3 rounded-lg bg-gray-100 mr-8 text-gray-900">
-                <p className="font-semibold text-sm mb-1">Interviewer</p>
-                <p>{currentResponse}</p>
+              <div className="flex flex-col gap-1 items-start">
+                <span className="text-xs text-slate-500 px-1">Neerja · responding...</span>
+                <div className="max-w-[85%] px-4 py-2.5 rounded-xl rounded-bl-sm text-sm bg-slate-800 text-slate-100 border border-slate-700/50">
+                  {currentResponse}
+                  <span className="inline-block w-1.5 h-3.5 bg-blue-400 ml-1 animate-pulse rounded-sm align-middle" />
+                </div>
               </div>
             )}
 
@@ -391,34 +364,85 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
           </div>
         </div>
 
-        {/* Right Panel - Voice Control or Code Editor */}
-        <div className="w-1/2 flex flex-col bg-white">
-          {showCodeEditor && codingQuestion ? (
-            // Code Editor Panel
-            <div className="flex flex-col h-full">
-              <div className="p-4 bg-gray-800 border-b border-gray-700 flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-white">Code Editor</h2>
-                <button
-                  onClick={() => setShowCodeEditor(false)}
-                  className="px-3 py-1 text-sm bg-gray-700 text-gray-200 rounded hover:bg-gray-600 transition-colors"
-                >
-                  Hide Editor
-                </button>
-              </div>
+        {/* Right — Voice + Problem Statement + Editor */}
+        <div className="w-1/2 flex flex-col bg-slate-900 overflow-hidden">
 
-              {/* Code Editor Component */}
-              <div className="flex-1 min-h-0">
+          {/* Problem Statement — persistent, collapsible */}
+          {codingQuestion && (
+            <div className="flex-shrink-0 border-b border-slate-800">
+              <button
+                onClick={() => setProblemStatementCollapsed(prev => !prev)}
+                className="w-full flex items-center justify-between px-5 py-3 bg-slate-800/60 hover:bg-slate-800 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <Code2 size={14} className="text-blue-400" />
+                  <span className="text-xs font-semibold text-slate-300 uppercase tracking-widest">Problem Statement</span>
+                  <span className="text-xs text-slate-500 bg-slate-700 px-2 py-0.5 rounded-full font-mono">
+                    {currentLanguage}
+                  </span>
+                </div>
+                {problemStatementCollapsed
+                  ? <ChevronDown size={14} className="text-slate-400" />
+                  : <ChevronUp size={14} className="text-slate-400" />
+                }
+              </button>
+
+              {!problemStatementCollapsed && (
+                <div className="px-5 py-4 bg-slate-950/40 max-h-52 overflow-y-auto">
+                  <p className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">
+                    {codingQuestion.question}
+                  </p>
+                  {codingQuestion.testCases && codingQuestion.testCases.length > 0 && (
+                    <div className="mt-4 space-y-2">
+                      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Test Cases</p>
+                      {codingQuestion.testCases.map((tc, i) => (
+                        <div key={i} className="bg-slate-800 rounded-lg px-3 py-2 font-mono text-xs text-slate-300">
+                          <span className="text-slate-500">Input: </span>{tc.input}
+                          <span className="mx-2 text-slate-600">→</span>
+                          <span className="text-slate-500">Expected: </span>{tc.expected}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Editor toggle bar — only shown when a coding question exists */}
+          {codingQuestion && (
+            <div className="flex-shrink-0 flex items-center justify-between px-5 py-2.5 bg-slate-900 border-b border-slate-800">
+              <span className="text-xs text-slate-500">
+                {showCodeEditor ? 'Code Editor is open' : 'Code Editor is hidden'}
+              </span>
+              <button
+                onClick={() => setShowCodeEditor(prev => !prev)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  showCodeEditor
+                    ? 'bg-slate-700 hover:bg-slate-600 text-slate-200'
+                    : 'bg-blue-600 hover:bg-blue-500 text-white'
+                }`}
+              >
+                <Code2 size={12} />
+                {showCodeEditor ? 'Hide Editor' : 'Open Editor'}
+              </button>
+            </div>
+          )}
+
+          {/* Bottom area — Code Editor (always mounted to preserve state) + Voice Status */}
+          <div className="flex-1 min-h-0 relative">
+            {/* Code Editor — always mounted, hidden via CSS when not active */}
+            <div className={`absolute inset-0 ${showCodeEditor && codingQuestion ? '' : 'hidden'}`}>
+              {codingQuestion && (
                 <CodeEditor
                   sessionId={sessionId}
                   initialCode={codingQuestion.initialCode}
                   language={codingQuestion.language}
                   testCases={codingQuestion.testCases}
+                  onLanguageChange={setCurrentLanguage}
                   onCodeSubmit={(code, result, language) => {
-                    console.log('Code submitted:', code, result, language);
-
-                    // Send code submission to chatbot via WebSocket
                     if (wsRef.current?.readyState === WebSocket.OPEN) {
-                      const submissionMessage = {
+                      wsRef.current.send(JSON.stringify({
                         type: 'code_submission',
                         code,
                         language,
@@ -426,71 +450,49 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
                         testResults: result.testResults,
                         executionTime: result.executionTime,
                         error: result.error
-                      };
-
-                      wsRef.current.send(JSON.stringify(submissionMessage));
-                      console.log('Code submission sent to chatbot:', submissionMessage);
+                      }));
                     }
                   }}
                 />
-              </div>
-            </div>
-          ) : (
-            // Voice Control Panel
-            <div className="flex flex-col items-center justify-center p-8 bg-gradient-to-br from-blue-50 to-indigo-50 h-full">
-              <h1 className="text-3xl font-bold mb-8 text-gray-900">Voice Interview</h1>
-
-              {/* Status Indicator */}
-              <div className={`w-48 h-48 rounded-full flex items-center justify-center transition-all shadow-lg ${
-                isRecording
-                  ? 'bg-green-500 animate-pulse ring-4 ring-green-400'
-                  : isProcessing
-                  ? 'bg-blue-500 animate-pulse'
-                  : 'bg-gray-400'
-              }`}>
-                <div className="text-center text-white">
-                  <div className="text-6xl mb-2">
-                    {isRecording ? '🎙️' : isProcessing ? '🤖' : '👤'}
-                  </div>
-                  <div className="text-sm font-semibold">
-                    {isRecording ? 'You are speaking' : isProcessing ? 'Interviewer responding' : 'Ready to listen'}
-                  </div>
-                </div>
-              </div>
-
-              {isActive && (
-                <div className="mt-6 text-center space-y-2">
-                  <p className="text-lg font-medium text-gray-700">
-                    {isRecording ? '🟢 Listening to your response...' : isProcessing ? '💭 Interviewer is thinking...' : '⚪ Speak when you\'re ready'}
-                  </p>
-                </div>
-              )}
-
-              {!isActive && !error && (
-                <div className="mt-6 text-center space-y-2">
-                  <p className="text-lg font-medium text-blue-600 animate-pulse">
-                    🔄 Initializing interview...
-                  </p>
-                  <p className="text-sm text-gray-600">
-                    Please allow microphone access when prompted
-                  </p>
-                </div>
-              )}
-
-              {error && (
-                <div className="mt-8 w-full max-w-md p-4 bg-red-100 border border-red-400 rounded">
-                  <p className="font-semibold text-red-700">Error:</p>
-                  <p className="text-red-600">{error}</p>
-                  <button
-                    onClick={initializeInterview}
-                    className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors w-full"
-                  >
-                    Retry
-                  </button>
-                </div>
               )}
             </div>
-          )}
+
+            {/* Voice Status Panel — shown when editor is hidden */}
+            {(!showCodeEditor || !codingQuestion) && (
+              <div className="flex flex-col items-center justify-center h-full gap-8 px-8">
+                <div className="relative">
+                  <div className={`w-36 h-36 rounded-full flex items-center justify-center transition-all duration-300 ${statusConfig.bgColor} ring-4 ${statusConfig.ringColor} ${isRecording || isProcessing ? 'animate-pulse' : ''}`}>
+                    {statusConfig.icon}
+                  </div>
+                  {isRecording && (
+                    <span className="absolute -bottom-1 -right-1 w-5 h-5 bg-emerald-400 rounded-full border-2 border-slate-900 animate-ping" />
+                  )}
+                </div>
+
+                <div className="text-center space-y-1">
+                  <p className="text-base font-semibold text-slate-200">{statusConfig.label}</p>
+                  <p className="text-sm text-slate-500">{statusConfig.sublabel}</p>
+                </div>
+
+                {!isActive && !error && (
+                  <p className="text-sm text-blue-400 animate-pulse">Initializing — please allow microphone access</p>
+                )}
+
+                {error && (
+                  <div className="w-full max-w-sm bg-red-950/60 border border-red-800 rounded-xl px-5 py-4 space-y-3">
+                    <p className="text-sm font-semibold text-red-400">Error</p>
+                    <p className="text-sm text-red-300">{error}</p>
+                    <button
+                      onClick={initializeInterview}
+                      className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

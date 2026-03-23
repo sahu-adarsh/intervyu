@@ -34,6 +34,7 @@ interface CodeEditorProps {
   language?: string;
   testCases?: TestCase[];
   onCodeSubmit?: (code: string, result: TestResult, language: string) => void;
+  onLanguageChange?: (language: string) => void;
 }
 
 export default function CodeEditor({
@@ -41,7 +42,8 @@ export default function CodeEditor({
   initialCode = '# Write your code here\ndef solution(arr):\n    # Your implementation\n    return arr\n',
   language = 'python',
   testCases = [],
-  onCodeSubmit
+  onCodeSubmit,
+  onLanguageChange
 }: CodeEditorProps) {
   const [code, setCode] = useState(initialCode);
   const [currentLanguage, setCurrentLanguage] = useState(language);
@@ -64,6 +66,7 @@ export default function CodeEditor({
       setCurrentLanguage(newLanguage);
       setCode(getDefaultCode(newLanguage));
       setTestResults(null);
+      onLanguageChange?.(newLanguage);
     }
   };
 

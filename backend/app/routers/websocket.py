@@ -45,6 +45,17 @@ def _invalidate_session_cache(session_id: str):
     _session_cache.pop(session_id, None)
 
 
+def _extract_problem_statement(text: str) -> str:
+    """Strip conversational preamble, return only the core problem statement."""
+    problem_starters = re.compile(
+        r'(?:^|\.\s+)((?:Write|Implement|Given|Create|Design|Find|Return|Your task|'
+        r'Solve|Build|Consider)[^.]*\..*)',
+        re.IGNORECASE | re.DOTALL
+    )
+    match = problem_starters.search(text)
+    return match.group(1).strip() if match else text.strip()
+
+
 def clean_agent_response(text: str) -> str:
     """
     Clean agent response by removing stage directions and formatting issues.
@@ -648,13 +659,11 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
             if coding_question_detected:
                 print(f"[{session_id}] Coding question detected in response")
 
-                # Extract coding question details (you can enhance this with NLP)
-                # For now, we'll send a simple notification
                 await websocket.send_json({
                     "type": "coding_question",
-                    "question": full_response,
-                    "language": "python",  # Default language
-                    "testCases": [],  # You can populate this based on the question
+                    "question": _extract_problem_statement(full_response),
+                    "language": "python",
+                    "testCases": [],
                     "initialCode": "# Write your code here\ndef solution(arr):\n    # Your implementation\n    return arr\n"
                 })
                 print(f"[{session_id}] Code editor signal sent to frontend")
