@@ -195,7 +195,7 @@ def get_whisper_model():
         print(f"[WHISPER] Hardware: {acceleration_info}")
 
         whisper_model = WhisperModel(
-            "tiny",  # Fast on CPU — ~0.5-1s transcription vs 2-4s for "small"
+            "base",  # Better accuracy than tiny with acceptable latency (~1-1.5s on CPU)
             device=device,
             compute_type=compute_type,
             num_workers=4
@@ -252,7 +252,8 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
         try:
             segments, _ = whisper.transcribe(
                 temp_path,
-                beam_size=1,  # Reduced from 5 for speed
+                language="en",
+                beam_size=3,
                 vad_filter=True,
                 vad_parameters=dict(min_silence_duration_ms=500)
             )
@@ -567,50 +568,43 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 )
                 print(f"[{datetime.now()}] Bedrock Agent invoked with session state")
 
-                # Fire TTS tasks immediately as sentences arrive (parallel with Bedrock streaming)
-                tts_tasks = []
-
+                # Step A: Collect full response from Bedrock (Agent sends 1-3 large chunks, not tokens)
                 for event in event_stream:
                     if 'chunk' in event:
                         chunk_data = event['chunk']
                         if 'bytes' in chunk_data:
-                            # Track first token time
                             if bedrock_first_token_time is None:
                                 bedrock_first_token_time = time.time() - bedrock_start
-                                print(f"[PERF] Step 2b (Bedrock first token): {bedrock_first_token_time:.2f}s")
+                                print(f"[PERF] Step 2b (Bedrock first chunk): {bedrock_first_token_time:.2f}s")
+                            full_response += chunk_data['bytes'].decode('utf-8')
 
-                            chunk_text = chunk_data['bytes'].decode('utf-8')
-                            full_response += chunk_text
-                            text_buffer += chunk_text
-
-                            # Send text chunk to frontend immediately
-                            await websocket.send_json({
-                                "type": "llm_chunk",
-                                "text": chunk_text
-                            })
-
-                            # Fire TTS task for each complete sentence (don't await — runs in parallel)
-                            sentences = sentence_endings.split(text_buffer)
-                            for sentence in sentences[:-1]:
-                                sentence = sentence.strip()
-                                if sentence:
-                                    cleaned_sentence = clean_agent_response(sentence)
-                                    if cleaned_sentence:
-                                        tts_tasks.append(asyncio.create_task(text_to_speech(cleaned_sentence)))
-
-                            text_buffer = sentences[-1] if sentences else ""
-
-                # Fire TTS for any remaining text
-                if text_buffer.strip():
-                    cleaned_text = clean_agent_response(text_buffer)
-                    if cleaned_text:
-                        tts_tasks.append(asyncio.create_task(text_to_speech(cleaned_text)))
-
-                # Log Bedrock total time
                 bedrock_total = time.time() - bedrock_start
-                print(f"[PERF] Step 2 (Bedrock complete, {len(tts_tasks)} TTS tasks fired): {bedrock_total:.2f}s")
+                print(f"[PERF] Step 2 (Bedrock complete): {bedrock_total:.2f}s — response: {len(full_response)} chars")
 
-                # Send audio in order — by now most tasks are already done
+                # Step B: Fire TTS tasks for all sentences immediately (non-blocking)
+                tts_tasks = []
+                raw_sentences = sentence_endings.split(full_response)
+                for i, sentence in enumerate(raw_sentences[:-1]):
+                    sentence = sentence.strip()
+                    if sentence:
+                        cleaned = clean_agent_response(sentence)
+                        if cleaned:
+                            tts_tasks.append(asyncio.create_task(text_to_speech(cleaned)))
+                remaining = raw_sentences[-1].strip() if raw_sentences else ""
+                if remaining:
+                    cleaned = clean_agent_response(remaining)
+                    if cleaned:
+                        tts_tasks.append(asyncio.create_task(text_to_speech(cleaned)))
+
+                # Step C: Stream text word-by-word to frontend (simulates token streaming)
+                # Bedrock Agent sends full response as 1-3 chunks — re-stream progressively
+                words = full_response.split()
+                for i, word in enumerate(words):
+                    chunk = word if i == 0 else ' ' + word
+                    await websocket.send_json({"type": "llm_chunk", "text": chunk})
+                    await asyncio.sleep(0.04)  # ~25 words/sec — visible but not slow
+
+                # Step D: Send audio in order — most TTS tasks are done by now
                 for task in tts_tasks:
                     audio_bytes = await task
                     if len(audio_bytes) > 44:

@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { flushSync } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { Code2, ChevronDown, ChevronUp, Mic, Bot, Circle } from 'lucide-react';
+import { Code2, ChevronDown, ChevronUp, Mic, Bot, User } from 'lucide-react';
 
 // Dynamically import CodeEditor to avoid SSR issues
 const CodeEditor = dynamic(() => import('./code-editor/CodeEditor'), { ssr: false });
@@ -78,8 +79,10 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
           setError('');
           setIsProcessing(true);
         } else if (data.type === 'llm_chunk') {
-          setCurrentResponse(prev => prev + data.text);
-          setIsProcessing(true);
+          flushSync(() => {
+            setCurrentResponse(prev => prev + data.text);
+            setIsProcessing(true);
+          });
         } else if (data.type === 'assistant_complete') {
           setMessages(prev => [...prev, { role: 'assistant', content: data.text, timestamp: new Date() }]);
           setCurrentResponse('');
@@ -129,7 +132,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
           channelCount: 1,
           sampleRate: 16000,
           echoCancellation: true,
-          noiseSuppression: true
+          noiseSuppression: false  // Disabled: browser DSP distorts speech in ways Whisper misreads
         }
       });
       streamRef.current = stream;
@@ -143,7 +146,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
       analyserRef.current = analyser;
 
       const mimeType = MediaRecorder.isTypeSupported('audio/wav') ? 'audio/wav' : 'audio/webm';
-      const mediaRecorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 16000 });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 64000 });
       mediaRecorderRef.current = mediaRecorder;
 
       let audioChunks: Blob[] = [];
@@ -287,7 +290,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     ? { label: 'Listening', sublabel: 'Speak your answer...', ringColor: 'ring-emerald-400', bgColor: 'bg-emerald-500', icon: <Mic size={28} className="text-white" /> }
     : isProcessing
     ? { label: 'Processing', sublabel: 'Interviewer is responding...', ringColor: 'ring-blue-400', bgColor: 'bg-blue-500', icon: <Bot size={28} className="text-white" /> }
-    : { label: 'Ready', sublabel: 'Speak when ready', ringColor: 'ring-slate-300', bgColor: 'bg-slate-400', icon: <Circle size={28} className="text-white" /> };
+    : { label: 'Ready', sublabel: 'Speak when ready', ringColor: 'ring-slate-300', bgColor: 'bg-slate-400', icon: <User size={28} className="text-white" /> };
 
   return (
     <div className="flex flex-col h-screen bg-slate-950 text-slate-100">
