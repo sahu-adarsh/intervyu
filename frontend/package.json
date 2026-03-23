@@ -6,14 +6,17 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "copy-vad-assets": "cp node_modules/@ricky0123/vad-web/dist/vad.worklet.bundle.min.js public/ && cp node_modules/@ricky0123/vad-web/dist/silero_vad_v5.onnx public/ && cp node_modules/@ricky0123/vad-web/dist/silero_vad_legacy.onnx public/ && cp node_modules/onnxruntime-web/dist/ort-wasm-simd.wasm public/ && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm public/"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
+    "@ricky0123/vad-react": "^0.0.36",
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.3",
     "lucide-react": "^0.546.0",
     "next": "15.5.4",
+    "onnxruntime-web": "^1.17.3",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-dropzone": "^14.3.8",

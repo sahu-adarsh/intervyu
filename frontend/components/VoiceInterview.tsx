@@ -1,9 +1,19 @@
 'use client';
 
+// Suppress ONNX Runtime C++ WASM layer graph-optimizer warnings (harmless, dev-only noise)
+if (typeof window !== 'undefined') {
+  const _warn = console.warn.bind(console);
+  const _error = console.error.bind(console);
+  const isONNX = (s: unknown) => typeof s === 'string' && s.includes('onnxruntime');
+  console.warn = (...args: unknown[]) => { if (isONNX(args[0])) return; _warn(...args); };
+  console.error = (...args: unknown[]) => { if (isONNX(args[0])) return; _error(...args); };
+}
+
 import { useState, useRef, useEffect } from 'react';
 import { flushSync } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
+import { useMicVAD } from '@ricky0123/vad-react';
 import { Code2, ChevronDown, ChevronUp, Mic, Bot, User } from 'lucide-react';
 
 // Dynamically import CodeEditor to avoid SSR issues
@@ -20,6 +30,26 @@ type VoiceInterviewProps = {
   interviewType: string;
   candidateName: string;
 };
+
+function float32ToWav(samples: Float32Array, sampleRate = 16000): Blob {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const write = (o: number, s: string) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
+  write(0, 'RIFF'); view.setUint32(4, 36 + samples.length * 2, true);
+  write(8, 'WAVE'); write(12, 'fmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true); view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true); write(36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    offset += 2;
+  }
+  return new Blob([buffer], { type: 'audio/wav' });
+}
 
 export default function VoiceInterview({ sessionId, interviewType, candidateName }: VoiceInterviewProps) {
   const router = useRouter();
@@ -47,11 +77,35 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   const isPlayingRef = useRef(false);
   const currentAudioSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Silero VAD — neural speech detection via ONNX model in a Web Worker
+  const vad = useMicVAD({
+    startOnLoad: true,   // Must be true — avoids React Strict Mode destroy() crash on unstarted VAD
+    model: 'legacy',     // legacy has ~20 ONNX warnings vs v5's 572; all suppressed by console filter above
+    baseAssetPath: '/',
+    onnxWASMBasePath: '/',
+    ortConfig: (ort) => {
+      ort.env.logLevel = 'error';    // Suppress ONNX Runtime info/warning logs
+      ort.env.wasm.numThreads = 1;   // Avoid SharedArrayBuffer requirement (no COOP/COEP headers needed)
+    },
+    getStream: async () => navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false } }),
+    onSpeechStart: () => {
+      stopAudioPlayback();
+      setIsRecording(true);
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'speech_start' }));
+      }
+    },
+    onSpeechEnd: (audio: Float32Array) => {
+      const wavBlob = float32ToWav(audio);
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(wavBlob);
+        wsRef.current.send(JSON.stringify({ type: 'speech_end' }));
+      }
+      setIsRecording(false);
+    },
+  });
 
   useEffect(() => {
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
@@ -107,8 +161,8 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     return () => {
       wsRef.current?.close();
       if (timerRef.current) clearInterval(timerRef.current);
-      if (streamRef.current) streamRef.current.getTracks().forEach(track => track.stop());
       if (audioContextRef.current) audioContextRef.current.close();
+      vad.pause();
     };
   }, [sessionId]);
 
@@ -125,92 +179,11 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     };
   }, [isActive]);
 
-  const initializeInterview = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          sampleRate: 16000,
-          echoCancellation: true,
-          noiseSuppression: false  // Disabled: browser DSP distorts speech in ways Whisper misreads
-        }
-      });
-      streamRef.current = stream;
-
-      const audioContext = new AudioContext();
-      audioContextRef.current = audioContext;
-      const source = audioContext.createMediaStreamSource(stream);
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 2048;
-      source.connect(analyser);
-      analyserRef.current = analyser;
-
-      const mimeType = MediaRecorder.isTypeSupported('audio/wav') ? 'audio/wav' : 'audio/webm';
-      const mediaRecorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 64000 });
-      mediaRecorderRef.current = mediaRecorder;
-
-      let audioChunks: Blob[] = [];
-      let isSpeaking = false;
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunks.push(event.data);
-          if (wsRef.current?.readyState === WebSocket.OPEN && isSpeaking) {
-            const chunk = new Blob([event.data], { type: mimeType });
-            wsRef.current.send(chunk);
-          }
-        }
-      };
-
-      mediaRecorder.onstop = () => {
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ type: 'speech_end' }));
-        }
-        audioChunks = [];
-        setIsRecording(false);
-      };
-
-      const checkSilence = () => {
-        if (!analyserRef.current) return;
-        const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-        analyserRef.current.getByteFrequencyData(dataArray);
-        const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-
-        const SPEECH_THRESHOLD = 22;
-        const SILENCE_DURATION = 1200;
-
-        if (average > SPEECH_THRESHOLD) {
-          if (!isSpeaking) {
-            isSpeaking = true;
-            setIsRecording(true);
-            stopAudioPlayback();
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send(JSON.stringify({ type: 'speech_start' }));
-            }
-            mediaRecorder.start(500);
-          }
-          if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
-          silenceTimeoutRef.current = setTimeout(() => {
-            if (mediaRecorder.state === 'recording') {
-              mediaRecorder.stop();
-              isSpeaking = false;
-            }
-          }, SILENCE_DURATION);
-        }
-      };
-
-      const intervalId = setInterval(checkSilence, 100);
-      (mediaRecorder as any).intervalId = intervalId;
-
-      setIsActive(true);
-      setError('');
-
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'interview_ready' }));
-      }
-    } catch (err) {
-      setError('Microphone access denied. Please allow microphone access to start the interview.');
-      console.error('Microphone initialization error:', err);
+  const initializeInterview = () => {
+    setIsActive(true);
+    setError('');
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'interview_ready' }));
     }
   };
 
@@ -481,10 +454,10 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
                   <p className="text-sm text-blue-400 animate-pulse">Initializing — please allow microphone access</p>
                 )}
 
-                {error && (
+                {(error || vad.errored) && (
                   <div className="w-full max-w-sm bg-red-950/60 border border-red-800 rounded-xl px-5 py-4 space-y-3">
                     <p className="text-sm font-semibold text-red-400">Error</p>
-                    <p className="text-sm text-red-300">{error}</p>
+                    <p className="text-sm text-red-300">{error || String(vad.errored)}</p>
                     <button
                       onClick={initializeInterview}
                       className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
