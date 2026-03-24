@@ -91,6 +91,7 @@ uvicorn app.main:app --reload
 ```bash
 cd frontend
 npm install
+npm run copy-vad-assets   # copies Silero VAD ONNX models from node_modules
 
 echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
 echo "NEXT_PUBLIC_WS_URL=ws://localhost:8000" >> .env.local
@@ -191,6 +192,15 @@ scp -i ~/.ssh/your-key.pem backend/.env ubuntu@YOUR_EC2_IP:/home/ubuntu/prepai/b
 # Restart service
 ssh -i ~/.ssh/your-key.pem ubuntu@YOUR_EC2_IP "sudo systemctl restart prepai-backend"
 ```
+---
+
+## CI/CD
+
+GitHub Actions workflows auto-deploy on push to `main`:
+
+- **`deploy-frontend.yml`** — installs deps, runs `copy-vad-assets`, builds with production env vars, syncs to S3, invalidates CloudFront
+- **`deploy-backend.yml`** — SSHes to EC2, pulls latest, restarts systemd service
+
 ---
 
 ## Backlog
