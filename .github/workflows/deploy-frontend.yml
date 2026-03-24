@@ -31,10 +31,8 @@ jobs:
       - name: Create .env.local
         working-directory: frontend
         run: |
-          cat > .env.local <<EOF
-          NEXT_PUBLIC_API_URL=https://api.intervyu.io
-          NEXT_PUBLIC_WS_URL=wss://api.intervyu.io
-          EOF
+          echo "NEXT_PUBLIC_API_URL=https://api.intervyu.io" > .env.local
+          echo "NEXT_PUBLIC_WS_URL=wss://api.intervyu.io" >> .env.local
 
       - name: Copy VAD assets
         working-directory: frontend
