@@ -54,10 +54,7 @@ export default function CodeEditorDemoPage() {
             initialCode={initialCode}
             language="javascript"
             testCases={sampleTestCases}
-            onCodeSubmit={(code, result) => {
-              console.log('Code submitted:', code);
-              console.log('Test result:', result);
-            }}
+            onCodeSubmit={() => {}}
           />
         </div>
 

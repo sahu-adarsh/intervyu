@@ -1,7 +1,10 @@
 import boto3
 import json
+import logging
 from datetime import datetime
 from app.config import AWS_REGION, AWS_ACCESS_KEY, AWS_SECRET_ACCESS_KEY, S3_BUCKET_USER_DATA
+
+logger = logging.getLogger(__name__)
 
 class S3Service:
     def __init__(self):
@@ -27,7 +30,7 @@ class S3Service:
             )
             return True
         except Exception as e:
-            print(f"Error saving session to S3: {e}")
+            logger.error(f"Error saving session to S3: {e}")
             return False
 
     def get_session(self, session_id: str) -> dict:
@@ -41,7 +44,7 @@ class S3Service:
             session_data = json.loads(response['Body'].read().decode('utf-8'))
             return session_data
         except Exception as e:
-            print(f"Error retrieving session from S3: {e}")
+            logger.error(f"Error retrieving session from S3: {e}")
             return {}
 
     def update_session_transcript(self, session_id: str, message: dict) -> bool:
@@ -59,7 +62,7 @@ class S3Service:
 
             return self.save_session(session_data)
         except Exception as e:
-            print(f"Error updating transcript: {e}")
+            logger.error(f"Error updating transcript: {e}")
             return False
 
     def save_audio_recording(self, session_id: str, audio_data: bytes) -> str:
@@ -76,7 +79,7 @@ class S3Service:
             )
             return f"s3://{self.bucket_name}/{key}"
         except Exception as e:
-            print(f"Error saving audio recording: {e}")
+            logger.error(f"Error saving audio recording: {e}")
             return ""
 
     def upload_cv(self, session_id: str, file_content: bytes, filename: str) -> str:
@@ -92,7 +95,7 @@ class S3Service:
             )
             return f"s3://{self.bucket_name}/{key}"
         except Exception as e:
-            print(f"Error uploading CV: {e}")
+            logger.error(f"Error uploading CV: {e}")
             return ""
 
     def list_all_sessions(self) -> list:
@@ -113,5 +116,5 @@ class S3Service:
 
             return sessions
         except Exception as e:
-            print(f"Error listing sessions: {e}")
+            logger.error(f"Error listing sessions: {e}")
             return []

@@ -10,7 +10,7 @@ if (typeof window !== 'undefined') {
 }
 
 import { useState, useRef, useEffect } from 'react';
-import { flushSync } from 'react-dom';
+
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { useMicVAD } from '@ricky0123/vad-react';
@@ -75,9 +75,12 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioQueueRef = useRef<ArrayBuffer[]>([]);
   const isPlayingRef = useRef(false);
+  const isTTSPlayingRef = useRef(false);  // true while TTS audio is in the queue or playing
   const currentAudioSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const wordQueueRef = useRef<string[]>([]);         // pending words to reveal
+  const wordRevealRef = useRef<NodeJS.Timeout | null>(null); // interval dripping words onto screen
 
   // Silero VAD — neural speech detection via ONNX model in a Web Worker
   const vad = useMicVAD({
@@ -91,6 +94,8 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     },
     getStream: async () => navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false } }),
     onSpeechStart: () => {
+      // Ignore if TTS is playing — mic echo would otherwise interrupt Neerja mid-sentence
+      if (isTTSPlayingRef.current) return;
       stopAudioPlayback();
       setIsRecording(true);
       if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -112,7 +117,6 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     wsRef.current = new WebSocket(`${wsUrl}/ws/interview/${sessionId}`);
 
     wsRef.current.onopen = () => {
-      console.log('WebSocket connected');
       initializeInterview();
     };
 
@@ -127,20 +131,43 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
         const data = JSON.parse(event.data);
 
         if (data.type === 'transcript' && data.role === 'user') {
+          // Flush any pending word reveals immediately
+          if (wordRevealRef.current) { clearInterval(wordRevealRef.current); wordRevealRef.current = null; }
+          wordQueueRef.current = [];
           setMessages(prev => [...prev, { role: 'user', content: data.text, timestamp: new Date() }]);
           setCurrentTranscript('');
           setCurrentResponse('');
           setError('');
           setIsProcessing(true);
         } else if (data.type === 'llm_chunk') {
-          flushSync(() => {
-            setCurrentResponse(prev => prev + data.text);
-            setIsProcessing(true);
-          });
+          // Queue words for gradual reveal (~150ms/word) to match TTS speech pace
+          const words = data.text.split(/(\s+)/);
+          wordQueueRef.current.push(...words.filter((w: string) => w.length > 0));
+          setIsProcessing(true);
+          if (!wordRevealRef.current) {
+            wordRevealRef.current = setInterval(() => {
+              if (wordQueueRef.current.length === 0) {
+                clearInterval(wordRevealRef.current!);
+                wordRevealRef.current = null;
+                return;
+              }
+              const word = wordQueueRef.current.shift()!;
+              setCurrentResponse(prev => prev + word);
+            }, 150);
+          }
         } else if (data.type === 'assistant_complete') {
-          setMessages(prev => [...prev, { role: 'assistant', content: data.text, timestamp: new Date() }]);
-          setCurrentResponse('');
-          setIsProcessing(false);
+          // Flush remaining queued words immediately, then move to message list
+          if (wordRevealRef.current) { clearInterval(wordRevealRef.current); wordRevealRef.current = null; }
+          if (wordQueueRef.current.length > 0) {
+            const remaining = wordQueueRef.current.join('');
+            wordQueueRef.current = [];
+            setCurrentResponse(prev => prev + remaining);
+          }
+          setTimeout(() => {
+            setMessages(prev => [...prev, { role: 'assistant', content: data.text, timestamp: new Date() }]);
+            setCurrentResponse('');
+            setIsProcessing(false);
+          }, 200);
         } else if (data.type === 'coding_question') {
           const lang = data.language || 'python';
           setCodingQuestion({
@@ -161,6 +188,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     return () => {
       wsRef.current?.close();
       if (timerRef.current) clearInterval(timerRef.current);
+      if (wordRevealRef.current) clearInterval(wordRevealRef.current);
       if (audioContextRef.current) audioContextRef.current.close();
       vad.pause();
     };
@@ -192,23 +220,26 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
       try {
         currentAudioSourceRef.current.stop();
         currentAudioSourceRef.current.disconnect();
-      } catch (err) {
-        console.log('Error stopping audio source:', err);
+      } catch {
+        // AudioBufferSourceNode may already be stopped — ignore
       }
       currentAudioSourceRef.current = null;
     }
     audioQueueRef.current = [];
     isPlayingRef.current = false;
+    isTTSPlayingRef.current = false;
   };
 
   const playNextAudioChunk = async () => {
     if (audioQueueRef.current.length === 0) {
       isPlayingRef.current = false;
+      isTTSPlayingRef.current = false;
       currentAudioSourceRef.current = null;
       return;
     }
 
     isPlayingRef.current = true;
+    isTTSPlayingRef.current = true;
     const audioBuffer = audioQueueRef.current.shift()!;
 
     try {
@@ -242,8 +273,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
           method: 'POST',
         });
         router.push('/');
-      } catch (err) {
-        console.error('Failed to end interview:', err);
+      } catch {
         router.push('/');
       }
     }
@@ -269,34 +299,35 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     <div className="flex flex-col h-screen bg-slate-950 text-slate-100">
 
       {/* Header */}
-      <header className="flex-shrink-0 bg-slate-900 border-b border-slate-800 px-6 py-3">
+      <header className="flex-shrink-0 bg-slate-900 border-b border-slate-800 px-4 sm:px-6 py-3">
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <div>
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+            <div className="min-w-0">
               <h1 className="text-sm font-semibold text-slate-100 tracking-wide">intervyu.io</h1>
-              <p className="text-xs text-slate-400">{candidateName} · {interviewType}</p>
+              <p className="text-xs text-slate-400 truncate">{candidateName} · {interviewType}</p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
             <span className="font-mono text-sm text-slate-300 bg-slate-800 px-3 py-1 rounded-md">
               {formatTime(timeElapsed)}
             </span>
             <button
               onClick={handleEndInterview}
-              className="px-4 py-1.5 text-sm bg-red-600 hover:bg-red-500 text-white rounded-md transition-colors font-medium"
+              className="px-3 sm:px-4 py-1.5 text-sm bg-red-600 hover:bg-red-500 text-white rounded-md transition-colors font-medium whitespace-nowrap"
             >
-              End Session
+              <span className="hidden sm:inline">End Session</span>
+              <span className="sm:hidden">End</span>
             </button>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden flex-col md:flex-row">
 
         {/* Left — Transcript */}
-        <div className="w-1/2 flex flex-col border-r border-slate-800">
+        <div className="w-full md:w-1/2 flex flex-col border-b md:border-b-0 md:border-r border-slate-800 h-56 sm:h-64 md:h-auto flex-shrink-0 md:flex-shrink">
           <div className="flex-shrink-0 px-5 py-3 border-b border-slate-800 bg-slate-900">
             <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Transcript</h2>
           </div>
@@ -341,7 +372,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
         </div>
 
         {/* Right — Voice + Problem Statement + Editor */}
-        <div className="w-1/2 flex flex-col bg-slate-900 overflow-hidden">
+        <div className="w-full md:w-1/2 flex flex-col bg-slate-900 overflow-hidden flex-1">
 
           {/* Problem Statement — persistent, collapsible */}
           {codingQuestion && (

@@ -75,7 +75,6 @@ export default function CVDemoPage() {
             <CVAnalysisDisplay
               analysis={cvAnalysis || mockAnalysis}
               onUpdate={(updated) => {
-                console.log('Updated analysis:', updated);
                 setCvAnalysis(updated);
               }}
             />

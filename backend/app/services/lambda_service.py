@@ -5,8 +5,11 @@ Used for explicit tool calls outside of Bedrock Agent orchestration
 
 import boto3
 import json
+import logging
 from typing import Dict, Any, Optional
 from app.config import AWS_REGION, AWS_ACCESS_KEY, AWS_SECRET_ACCESS_KEY
+
+logger = logging.getLogger(__name__)
 
 class LambdaService:
     def __init__(self):
@@ -149,5 +152,5 @@ class LambdaService:
                 raise Exception(f"Unexpected response format from Lambda")
 
         except Exception as e:
-            print(f"Error invoking Lambda {function_name}: {e}")
+            logger.error(f"Error invoking Lambda {function_name}: {e}")
             raise

@@ -7,11 +7,14 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional
+import logging
 from datetime import datetime
 import uuid
 
 from app.services.lambda_service import LambdaService
 from app.services.s3_service import S3Service
+
+logger = logging.getLogger(__name__)
 from app.models.code_submission import (
     CodeSubmission,
     TestCaseResult,
@@ -110,7 +113,7 @@ async def execute_code(request: CodeExecutionRequest):
         })
 
     except Exception as e:
-        print(f"Code execution error: {e}")
+        logger.error(f"Code execution error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

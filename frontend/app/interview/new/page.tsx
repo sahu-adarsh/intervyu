@@ -57,6 +57,9 @@ function InterviewSessionContent() {
         <div className="text-center space-y-4">
           <div className="w-10 h-10 border-2 border-slate-700 border-t-blue-500 rounded-full animate-spin mx-auto" />
           <p className="text-sm text-slate-400">Setting up your interview...</p>
+          {candidateName && interviewType && (
+            <p className="text-xs text-slate-600">{decodeURIComponent(candidateName)} · {interviewType}</p>
+          )}
         </div>
       </div>
     );
