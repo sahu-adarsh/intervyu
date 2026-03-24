@@ -65,7 +65,7 @@ export default function CVUpload({ sessionId, onUploadSuccess, onUploadError }: 
         <div
           {...getRootProps()}
           className={`
-            border-2 border-dashed rounded-lg p-12 text-center cursor-pointer
+            border-2 border-dashed rounded-lg p-6 sm:p-12 text-center cursor-pointer
             transition-all duration-200
             ${isDragActive
               ? 'border-blue-500 bg-blue-50'
@@ -99,12 +99,12 @@ export default function CVUpload({ sessionId, onUploadSuccess, onUploadError }: 
       ) : (
         <div className="border-2 border-green-500 bg-green-50 rounded-lg p-6">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="bg-green-100 p-3 rounded-lg">
-                <FileText className="w-6 h-6 text-green-600" />
+            <div className="flex items-center space-x-2 sm:space-x-4 min-w-0">
+              <div className="bg-green-100 p-2 sm:p-3 rounded-lg flex-shrink-0">
+                <FileText className="w-5 h-5 sm:w-6 sm:h-6 text-green-600" />
               </div>
-              <div>
-                <p className="font-medium text-gray-900">{uploadedFile.name}</p>
+              <div className="min-w-0">
+                <p className="font-medium text-gray-900 truncate">{uploadedFile.name}</p>
                 <p className="text-sm text-gray-500">
                   {(uploadedFile.size / 1024).toFixed(1)} KB
                 </p>

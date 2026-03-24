@@ -104,7 +104,7 @@ export default function PerformanceDemoPage() {
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-6xl mx-auto px-4">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Performance Dashboard Demo</h1>
+          <h1 className="text-xl sm:text-3xl font-bold text-gray-900 mb-2">Performance Dashboard Demo</h1>
           <p className="text-gray-600">Test the performance visualization and history components</p>
         </div>
 
@@ -113,23 +113,24 @@ export default function PerformanceDemoPage() {
           <div className="flex border-b">
             <button
               onClick={() => setActiveTab('dashboard')}
-              className={`px-6 py-3 font-medium transition-colors ${
+              className={`px-4 sm:px-6 py-3 text-sm sm:text-base font-medium transition-colors ${
                 activeTab === 'dashboard'
                   ? 'text-blue-600 border-b-2 border-blue-600'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              Performance Dashboard
+              <span className="hidden sm:inline">Performance Dashboard</span>
+              <span className="sm:hidden">Dashboard</span>
             </button>
             <button
               onClick={() => setActiveTab('history')}
-              className={`px-6 py-3 font-medium transition-colors ${
+              className={`px-4 sm:px-6 py-3 text-sm sm:text-base font-medium transition-colors ${
                 activeTab === 'history'
                   ? 'text-blue-600 border-b-2 border-blue-600'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              Interview History
+              History
             </button>
           </div>
         </div>

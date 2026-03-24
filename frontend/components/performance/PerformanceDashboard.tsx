@@ -97,15 +97,15 @@ export default function PerformanceDashboard({ report, onExportPDF }: Performanc
   return (
     <div className="bg-white rounded-lg shadow-lg p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between pb-4 border-b">
+      <div className="flex flex-wrap items-start justify-between gap-3 pb-4 border-b">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Performance Report</h1>
-          <p className="text-gray-600 mt-1">{report.candidateName} • {report.interviewType}</p>
+          <h1 className="text-xl sm:text-3xl font-bold text-gray-900">Performance Report</h1>
+          <p className="text-gray-600 mt-1 text-sm sm:text-base">{report.candidateName} • {report.interviewType}</p>
         </div>
         {onExportPDF && (
           <button
             onClick={onExportPDF}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+            className="flex items-center space-x-2 px-3 sm:px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm flex-shrink-0"
           >
             <Download className="w-4 h-4" />
             <span>Export PDF</span>
@@ -114,14 +114,14 @@ export default function PerformanceDashboard({ report, onExportPDF }: Performanc
       </div>
 
       {/* Overall Score Card */}
-      <div className="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-lg p-6 text-white">
+      <div className="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-lg p-5 sm:p-6 text-white">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-blue-100 text-sm font-medium">Overall Score</p>
-            <p className="text-5xl font-bold mt-2">{report.overallScore.toFixed(1)}</p>
+            <p className="text-4xl sm:text-5xl font-bold mt-2">{report.overallScore.toFixed(1)}</p>
             <p className="text-blue-100 mt-1">out of 10</p>
           </div>
-          <Trophy className="w-16 h-16 text-blue-200" />
+          <Trophy className="w-10 h-10 sm:w-16 sm:h-16 text-blue-200 flex-shrink-0" />
         </div>
 
         <div className="mt-4 pt-4 border-t border-blue-400">
@@ -157,7 +157,7 @@ export default function PerformanceDashboard({ report, onExportPDF }: Performanc
       <div>
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Performance Breakdown</h3>
         <div className="bg-gray-50 rounded-lg p-6">
-          <ResponsiveContainer width="100%" height={400}>
+          <ResponsiveContainer width="100%" height={280}>
             <RadarChart data={radarData}>
               <PolarGrid strokeDasharray="3 3" />
               <PolarAngleAxis dataKey="subject" tick={{ fill: '#4B5563', fontSize: 12 }} />

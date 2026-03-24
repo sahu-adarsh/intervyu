@@ -475,9 +475,9 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
 
             {/* Voice Status Panel — shown when editor is hidden */}
             {(!showCodeEditor || !codingQuestion) && (
-              <div className="flex flex-col items-center justify-center h-full gap-8 px-8">
+              <div className="flex flex-col items-center justify-center h-full gap-4 sm:gap-8 px-4 sm:px-8">
                 <div className="relative">
-                  <div className={`w-36 h-36 rounded-full flex items-center justify-center transition-all duration-300 ${statusConfig.bgColor} ring-4 ${statusConfig.ringColor} ${isRecording || isProcessing ? 'animate-pulse' : ''}`}>
+                  <div className={`w-24 h-24 sm:w-36 sm:h-36 rounded-full flex items-center justify-center transition-all duration-300 ${statusConfig.bgColor} ring-4 ${statusConfig.ringColor} ${isRecording || isProcessing ? 'animate-pulse' : ''}`}>
                     {statusConfig.icon}
                   </div>
                   {isRecording && (

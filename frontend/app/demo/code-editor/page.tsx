@@ -31,7 +31,7 @@ export default function CodeEditorDemoPage() {
     <div className="min-h-screen bg-gray-900 py-8">
       <div className="max-w-7xl mx-auto px-4">
         <div className="mb-8 text-white">
-          <h1 className="text-3xl font-bold mb-2">Code Editor Demo</h1>
+          <h1 className="text-xl sm:text-3xl font-bold mb-2">Code Editor Demo</h1>
           <p className="text-gray-400">Test the Monaco code editor with test runner</p>
         </div>
 
@@ -48,7 +48,7 @@ export default function CodeEditorDemoPage() {
         </div>
 
         {/* Editor Container */}
-        <div className="h-[600px]">
+        <div className="h-[400px] sm:h-[600px]">
           <CodeEditor
             sessionId="demo-session"
             initialCode={initialCode}
