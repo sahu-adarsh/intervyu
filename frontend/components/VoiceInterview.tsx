@@ -61,6 +61,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [timeElapsed, setTimeElapsed] = useState(0);
+  const [confirmEnd, setConfirmEnd] = useState(false);
   const [showCodeEditor, setShowCodeEditor] = useState(false);
   const [problemStatementCollapsed, setProblemStatementCollapsed] = useState(false);
   const [currentLanguage, setCurrentLanguage] = useState('python');
@@ -267,15 +268,19 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   };
 
   const handleEndInterview = async () => {
-    if (confirm('Are you sure you want to end this interview?')) {
-      try {
-        await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/interviews/${sessionId}/end`, {
-          method: 'POST',
-        });
-        router.push('/');
-      } catch {
-        router.push('/');
-      }
+    if (!confirmEnd) {
+      setConfirmEnd(true);
+      setTimeout(() => setConfirmEnd(false), 3000); // auto-reset after 3s
+      return;
+    }
+    setConfirmEnd(false);
+    try {
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/interviews/${sessionId}/end`, {
+        method: 'POST',
+      });
+      router.push('/');
+    } catch {
+      router.push('/');
     }
   };
 
@@ -314,10 +319,14 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
             </span>
             <button
               onClick={handleEndInterview}
-              className="px-3 sm:px-4 py-1.5 text-sm bg-red-600 hover:bg-red-500 text-white rounded-md transition-colors font-medium whitespace-nowrap"
+              className={`px-3 sm:px-4 py-1.5 text-sm text-white rounded-md transition-colors font-medium whitespace-nowrap ${confirmEnd ? 'bg-red-700 ring-2 ring-red-400' : 'bg-red-600 hover:bg-red-500'}`}
             >
-              <span className="hidden sm:inline">End Session</span>
-              <span className="sm:hidden">End</span>
+              {confirmEnd ? 'Tap again to end' : (
+                <>
+                  <span className="hidden sm:inline">End Session</span>
+                  <span className="sm:hidden">End</span>
+                </>
+              )}
             </button>
           </div>
         </div>
