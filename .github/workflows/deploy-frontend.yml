@@ -36,6 +36,10 @@ jobs:
           NEXT_PUBLIC_WS_URL=wss://api.intervyu.io
           EOF
 
+      - name: Copy VAD assets
+        working-directory: frontend
+        run: npm run copy-vad-assets
+
       - name: Build
         working-directory: frontend
         run: npm run build
