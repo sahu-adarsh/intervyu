@@ -74,7 +74,6 @@ export const exportToPDF = async (
 
     return Promise.resolve();
   } catch (error) {
-    console.error('Error generating PDF:', error);
     throw error;
   }
 };

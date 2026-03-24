@@ -110,7 +110,6 @@ export default function CodeEditor({
       setTestResults(result);
       onCodeSubmit?.(code, result, currentLanguage);
     } catch (error) {
-      console.error('Code execution error:', error);
       setTestResults({
         success: false,
         testResults: [],

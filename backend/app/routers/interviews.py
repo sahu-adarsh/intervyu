@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
 from app.models.session import TranscriptResponse, TranscriptMessage, EndSessionResponse
@@ -7,6 +8,8 @@ from app.services.textract_service import TextractService, IndustrySkillExtracto
 from datetime import datetime
 from typing import Optional
 import json
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/interviews", tags=["interviews"])
 s3_service = S3Service()
@@ -76,7 +79,7 @@ async def end_interview(session_id: str):
             session_data["report_url"] = report_url
 
         except Exception as e:
-            print(f"Error generating performance report: {e}")
+            logger.error(f"Error generating performance report: {e}")
             report_url = None
 
         # Save session with report
@@ -169,9 +172,7 @@ async def upload_cv(session_id: str, file: UploadFile = File(...)):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"CV upload error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"CV upload error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

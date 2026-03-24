@@ -6,8 +6,11 @@ Advanced document parsing for PDF and DOCX files
 import boto3
 import io
 import re
+import logging
 from typing import Dict, Any, List, Optional
 from app.config import AWS_REGION, AWS_ACCESS_KEY, AWS_SECRET_ACCESS_KEY
+
+logger = logging.getLogger(__name__)
 
 class TextractService:
     def __init__(self):
@@ -43,7 +46,7 @@ class TextractService:
             return '\n'.join(text_lines)
 
         except Exception as e:
-            print(f"Textract error: {e}")
+            logger.error(f"Textract error: {e}")
             # Fallback to basic extraction
             return self._fallback_pdf_extraction(pdf_bytes)
 
@@ -64,7 +67,7 @@ class TextractService:
             return pages
 
         except Exception as e:
-            print(f"Multi-page extraction error: {e}")
+            logger.error(f"Multi-page extraction error: {e}")
             return [self._fallback_pdf_extraction(pdf_bytes)]
 
     def extract_structured_data(self, pdf_bytes: bytes) -> Dict[str, Any]:
@@ -93,7 +96,7 @@ class TextractService:
             }
 
         except Exception as e:
-            print(f"Structured extraction error: {e}")
+            logger.error(f"Structured extraction error: {e}")
             return {
                 'forms': {},
                 'tables': [],
@@ -197,7 +200,7 @@ class TextractService:
                 text.append(page.extract_text())
             return '\n'.join(text)
         except Exception as e:
-            print(f"Fallback extraction error: {e}")
+            logger.error(f"Fallback extraction error: {e}")
             return "Unable to extract text from PDF"
 
 

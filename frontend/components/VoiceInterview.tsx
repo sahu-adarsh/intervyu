@@ -117,7 +117,6 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     wsRef.current = new WebSocket(`${wsUrl}/ws/interview/${sessionId}`);
 
     wsRef.current.onopen = () => {
-      console.log('WebSocket connected');
       initializeInterview();
     };
 
@@ -221,8 +220,8 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
       try {
         currentAudioSourceRef.current.stop();
         currentAudioSourceRef.current.disconnect();
-      } catch (err) {
-        console.log('Error stopping audio source:', err);
+      } catch {
+        // AudioBufferSourceNode may already be stopped — ignore
       }
       currentAudioSourceRef.current = null;
     }
@@ -274,8 +273,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
           method: 'POST',
         });
         router.push('/');
-      } catch (err) {
-        console.error('Failed to end interview:', err);
+      } catch {
         router.push('/');
       }
     }
@@ -301,34 +299,35 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     <div className="flex flex-col h-screen bg-slate-950 text-slate-100">
 
       {/* Header */}
-      <header className="flex-shrink-0 bg-slate-900 border-b border-slate-800 px-6 py-3">
+      <header className="flex-shrink-0 bg-slate-900 border-b border-slate-800 px-4 sm:px-6 py-3">
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <div>
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+            <div className="min-w-0">
               <h1 className="text-sm font-semibold text-slate-100 tracking-wide">intervyu.io</h1>
-              <p className="text-xs text-slate-400">{candidateName} · {interviewType}</p>
+              <p className="text-xs text-slate-400 truncate">{candidateName} · {interviewType}</p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
             <span className="font-mono text-sm text-slate-300 bg-slate-800 px-3 py-1 rounded-md">
               {formatTime(timeElapsed)}
             </span>
             <button
               onClick={handleEndInterview}
-              className="px-4 py-1.5 text-sm bg-red-600 hover:bg-red-500 text-white rounded-md transition-colors font-medium"
+              className="px-3 sm:px-4 py-1.5 text-sm bg-red-600 hover:bg-red-500 text-white rounded-md transition-colors font-medium whitespace-nowrap"
             >
-              End Session
+              <span className="hidden sm:inline">End Session</span>
+              <span className="sm:hidden">End</span>
             </button>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden flex-col md:flex-row">
 
         {/* Left — Transcript */}
-        <div className="w-1/2 flex flex-col border-r border-slate-800">
+        <div className="w-full md:w-1/2 flex flex-col border-b md:border-b-0 md:border-r border-slate-800 h-56 sm:h-64 md:h-auto flex-shrink-0 md:flex-shrink">
           <div className="flex-shrink-0 px-5 py-3 border-b border-slate-800 bg-slate-900">
             <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Transcript</h2>
           </div>
@@ -373,7 +372,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
         </div>
 
         {/* Right — Voice + Problem Statement + Editor */}
-        <div className="w-1/2 flex flex-col bg-slate-900 overflow-hidden">
+        <div className="w-full md:w-1/2 flex flex-col bg-slate-900 overflow-hidden flex-1">
 
           {/* Problem Statement — persistent, collapsible */}
           {codingQuestion && (

@@ -2,6 +2,9 @@
 Interview type configurations for Bedrock Agent session attributes.
 These are passed as context instead of being embedded in the agent instruction.
 """
+import logging
+
+logger = logging.getLogger(__name__)
 
 INTERVIEW_CONFIGS = {
     "google_sde": {
@@ -141,12 +144,12 @@ def get_interview_config(interview_type: str) -> dict:
     # Check mappings first
     if normalized_type in TYPE_MAPPINGS:
         normalized_type = TYPE_MAPPINGS[normalized_type]
-        print(f"[CONFIG] Mapped interview type to: {normalized_type}")
+        logger.debug(f"[CONFIG] Mapped interview type to: {normalized_type}")
 
     # Try exact match
     if normalized_type in INTERVIEW_CONFIGS:
         config = INTERVIEW_CONFIGS[normalized_type]
-        print(f"[CONFIG] Found config for '{normalized_type}': phases={config.get('phases')}, focus={config.get('focus_areas')}")
+        logger.debug(f"[CONFIG] Found config for '{normalized_type}': phases={config.get('phases')}")
         return config
 
     # Try partial match

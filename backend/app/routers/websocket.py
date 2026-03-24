@@ -10,7 +10,10 @@ import os
 import re
 import json
 import asyncio
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -24,9 +27,9 @@ def _preload_whisper():
     """Preload Whisper model at server startup to eliminate first-connection lag."""
     try:
         get_whisper_model()
-        print("[WHISPER] Pre-loaded at startup — first connection will be instant")
+        logger.info("[WHISPER] Pre-loaded at startup — first connection will be instant")
     except Exception as e:
-        print(f"[WHISPER] Pre-load failed: {e}")
+        logger.error(f"[WHISPER] Pre-load failed: {e}")
 
 
 import threading
@@ -191,8 +194,8 @@ def get_whisper_model():
             compute_type = "int8"
             acceleration_info = "CPU only"
 
-        print(f"[WHISPER] Initializing on {device.upper()} with {compute_type}")
-        print(f"[WHISPER] Hardware: {acceleration_info}")
+        logger.info(f"[WHISPER] Initializing on {device.upper()} with {compute_type}")
+        logger.info(f"[WHISPER] Hardware: {acceleration_info}")
 
         whisper_model = WhisperModel(
             "base",  # Better accuracy than tiny with acceptable latency (~1-1.5s on CPU)
@@ -202,11 +205,11 @@ def get_whisper_model():
         )
 
         if device == "cuda":
-            print(f"[WHISPER] GPU acceleration enabled (expected 3-5x speedup)")
+            logger.info(f"[WHISPER] GPU acceleration enabled (expected 3-5x speedup)")
         elif "Apple Silicon" in acceleration_info:
-            print(f"[WHISPER] Apple Silicon detected - optimized performance on Neural Engine")
+            logger.info(f"[WHISPER] Apple Silicon detected - optimized performance on Neural Engine")
         else:
-            print(f"[WHISPER] Running on standard CPU")
+            logger.info(f"[WHISPER] Running on standard CPU")
 
     return whisper_model
 
@@ -227,7 +230,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
         bedrock_service = BedrockService()
         s3_service = S3Service()
     except Exception as e:
-        print(f"Model initialization error: {e}")
+        logger.error(f"Model initialization error: {e}")
         await websocket.close(code=1011, reason=f"Model init failed: {str(e)}")
         return
 
@@ -259,10 +262,10 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
             )
             text = " ".join([segment.text for segment in segments]).strip()
             elapsed = time.time() - start_time
-            print(f"[WHISPER] Transcription took {elapsed:.2f}s")
+            logger.info(f"[WHISPER] Transcription took {elapsed:.2f}s")
             return text
         except Exception as e:
-            print(f"Transcription error: {e}")
+            logger.error(f"Transcription error: {e}")
             return ""
         finally:
             if os.path.exists(temp_path):
@@ -301,11 +304,11 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                     audio_buffer.write(chunk["data"])
 
             elapsed = time.time() - start_time
-            print(f"[EDGE-TTS] Generated {len(text)} chars in {elapsed:.2f}s (~{len(text)/elapsed:.0f} chars/s)")
+            logger.info(f"[EDGE-TTS] Generated {len(text)} chars in {elapsed:.2f}s (~{len(text)/elapsed:.0f} chars/s)")
 
             return audio_buffer.getvalue()
         except Exception as e:
-            print(f"[EDGE-TTS] Error: {e}")
+            logger.error(f"[EDGE-TTS] Error: {e}")
             import traceback
             traceback.print_exc()
             return b""
@@ -334,7 +337,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
             # This eliminates the 2-5 second Bedrock cold start delay
             greeting_text = f"Hello {candidate_name}, I'm Neerja, your interviewer for today's {interview_display}. Let's begin. Please tell me about yourself."
 
-            print(f"[{datetime.now()}] Sending fast introduction...")
+            logger.info(f"[{datetime.now()}] Sending fast introduction...")
 
             # Start TTS generation in parallel while streaming text word-by-word
             tts_task = asyncio.create_task(text_to_speech(greeting_text))
@@ -357,14 +360,14 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
             # Uncomment below to use Bedrock Agent instead
             """
             greeting_prompt = f"Start the interview by introducing yourself (Neerja) as the interviewer and welcoming {candidate_name} to the {interview_type}. Keep it brief and professional."
-            print(f"[{datetime.now()}] Sending interviewer introduction...")
+            logger.info(f"[{datetime.now()}] Sending interviewer introduction...")
             full_response = ""
             text_buffer = ""
             sentence_endings = re.compile(r'[.!?]\s*')
 
             try:
                 event_stream = bedrock_service.invoke_agent(session_id, greeting_prompt)
-                print(f"[{datetime.now()}] Bedrock Agent invoked for introduction")
+                logger.info(f"[{datetime.now()}] Bedrock Agent invoked for introduction")
 
                 for event in event_stream:
                     if 'chunk' in event:
@@ -406,7 +409,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                             await websocket.send_bytes(audio_bytes)
 
             except Exception as e:
-                print(f"Bedrock Agent error during introduction: {e}")
+                logger.error(f"Bedrock Agent error during introduction: {e}")
                 # Fallback greeting
                 full_response = f"Hello {candidate_name}, welcome to your {interview_type}. I'll be conducting this interview today. Let's begin."
                 audio_bytes = await text_to_speech(full_response)
@@ -433,7 +436,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
             ))
 
         except Exception as e:
-            print(f"Error sending introduction: {e}")
+            logger.error(f"Error sending introduction: {e}")
             await websocket.send_json({
                 "type": "error",
                 "message": str(e)
@@ -459,7 +462,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
             step_start = time.time()
             transcript = await transcribe_audio(audio_data)
             step_elapsed = time.time() - step_start
-            print(f"[PERF] Step 1 (Whisper STT): {step_elapsed:.2f}s")
+            logger.info(f"[PERF] Step 1 (Whisper STT): {step_elapsed:.2f}s")
 
             if not transcript:
                 processing = False
@@ -473,7 +476,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 "is_final": True
             })
             await asyncio.sleep(0)  # Force context switch, let message send
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Transcript sent: {transcript}")
+            logger.info(f"[{datetime.now().strftime('%H:%M:%S')}] Transcript sent: {transcript}")
 
             # Save to S3 in background (don't wait) and invalidate session cache
             _invalidate_session_cache(session_id)
@@ -489,7 +492,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
 
             # Step 2: Get response from Bedrock Agent (streaming) - starts IMMEDIATELY
             step_start = time.time()
-            print(f"[{datetime.now()}] Calling Bedrock Agent...")
+            logger.info(f"[{datetime.now()}] Calling Bedrock Agent...")
             full_response = ""
             text_buffer = ""
             sentence_endings = re.compile(r'[.!?]\s*')
@@ -502,12 +505,12 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 session_state_start = time.time()
                 session_data = _get_cached_session(s3_service, session_id)
                 session_state_elapsed = time.time() - session_state_start
-                print(f"[PERF] Step 2a (session fetch, cached={session_id in _session_cache}): {session_state_elapsed:.4f}s")
+                logger.info(f"[PERF] Step 2a (session fetch, cached={session_id in _session_cache}): {session_state_elapsed:.4f}s")
 
                 # Debug: Log session data
-                print(f"[{session_id}] Session data retrieved:")
-                print(f"  - candidate_name: {session_data.get('candidate_name') if session_data else 'NO SESSION DATA'}")
-                print(f"  - interview_type: {session_data.get('interview_type') if session_data else 'NO SESSION DATA'}")
+                logger.info(f"[{session_id}] Session data retrieved:")
+                logger.info(f"  - candidate_name: {session_data.get('candidate_name') if session_data else 'NO SESSION DATA'}")
+                logger.info(f"  - interview_type: {session_data.get('interview_type') if session_data else 'NO SESSION DATA'}")
 
                 # Count turns from transcript to determine current phase
                 transcript_history = session_data.get("transcript", []) if session_data else []
@@ -570,7 +573,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                     input_text=enhanced_input,
                     session_state=session_state_for_bedrock
                 )
-                print(f"[{datetime.now()}] Bedrock Agent invoked with session state")
+                logger.info(f"[{datetime.now()}] Bedrock Agent invoked with session state")
 
                 # Step A: Collect full response from Bedrock (Agent sends 1-3 large chunks, not tokens)
                 for event in event_stream:
@@ -579,11 +582,11 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                         if 'bytes' in chunk_data:
                             if bedrock_first_token_time is None:
                                 bedrock_first_token_time = time.time() - bedrock_start
-                                print(f"[PERF] Step 2b (Bedrock first chunk): {bedrock_first_token_time:.2f}s")
+                                logger.info(f"[PERF] Step 2b (Bedrock first chunk): {bedrock_first_token_time:.2f}s")
                             full_response += chunk_data['bytes'].decode('utf-8')
 
                 bedrock_total = time.time() - bedrock_start
-                print(f"[PERF] Step 2 (Bedrock complete): {bedrock_total:.2f}s — response: {len(full_response)} chars")
+                logger.info(f"[PERF] Step 2 (Bedrock complete): {bedrock_total:.2f}s — response: {len(full_response)} chars")
 
                 # Step B: Fire TTS tasks for all sentences immediately (non-blocking)
                 tts_tasks = []
@@ -615,7 +618,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                         await websocket.send_bytes(audio_bytes)
 
             except Exception as e:
-                print(f"Bedrock Agent error: {e}")
+                logger.error(f"Bedrock Agent error: {e}")
                 # Fallback error message
                 await websocket.send_json({
                     "type": "error",
@@ -628,9 +631,9 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
 
             # Log if response was truncated
             if len(validated_response) < len(full_response):
-                print(f"[{session_id}] Response truncated: {len(full_response)} -> {len(validated_response)} chars")
-                print(f"[{session_id}] Original: {full_response[:100]}...")
-                print(f"[{session_id}] Validated: {validated_response}")
+                logger.info(f"[{session_id}] Response truncated: {len(full_response)} -> {len(validated_response)} chars")
+                logger.info(f"[{session_id}] Original: {full_response[:100]}...")
+                logger.info(f"[{session_id}] Validated: {validated_response}")
 
             # Use validated response for all further processing
             full_response = validated_response
@@ -655,7 +658,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
 
             # If coding question detected, send coding_question signal
             if coding_question_detected:
-                print(f"[{session_id}] Coding question detected in response")
+                logger.info(f"[{session_id}] Coding question detected in response")
 
                 await websocket.send_json({
                     "type": "coding_question",
@@ -664,7 +667,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                     "testCases": [],
                     "initialCode": "# Write your code here\ndef solution(arr):\n    # Your implementation\n    return arr\n"
                 })
-                print(f"[{session_id}] Code editor signal sent to frontend")
+                logger.info(f"[{session_id}] Code editor signal sent to frontend")
 
             # Save assistant response to transcript and invalidate cache
             s3_service.update_session_transcript(session_id, {
@@ -678,12 +681,12 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
 
             # Final performance summary
             overall_elapsed = time.time() - overall_start
-            print(f"[PERF] ========================================")
-            print(f"[PERF] TOTAL END-TO-END: {overall_elapsed:.2f}s")
-            print(f"[PERF] ========================================")
+            logger.info(f"[PERF] ========================================")
+            logger.info(f"[PERF] TOTAL END-TO-END: {overall_elapsed:.2f}s")
+            logger.info(f"[PERF] ========================================")
 
         except Exception as e:
-            print(f"Voice processing error: {e}")
+            logger.error(f"Voice processing error: {e}")
             await websocket.send_json({
                 "type": "error",
                 "message": str(e)
@@ -705,23 +708,23 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                     data = json.loads(message['text'])
                     if isinstance(data, dict):
                         if data.get('type') == 'interview_ready' and not interview_started:
-                            print(f"[{session_id}] Client ready, sending introduction...")
+                            logger.info(f"[{session_id}] Client ready, sending introduction...")
                             interview_started = True
                             await send_interviewer_introduction()
                         elif data.get('type') == 'speech_start':
-                            print(f"[{session_id}] Speech started")
+                            logger.info(f"[{session_id}] Speech started")
                             streaming_active = True
                             streaming_audio_chunks = []
                             accumulated_transcript = ""
                         elif data.get('type') == 'speech_end':
-                            print(f"[{session_id}] Speech ended, processing...")
+                            logger.info(f"[{session_id}] Speech ended, processing...")
                             streaming_active = False
                             if streaming_audio_chunks:
                                 combined_audio = b''.join(streaming_audio_chunks)
                                 streaming_audio_chunks = []
                                 await process_voice_turn(combined_audio)
                         elif data.get('type') == 'code_submission':
-                            print(f"[{session_id}] Code submission received")
+                            logger.info(f"[{session_id}] Code submission received")
                             # Format code submission for conversation context
                             code = data.get('code', '')
                             language = data.get('language', 'unknown')
@@ -744,7 +747,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                                 "testResults": test_results
                             })
 
-                            print(f"[{session_id}] Code submission logged: {summary}")
+                            logger.info(f"[{session_id}] Code submission logged: {summary}")
 
                             # Generate chatbot response to the code submission
                             if not processing:
@@ -837,10 +840,10 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                                         "timestamp": datetime.utcnow().isoformat()
                                     })
 
-                                    print(f"[{session_id}] Chatbot response sent: {full_response}")
+                                    logger.info(f"[{session_id}] Chatbot response sent: {full_response}")
 
                                 except Exception as e:
-                                    print(f"Error generating code feedback: {e}")
+                                    logger.error(f"Error generating code feedback: {e}")
                                     await websocket.send_json({
                                         "type": "error",
                                         "message": f"Failed to generate feedback: {str(e)}"
@@ -848,7 +851,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                                 finally:
                                     processing = False
                 except Exception as e:
-                    print(f"Error parsing control message: {e}")
+                    logger.error(f"Error parsing control message: {e}")
 
             # Handle audio data
             if 'bytes' in message:
@@ -865,9 +868,9 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                     await process_voice_turn(data)
 
     except WebSocketDisconnect:
-        print(f"[{session_id}] Client disconnected")
+        logger.info(f"[{session_id}] Client disconnected")
     except Exception as e:
-        print(f"[{session_id}] WebSocket error: {e}")
+        logger.error(f"[{session_id}] WebSocket error: {e}")
     finally:
         try:
             await websocket.close()

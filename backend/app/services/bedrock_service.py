@@ -1,11 +1,14 @@
 import boto3
 import time
 import json
+import logging
 from typing import Dict, Any, Optional, List, Generator
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from app.config import AWS_REGION, AWS_ACCESS_KEY, AWS_SECRET_ACCESS_KEY, BEDROCK_AGENT_ID, BEDROCK_AGENT_ALIAS_ID
 from app.config.interview_types import get_interview_config, INTERVIEW_PHASES
+
+logger = logging.getLogger(__name__)
 
 class BedrockService:
     def __init__(self):
@@ -160,12 +163,12 @@ class BedrockService:
                 "performance_score": str(session_state.get("performanceScore", 5)),
             }
 
-            # Debug logging
-            print(f"[BEDROCK] Session attributes being sent:")
-            print(f"  - interview_type: {session_attributes.get('interview_type')}")
-            print(f"  - candidate_name: {session_attributes.get('candidate_name')}")
-            print(f"  - current_phase: {session_attributes.get('current_phase')}")
-            print(f"  - focus_areas: {session_attributes.get('focus_areas')}")
+            logger.debug(
+                "[BEDROCK] Session attributes — type=%s candidate=%s phase=%s",
+                session_attributes.get('interview_type'),
+                session_attributes.get('candidate_name'),
+                session_attributes.get('current_phase'),
+            )
 
         while retry_count <= max_retries:
             try:
@@ -196,15 +199,15 @@ class BedrockService:
                 if error_code == 'ThrottlingException' and retry_count < max_retries:
                     # Exponential backoff
                     delay = base_delay * (2 ** retry_count)
-                    print(f"Throttling detected. Retrying in {delay}s... (attempt {retry_count + 1}/{max_retries})")
+                    logger.warning(f"Bedrock throttling. Retrying in {delay}s... (attempt {retry_count + 1}/{max_retries})")
                     time.sleep(delay)
                     retry_count += 1
                 else:
-                    print(f"Error invoking Bedrock Agent: {e}")
+                    logger.error(f"Error invoking Bedrock Agent: {e}")
                     raise
 
             except Exception as e:
-                print(f"Error invoking Bedrock Agent: {e}")
+                logger.error(f"Error invoking Bedrock Agent: {e}")
                 raise
 
         # If all retries exhausted

@@ -37,7 +37,6 @@ export default function CVUpload({ sessionId, onUploadSuccess, onUploadError }: 
       const data = await response.json();
       onUploadSuccess(data.analysis);
     } catch (error) {
-      console.error('Upload error:', error);
       onUploadError(error instanceof Error ? error.message : 'Upload failed');
       setUploadedFile(null);
     } finally {
