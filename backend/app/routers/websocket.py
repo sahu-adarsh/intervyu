@@ -5,7 +5,8 @@ from faster_whisper import WhisperModel
 import edge_tts
 import torch
 import io
-import tempfile
+import wave
+import numpy as np
 import os
 import re
 import json
@@ -246,19 +247,27 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
         import time
         start_time = time.time()
 
-        suffix = '.webm' if audio_data[:4] != b'RIFF' else '.wav'
-
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_audio:
-            temp_audio.write(audio_data)
-            temp_path = temp_audio.name
-
         try:
+            # Decode WAV in-memory (avoids disk I/O from temp file)
+            # Client always sends 16kHz mono WAV (float32ToWav with sampleRate=16000)
+            with wave.open(io.BytesIO(audio_data)) as wf:
+                raw = wf.readframes(wf.getnframes())
+                sampwidth = wf.getsampwidth()
+                nchannels = wf.getnchannels()
+
+            if sampwidth == 2:
+                audio_np = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+            else:
+                audio_np = np.frombuffer(raw, dtype=np.float32)
+
+            if nchannels > 1:
+                audio_np = audio_np.reshape(-1, nchannels).mean(axis=1)
+
             segments, _ = whisper.transcribe(
-                temp_path,
+                audio_np,
                 language="en",
-                beam_size=3,
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=500)
+                beam_size=1,      # greedy decoding — ~30-50% faster, negligible accuracy loss
+                vad_filter=False, # client-side Silero VAD already trimmed silence
             )
             text = " ".join([segment.text for segment in segments]).strip()
             elapsed = time.time() - start_time
@@ -267,9 +276,6 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
         except Exception as e:
             logger.error(f"Transcription error: {e}")
             return ""
-        finally:
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
 
     async def text_to_speech(text: str) -> bytes:
         """

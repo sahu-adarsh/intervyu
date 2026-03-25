@@ -82,6 +82,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const wordQueueRef = useRef<string[]>([]);         // pending words to reveal
   const wordRevealRef = useRef<NodeJS.Timeout | null>(null); // interval dripping words onto screen
+  const speechEndTimeRef = useRef<number | null>(null); // latency measurement
 
   // Silero VAD — neural speech detection via ONNX model in a Web Worker
   const vad = useMicVAD({
@@ -104,6 +105,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
       }
     },
     onSpeechEnd: (audio: Float32Array) => {
+      speechEndTimeRef.current = Date.now();
       const wavBlob = float32ToWav(audio);
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(wavBlob);
@@ -132,6 +134,10 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
         const data = JSON.parse(event.data);
 
         if (data.type === 'transcript' && data.role === 'user') {
+          if (speechEndTimeRef.current !== null) {
+            console.log(`[latency] speech_end → transcript: ${Date.now() - speechEndTimeRef.current}ms`);
+            speechEndTimeRef.current = null;
+          }
           // Flush any pending word reveals immediately
           if (wordRevealRef.current) { clearInterval(wordRevealRef.current); wordRevealRef.current = null; }
           wordQueueRef.current = [];
@@ -345,7 +351,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
             {messages.map((msg, idx) => (
               <div key={idx} className={`flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                 <span className="text-xs text-slate-500 px-1">
-                  {msg.role === 'user' ? 'You' : 'Neerja'} · {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {msg.role === 'user' ? 'You' : 'Neerja'} · {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                 </span>
                 <div className={`max-w-[85%] px-4 py-2.5 rounded-xl text-sm leading-relaxed ${
                   msg.role === 'user'
