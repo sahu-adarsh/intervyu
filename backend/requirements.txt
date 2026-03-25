@@ -11,10 +11,9 @@ boto3
 botocore
 
 # Voice Processing
-faster-whisper
 edge-tts  # Fast, free TTS using Microsoft Edge
-torch  # Required for Whisper GPU support
 
 # Utilities
 python-dotenv
 pydantic
+httpx  # Async HTTP client (Deepgram STT API)

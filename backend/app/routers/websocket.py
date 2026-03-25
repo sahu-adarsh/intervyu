@@ -1,12 +1,10 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.services.bedrock_service import BedrockService
 from app.services.s3_service import S3Service
-from faster_whisper import WhisperModel
+from app.config.settings import DEEPGRAM_API_KEY
 import edge_tts
-import torch
+import httpx
 import io
-import wave
-import numpy as np
 import os
 import re
 import json
@@ -18,23 +16,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Initialize models
-whisper_model = None
 # Edge TTS voice - Indian English female (fast and natural)
 EDGE_TTS_VOICE = "en-IN-NeerjaNeural"
-
-
-def _preload_whisper():
-    """Preload Whisper model at server startup to eliminate first-connection lag."""
-    try:
-        get_whisper_model()
-        logger.info("[WHISPER] Pre-loaded at startup — first connection will be instant")
-    except Exception as e:
-        logger.error(f"[WHISPER] Pre-load failed: {e}")
-
-
-import threading
-threading.Thread(target=_preload_whisper, daemon=True).start()
 
 # In-memory session cache — avoids repeated S3 round-trips each voice turn
 _session_cache: dict = {}
@@ -172,47 +155,6 @@ def validate_and_truncate_response(text: str) -> str:
 
     return result
 
-def get_whisper_model():
-    """
-    Initialize Whisper model with GPU support if available.
-    Supports: NVIDIA CUDA, Apple Silicon (MPS), CPU fallback.
-    """
-    global whisper_model
-    if whisper_model is None:
-        # Auto-detect best available device
-        if torch.cuda.is_available():
-            device = "cuda"
-            compute_type = "float16"
-            acceleration_info = "NVIDIA CUDA GPU"
-        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-            # Apple Silicon (M1/M2/M3/M4) - Use CPU with optimized compute type
-            # Note: faster-whisper doesn't support MPS directly, but runs efficiently on Apple Silicon CPU
-            device = "cpu"
-            compute_type = "int8"
-            acceleration_info = "Apple Silicon (optimized)"
-        else:
-            device = "cpu"
-            compute_type = "int8"
-            acceleration_info = "CPU only"
-
-        logger.info(f"[WHISPER] Initializing on {device.upper()} with {compute_type}")
-        logger.info(f"[WHISPER] Hardware: {acceleration_info}")
-
-        whisper_model = WhisperModel(
-            "base",  # Better accuracy than tiny with acceptable latency (~1-1.5s on CPU)
-            device=device,
-            compute_type=compute_type,
-            num_workers=4
-        )
-
-        if device == "cuda":
-            logger.info(f"[WHISPER] GPU acceleration enabled (expected 3-5x speedup)")
-        elif "Apple Silicon" in acceleration_info:
-            logger.info(f"[WHISPER] Apple Silicon detected - optimized performance on Neural Engine")
-        else:
-            logger.info(f"[WHISPER] Running on standard CPU")
-
-    return whisper_model
 
 @router.websocket("/ws/interview/{session_id}")
 async def voice_interview_websocket(websocket: WebSocket, session_id: str):
@@ -223,9 +165,6 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
     try:
         # Accept connection FIRST for faster perceived performance
         await websocket.accept()
-
-        # Initialize Whisper model (lazy loading)
-        whisper = get_whisper_model()
 
         # Initialize services
         bedrock_service = BedrockService()
@@ -243,35 +182,26 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
     interview_started = False
 
     async def transcribe_audio(audio_data: bytes) -> str:
-        """Convert audio to text using faster-whisper"""
+        """Convert audio to text using Deepgram Nova-2"""
         import time
         start_time = time.time()
 
         try:
-            # Decode WAV in-memory (avoids disk I/O from temp file)
-            # Client always sends 16kHz mono WAV (float32ToWav with sampleRate=16000)
-            with wave.open(io.BytesIO(audio_data)) as wf:
-                raw = wf.readframes(wf.getnframes())
-                sampwidth = wf.getsampwidth()
-                nchannels = wf.getnchannels()
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    "https://api.deepgram.com/v1/listen?model=nova-2&language=en",
+                    headers={
+                        "Authorization": f"Token {DEEPGRAM_API_KEY}",
+                        "Content-Type": "audio/wav",
+                    },
+                    content=audio_data,
+                )
+                response.raise_for_status()
+                data = response.json()
+                text = data["results"]["channels"][0]["alternatives"][0]["transcript"]
 
-            if sampwidth == 2:
-                audio_np = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-            else:
-                audio_np = np.frombuffer(raw, dtype=np.float32)
-
-            if nchannels > 1:
-                audio_np = audio_np.reshape(-1, nchannels).mean(axis=1)
-
-            segments, _ = whisper.transcribe(
-                audio_np,
-                language="en",
-                beam_size=1,      # greedy decoding — ~30-50% faster, negligible accuracy loss
-                vad_filter=False, # client-side Silero VAD already trimmed silence
-            )
-            text = " ".join([segment.text for segment in segments]).strip()
             elapsed = time.time() - start_time
-            logger.info(f"[WHISPER] Transcription took {elapsed:.2f}s")
+            logger.info(f"[DEEPGRAM] Transcription took {elapsed:.2f}s")
             return text
         except Exception as e:
             logger.error(f"Transcription error: {e}")

@@ -19,5 +19,8 @@ BEDROCK_AGENT_ALIAS_ID = os.getenv("BEDROCK_AGENT_ALIAS_ID", "")
 # Voice Models Configuration
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
 
+# Deepgram STT
+DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
+
 # WebSocket Configuration
 WS_CONNECTION_TIMEOUT = int(os.getenv("WS_CONNECTION_TIMEOUT", "900"))  # 15 minutes
