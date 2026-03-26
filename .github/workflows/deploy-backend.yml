@@ -30,6 +30,7 @@ jobs:
             cd /home/ubuntu/intervyu
 
             echo "Pulling latest changes..."
+            git checkout -- .
             git pull origin main
 
             echo "Activating virtual environment..."
