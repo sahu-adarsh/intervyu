@@ -1,81 +1,161 @@
 """
 CV Analyzer Lambda Function
-Extracts and analyzes resume/CV information
-Supports PDF and text extraction
+Uses Claude Sonnet 4.6 (via Bedrock) for accurate structured CV parsing.
+Falls back to regex extraction if Bedrock is unavailable.
 """
 
 import json
 import boto3
 import re
+import os
+import logging
 from typing import Dict, Any, List
 from datetime import datetime
 
-# Initialize AWS clients
+logger = logging.getLogger(__name__)
+
 s3_client = boto3.client('s3')
 
+
+def get_bedrock_client():
+    """Create Bedrock Runtime client using HCL/Textract account credentials."""
+    key_id = os.environ.get('BEDROCK_AWS_ACCESS_KEY_ID', '')
+    secret = os.environ.get('BEDROCK_AWS_SECRET_ACCESS_KEY', '')
+    region = os.environ.get('BEDROCK_AWS_REGION', 'us-east-1')
+
+    if key_id and secret:
+        return boto3.client(
+            'bedrock-runtime',
+            region_name=region,
+            aws_access_key_id=key_id,
+            aws_secret_access_key=secret
+        )
+    # Fallback: use Lambda execution role credentials
+    return boto3.client('bedrock-runtime', region_name=region)
+
+
 def lambda_handler(event, context):
-    """
-    Main Lambda handler for CV analysis
-
-    Bedrock Agent event structure or direct invocation
-    """
-
     try:
-        # Check if this is a Bedrock Agent request or direct invocation
         is_bedrock_agent = 'messageVersion' in event
 
         if is_bedrock_agent:
-            # Extract parameters from Bedrock Agent format
             parameters = {p['name']: p['value'] for p in event.get('parameters', [])}
             request_body = event.get('requestBody', {}).get('content', {}).get('application/json', {})
-
-            # Merge parameters and request body
             if isinstance(request_body, str):
                 request_body = json.loads(request_body)
-
             params = {**request_body, **parameters}
         else:
-            # Direct invocation format
             params = event
 
-        # Get CV text either from S3 or direct input
         cv_text = params.get('cvText', '')
 
         if not cv_text:
             s3_bucket = params.get('s3Bucket')
             s3_key = params.get('s3Key')
-
             if not s3_bucket or not s3_key:
-                error_response = {
-                    'success': False,
-                    'error': 'Either cvText or s3Bucket+s3Key required'
-                }
-                return format_response(event, error_response, 400)
-
-            # Download CV from S3
+                return format_response(event, {'success': False, 'error': 'Either cvText or s3Bucket+s3Key required'}, 400)
             cv_text = download_cv_from_s3(s3_bucket, s3_key)
 
-        # Analyze CV
-        analysis = analyze_cv_text(cv_text, params.get('extractSkills', True))
-
+        analysis = analyze_cv_with_claude(cv_text)
         return format_response(event, analysis, 200)
 
     except Exception as e:
-        error_response = {
-            'success': False,
-            'error': f'Analysis error: {str(e)}'
-        }
-        return format_response(event, error_response, 500)
+        logger.error(f"Lambda error: {e}", exc_info=True)
+        return format_response(event, {'success': False, 'error': f'Analysis error: {str(e)}'}, 500)
+
+
+def analyze_cv_with_claude(cv_text: str) -> Dict[str, Any]:
+    """
+    Parse CV text using Claude Sonnet 4.6 for accurate structured extraction.
+    Falls back to regex if Bedrock call fails.
+    """
+    prompt = f"""You are a CV/resume parser. Extract structured information from the following CV text and return ONLY a valid JSON object with no extra text or markdown.
+
+CV TEXT:
+{cv_text[:8000]}
+
+Return this exact JSON structure:
+{{
+  "success": true,
+  "candidateName": "full name or null",
+  "email": "email address or null",
+  "phone": "phone number or null",
+  "summary": "2-sentence professional summary based on their experience and skills",
+  "totalYearsExperience": <number, calculate from work history dates, 0 if unclear>,
+  "skills": ["list", "of", "technical", "skills", "extracted"],
+  "technologies": ["same", "as", "skills"],
+  "experience": [
+    {{
+      "duration": "YYYY-YYYY or YYYY-Present",
+      "company": "company name",
+      "role": "job title",
+      "context": "brief description of responsibilities"
+    }}
+  ],
+  "education": [
+    {{
+      "degree": "degree type",
+      "institution": "university/school name",
+      "year": "graduation year or period",
+      "context": "field of study"
+    }}
+  ]
+}}
+
+Rules:
+- Extract ALL technical skills mentioned anywhere in the CV
+- For totalYearsExperience: sum up actual working years (exclude education, internships under 6 months)
+- If a field is not found, use null for strings and [] for arrays
+- Return ONLY the JSON, no markdown, no explanation"""
+
+    try:
+        bedrock = get_bedrock_client()
+        response = bedrock.invoke_model(
+            modelId='us.anthropic.claude-sonnet-4-6',
+            body=json.dumps({
+                'anthropic_version': 'bedrock-2023-05-31',
+                'max_tokens': 2000,
+                'messages': [{'role': 'user', 'content': prompt}]
+            }),
+            contentType='application/json',
+            accept='application/json'
+        )
+        result = json.loads(response['body'].read())
+        text = result['content'][0]['text'].strip()
+
+        # Strip markdown code fences if present
+        if text.startswith('```'):
+            text = re.sub(r'^```[a-z]*\n?', '', text)
+            text = re.sub(r'\n?```$', '', text)
+
+        analysis = json.loads(text)
+        analysis['success'] = True
+        return analysis
+
+    except Exception as e:
+        logger.error(f"Claude parsing failed, falling back to regex: {e}")
+        return analyze_cv_regex_fallback(cv_text)
+
+
+def analyze_cv_regex_fallback(text: str) -> Dict[str, Any]:
+    """Regex-based fallback if Claude is unavailable."""
+    return {
+        'success': True,
+        'candidateName': extract_name(text),
+        'email': extract_email(text),
+        'phone': extract_phone(text),
+        'skills': extract_skills_keywords(text),
+        'technologies': extract_skills_keywords(text),
+        'experience': extract_experience(text),
+        'education': extract_education(text),
+        'totalYearsExperience': calculate_years_experience(text),
+        'summary': generate_summary(text)
+    }
 
 
 def format_response(event: Dict, body: Dict, status_code: int = 200) -> Dict:
-    """
-    Format response for both Bedrock Agent and direct invocation
-    """
     is_bedrock_agent = 'messageVersion' in event
-
     if is_bedrock_agent:
-        # Bedrock Agent format
         return {
             "messageVersion": "1.0",
             "response": {
@@ -83,293 +163,127 @@ def format_response(event: Dict, body: Dict, status_code: int = 200) -> Dict:
                 "apiPath": event.get('apiPath', ''),
                 "httpMethod": event.get('httpMethod', 'POST'),
                 "httpStatusCode": status_code,
-                "responseBody": {
-                    "application/json": {
-                        "body": json.dumps(body)
-                    }
-                }
+                "responseBody": {"application/json": {"body": json.dumps(body)}}
             }
         }
-    else:
-        # Direct invocation format
-        return {
-            'statusCode': status_code,
-            'body': json.dumps(body)
-        }
+    return {'statusCode': status_code, 'body': json.dumps(body)}
 
 
 def download_cv_from_s3(bucket: str, key: str) -> str:
-    """
-    Download CV file from S3 and extract text
-    """
-    try:
-        # Download file
-        response = s3_client.get_object(Bucket=bucket, Key=key)
-        file_content = response['Body'].read()
-
-        # Determine file type and extract text
-        if key.lower().endswith('.pdf'):
-            return extract_text_from_pdf(file_content)
-        elif key.lower().endswith('.txt'):
-            return file_content.decode('utf-8')
-        else:
-            raise ValueError(f'Unsupported file type: {key}')
-
-    except Exception as e:
-        raise Exception(f'Failed to download CV from S3: {str(e)}')
+    response = s3_client.get_object(Bucket=bucket, Key=key)
+    file_content = response['Body'].read()
+    if key.lower().endswith('.pdf'):
+        return extract_text_from_pdf(file_content)
+    return file_content.decode('utf-8')
 
 
 def extract_text_from_pdf(pdf_content: bytes) -> str:
-    """
-    Extract text from PDF using PyPDF2
-    """
     try:
-        import PyPDF2
+        import pypdf
         import io
-
-        pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_content))
-        text = ''
-
-        for page in pdf_reader.pages:
-            text += page.extract_text() + '\n'
-
-        return text
-
-    except ImportError:
-        # Fallback: Return message if PyPDF2 not available
-        return "PDF parsing requires PyPDF2 library. Using text fallback."
+        pdf_reader = pypdf.PdfReader(io.BytesIO(pdf_content))
+        return '\n'.join(p.extract_text() or '' for p in pdf_reader.pages)
     except Exception as e:
         raise Exception(f'PDF extraction failed: {str(e)}')
 
 
-def analyze_cv_text(text: str, extract_skills: bool = True) -> Dict[str, Any]:
-    """
-    Analyze CV text and extract structured information
-    """
-    analysis = {
-        'success': True,
-        'candidateName': extract_name(text),
-        'email': extract_email(text),
-        'phone': extract_phone(text),
-        'skills': extract_skills_keywords(text) if extract_skills else [],
-        'experience': extract_experience(text),
-        'education': extract_education(text),
-        'totalYearsExperience': calculate_years_experience(text),
-        'technologies': extract_technologies(text),
-        'summary': generate_summary(text)
-    }
-
-    return analysis
-
+# ── Regex fallback helpers ────────────────────────────────────────────────────
 
 def extract_name(text: str) -> str:
-    """
-    Extract candidate name (usually at the top)
-    """
     lines = text.strip().split('\n')
-    if lines:
-        # First non-empty line is usually the name
-        first_line = lines[0].strip()
-        if len(first_line) < 50 and not '@' in first_line:
-            return first_line
-
+    for line in lines[:5]:
+        line = line.strip()
+        if line and len(line) < 50 and '@' not in line and not re.match(r'^\+?\d', line):
+            return line
     return "Name not found"
 
 
 def extract_email(text: str) -> str:
-    """
-    Extract email address using regex
-    """
-    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-    match = re.search(email_pattern, text)
-    return match.group(0) if match else "Email not found"
+    match = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', text)
+    return match.group(0) if match else None
 
 
 def extract_phone(text: str) -> str:
-    """
-    Extract phone number
-    """
-    phone_patterns = [
-        r'\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}',  # US format
-        r'\+?\d{10,15}'  # International
-    ]
-
-    for pattern in phone_patterns:
+    for pattern in [r'\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}', r'\+?\d{10,15}']:
         match = re.search(pattern, text)
         if match:
             return match.group(0)
-
-    return "Phone not found"
+    return None
 
 
 def extract_skills_keywords(text: str) -> List[str]:
-    """
-    Extract technical skills using keyword matching
-    """
-    # Common technical skills keywords
     skill_keywords = [
-        # Programming Languages
         'Python', 'JavaScript', 'Java', 'C++', 'C#', 'Go', 'Rust', 'TypeScript',
-        'Ruby', 'PHP', 'Swift', 'Kotlin', 'Scala', 'R',
-
-        # Web Frameworks
-        'React', 'Angular', 'Vue', 'Node.js', 'Express', 'Django', 'Flask',
-        'FastAPI', 'Spring Boot', 'ASP.NET', 'Next.js',
-
-        # Databases
-        'MySQL', 'PostgreSQL', 'MongoDB', 'Redis', 'DynamoDB', 'Cassandra',
-        'Oracle', 'SQL Server', 'SQLite', 'Elasticsearch',
-
-        # Cloud & DevOps
-        'AWS', 'Azure', 'GCP', 'Docker', 'Kubernetes', 'Jenkins', 'GitLab CI',
-        'Terraform', 'Ansible', 'CI/CD', 'Microservices',
-
-        # Data & ML
-        'Machine Learning', 'TensorFlow', 'PyTorch', 'Pandas', 'NumPy',
-        'Scikit-learn', 'Spark', 'Hadoop', 'Kafka', 'Airflow',
-
-        # Other
-        'Git', 'REST API', 'GraphQL', 'Agile', 'Scrum', 'Linux', 'Bash'
+        'Ruby', 'PHP', 'Swift', 'Kotlin', 'Scala', 'R', 'React', 'Angular', 'Vue',
+        'Node.js', 'Express', 'Django', 'Flask', 'FastAPI', 'Spring Boot', 'Next.js',
+        'MySQL', 'PostgreSQL', 'MongoDB', 'Redis', 'DynamoDB', 'Elasticsearch',
+        'AWS', 'Azure', 'GCP', 'Docker', 'Kubernetes', 'Jenkins', 'Terraform',
+        'Machine Learning', 'Deep Learning', 'TensorFlow', 'PyTorch', 'Pandas',
+        'NumPy', 'Scikit-learn', 'Git', 'REST API', 'GraphQL', 'Microservices',
+        'CI/CD', 'Linux', 'Bash', 'GenAI', 'LLM', 'Bedrock', 'SageMaker'
     ]
-
-    found_skills = []
     text_lower = text.lower()
-
-    for skill in skill_keywords:
-        if skill.lower() in text_lower:
-            found_skills.append(skill)
-
-    return found_skills
-
-
-def extract_technologies(text: str) -> List[str]:
-    """
-    Extract technology stack (similar to skills but more focused)
-    """
-    return extract_skills_keywords(text)  # Same as skills for now
+    return [s for s in skill_keywords if s.lower() in text_lower]
 
 
 def extract_experience(text: str) -> List[Dict[str, str]]:
-    """
-    Extract work experience sections
-    This is a simplified version - production would use NLP
-    """
     experiences = []
-
-    # Look for common experience section headers
-    experience_section = extract_section(text, ['experience', 'work history', 'employment'])
-
-    if experience_section:
-        # Look for year patterns (2020-2023, 2020-Present, etc.)
-        year_pattern = r'(\d{4})\s*[-–]\s*(\d{4}|Present|Current)'
-        matches = re.finditer(year_pattern, experience_section, re.IGNORECASE)
-
-        for match in matches:
-            start_year = match.group(1)
-            end_year = match.group(2)
-
-            # Extract context around the date (company, role)
-            context_start = max(0, match.start() - 200)
-            context_end = min(len(experience_section), match.end() + 200)
-            context = experience_section[context_start:context_end]
-
+    section = extract_section(text, ['experience', 'work history', 'employment'])
+    if section:
+        for match in re.finditer(r'(\d{4})\s*[-–]\s*(\d{4}|Present|Current)', section, re.IGNORECASE):
+            ctx_start = max(0, match.start() - 150)
+            ctx_end = min(len(section), match.end() + 200)
             experiences.append({
-                'duration': f'{start_year}-{end_year}',
-                'context': context.strip()[:200]  # Limit length
+                'duration': f"{match.group(1)}-{match.group(2)}",
+                'context': section[ctx_start:ctx_end].strip()[:200]
             })
-
-    return experiences[:5]  # Limit to 5 most recent
+    return experiences[:5]
 
 
 def extract_education(text: str) -> List[Dict[str, str]]:
-    """
-    Extract education information
-    """
     education = []
-
-    education_section = extract_section(text, ['education', 'academic', 'qualification'])
-
-    if education_section:
-        # Look for degree keywords
-        degree_keywords = ['B.Tech', 'B.E.', 'M.Tech', 'M.S.', 'B.S.', 'MBA', 'PhD',
-                          'Bachelor', 'Master', 'Doctorate']
-
-        for keyword in degree_keywords:
-            if keyword.lower() in education_section.lower():
-                # Extract context around degree
-                idx = education_section.lower().find(keyword.lower())
-                context_start = max(0, idx - 50)
-                context_end = min(len(education_section), idx + 150)
-                context = education_section[context_start:context_end]
-
-                education.append({
-                    'degree': keyword,
-                    'context': context.strip()
-                })
-
-    return education[:3]  # Limit to 3 entries
+    section = extract_section(text, ['education', 'academic', 'qualification'])
+    if section:
+        for keyword in ['B.Tech', 'B.E.', 'M.Tech', 'M.S.', 'B.S.', 'MBA', 'PhD', 'Bachelor', 'Master']:
+            if keyword.lower() in section.lower():
+                idx = section.lower().find(keyword.lower())
+                ctx = section[max(0, idx - 50): min(len(section), idx + 150)].strip()
+                education.append({'degree': keyword, 'context': ctx})
+    return education[:3]
 
 
-def extract_section(text: str, section_keywords: List[str]) -> str:
-    """
-    Extract a specific section from CV based on keywords
-    """
+def extract_section(text: str, keywords: List[str]) -> str:
     text_lower = text.lower()
-
-    for keyword in section_keywords:
-        idx = text_lower.find(keyword)
+    for kw in keywords:
+        idx = text_lower.find(kw)
         if idx != -1:
-            # Extract from keyword to next 1000 characters
-            section_end = min(len(text), idx + 1000)
-            return text[idx:section_end]
-
+            return text[idx: min(len(text), idx + 1000)]
     return ""
 
 
 def calculate_years_experience(text: str) -> float:
-    """
-    Calculate total years of professional experience
-    """
     current_year = datetime.now().year
-    total_years = 0
-
-    # Find all year ranges
-    year_pattern = r'(\d{4})\s*[-–]\s*(\d{4}|Present|Current)'
-    matches = re.finditer(year_pattern, text, re.IGNORECASE)
-
-    for match in matches:
-        start_year = int(match.group(1))
+    total = 0
+    for match in re.finditer(r'(\d{4})\s*[-–]\s*(\d{4}|Present|Current)', text, re.IGNORECASE):
+        start = int(match.group(1))
         end_str = match.group(2).lower()
-
-        if end_str in ['present', 'current']:
-            end_year = current_year
-        else:
-            end_year = int(end_str)
-
-        years = end_year - start_year
-        if years > 0 and years < 50:  # Sanity check
-            total_years += years
-
-    return round(total_years, 1)
+        end = current_year if end_str in ('present', 'current') else int(end_str)
+        years = end - start
+        if 0 < years < 50:
+            total += years
+    return round(total, 1)
 
 
 def generate_summary(text: str) -> str:
-    """
-    Generate a brief summary of the candidate
-    """
     skills = extract_skills_keywords(text)
-    years_exp = calculate_years_experience(text)
-
-    if years_exp > 0 and skills:
-        top_skills = ', '.join(skills[:3])
-        return f"Experienced professional with {years_exp} years in {top_skills}"
+    years = calculate_years_experience(text)
+    if years > 0 and skills:
+        return f"Experienced professional with {years} years in {', '.join(skills[:3])}"
     elif skills:
         return f"Technical professional with skills in {', '.join(skills[:3])}"
-    else:
-        return "Professional candidate"
+    return "Professional candidate"
 
 
-# For local testing
 if __name__ == '__main__':
     test_cv = """
     John Doe
@@ -378,23 +292,12 @@ if __name__ == '__main__':
     EXPERIENCE
     Senior Software Engineer, Tech Corp (2020 - Present)
     - Developed microservices using Python and AWS
-    - Led team of 5 engineers
-
-    Software Engineer, StartupCo (2018 - 2020)
-    - Built React applications
-    - Implemented CI/CD pipelines
 
     EDUCATION
     B.Tech Computer Science, MIT (2018)
 
     SKILLS
-    Python, JavaScript, React, Node.js, AWS, Docker, Kubernetes, PostgreSQL
+    Python, JavaScript, React, AWS, Docker, PostgreSQL
     """
-
-    event = {
-        'cvText': test_cv,
-        'extractSkills': True
-    }
-
-    result = lambda_handler(event, None)
+    result = lambda_handler({'cvText': test_cv}, None)
     print(json.dumps(json.loads(result['body']), indent=2))

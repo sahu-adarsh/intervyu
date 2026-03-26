@@ -23,7 +23,9 @@ class TextractService:
 
     def extract_text_from_pdf(self, pdf_bytes: bytes) -> str:
         """
-        Extract text from PDF using AWS Textract
+        Extract text from PDF using AWS Textract with LAYOUT analysis.
+        LAYOUT feature preserves document structure and handles multi-column CVs
+        correctly by returning text in logical reading order.
 
         Args:
             pdf_bytes: PDF file content as bytes
@@ -32,22 +34,47 @@ class TextractService:
             Extracted text as string
         """
         try:
-            # Call Textract
-            response = self.textract_client.detect_document_text(
-                Document={'Bytes': pdf_bytes}
+            response = self.textract_client.analyze_document(
+                Document={'Bytes': pdf_bytes},
+                FeatureTypes=['LAYOUT']
             )
 
-            # Extract text from blocks
-            text_lines = []
-            for block in response.get('Blocks', []):
-                if block['BlockType'] == 'LINE':
-                    text_lines.append(block['Text'])
+            blocks = response.get('Blocks', [])
+            block_map = {b['Id']: b for b in blocks}
 
-            return '\n'.join(text_lines)
+            layout_types = {
+                'LAYOUT_TITLE', 'LAYOUT_SECTION_HEADER', 'LAYOUT_TEXT',
+                'LAYOUT_LIST', 'LAYOUT_KEY_VALUE', 'LAYOUT_TABLE', 'LAYOUT_FIGURE'
+            }
+            layout_blocks = [b for b in blocks if b['BlockType'] in layout_types]
+
+            # Sort by page then top position for correct reading order
+            layout_blocks.sort(key=lambda b: (
+                b.get('Page', 1),
+                b.get('Geometry', {}).get('BoundingBox', {}).get('Top', 0)
+            ))
+
+            text_parts = []
+            for layout_block in layout_blocks:
+                lines = []
+                for rel in layout_block.get('Relationships', []):
+                    if rel['Type'] == 'CHILD':
+                        for child_id in rel['Ids']:
+                            child = block_map.get(child_id)
+                            if child and child['BlockType'] == 'LINE':
+                                lines.append(child['Text'])
+                if lines:
+                    separator = '\n' if layout_block['BlockType'] in ('LAYOUT_TITLE', 'LAYOUT_SECTION_HEADER') else ''
+                    text_parts.append('\n'.join(lines) + separator)
+
+            if text_parts:
+                return '\n'.join(text_parts)
+
+            # Fallback: plain line extraction if LAYOUT returned nothing
+            return '\n'.join(b['Text'] for b in blocks if b['BlockType'] == 'LINE')
 
         except Exception as e:
             logger.error(f"Textract error: {e}")
-            # Fallback to basic extraction
             return self._fallback_pdf_extraction(pdf_bytes)
 
     def extract_text_from_multi_page_pdf(self, pdf_bytes: bytes) -> List[str]:

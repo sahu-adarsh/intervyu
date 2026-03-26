@@ -71,8 +71,11 @@ Resources:
       CodeUri: cv-analyzer/
       Handler: lambda_function.lambda_handler
       Role: !GetAtt PrepAILambdaRole.Arn
-      Timeout: 30
+      Timeout: 60
       MemorySize: 512
+      Environment:
+        Variables:
+          BEDROCK_AWS_REGION: us-east-1
 
   # Lambda Function: Performance Evaluator
   PerformanceEvaluatorFunction:
