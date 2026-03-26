@@ -38,6 +38,20 @@ def _extract_problem_statement(text: str) -> str:
     return match.group(1).strip() if match else ''
 
 
+def _extract_test_cases(text: str) -> list:
+    """Extract test cases from [TESTCASE]...{json}...[/TESTCASE] tags. Returns [] if none found."""
+    import json as _json
+    cases = []
+    for match in re.finditer(r'\[TESTCASE\](.*?)\[/TESTCASE\]', text, re.IGNORECASE | re.DOTALL):
+        try:
+            case = _json.loads(match.group(1).strip())
+            if 'input' in case and 'expected' in case:
+                cases.append({'input': str(case['input']), 'expected': str(case['expected'])})
+        except Exception:
+            pass
+    return cases
+
+
 def clean_agent_response(text: str) -> str:
     """
     Clean agent response by removing stage directions and formatting issues.
@@ -519,8 +533,9 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 bedrock_total = time.time() - bedrock_start
                 logger.info(f"[PERF] Step 2 (Bedrock complete): {bedrock_total:.2f}s — response: {len(full_response)} chars")
 
-                # Strip [PROBLEM] tags before TTS and display — tags are for parsing only
-                tts_response = re.sub(r'\[/?PROBLEM\]', '', full_response, flags=re.IGNORECASE).strip()
+                # Strip [PROBLEM] and [TESTCASE] tags before TTS — tags are for parsing only, never spoken
+                tts_response = re.sub(r'\[PROBLEM\].*?\[/PROBLEM\]', '', full_response, flags=re.IGNORECASE | re.DOTALL)
+                tts_response = re.sub(r'\[TESTCASE\].*?\[/TESTCASE\]', '', tts_response, flags=re.IGNORECASE | re.DOTALL).strip()
 
                 # Step B: Fire TTS tasks for all sentences immediately (non-blocking)
                 tts_tasks = []
@@ -560,12 +575,14 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 })
                 full_response = "I apologize, but I encountered an error processing your response."
 
-            # Extract problem statement BEFORE validation — truncation would destroy the tags
+            # Extract problem statement and test cases BEFORE validation — truncation would destroy the tags
             extracted_problem = _extract_problem_statement(full_response)
+            extracted_test_cases = _extract_test_cases(full_response)
 
-            # Validate and truncate the conversational part only (strip tags first so
+            # Validate and truncate the conversational part only (strip all tags first so
             # the sentence-limiter and "stop at ?" logic see only spoken text)
-            spoken_response = re.sub(r'\[PROBLEM\].*?\[/PROBLEM\]', '', full_response, flags=re.IGNORECASE | re.DOTALL).strip()
+            spoken_response = re.sub(r'\[PROBLEM\].*?\[/PROBLEM\]', '', full_response, flags=re.IGNORECASE | re.DOTALL)
+            spoken_response = re.sub(r'\[TESTCASE\].*?\[/TESTCASE\]', '', spoken_response, flags=re.IGNORECASE | re.DOTALL).strip()
             validated_response = validate_and_truncate_response(spoken_response)
 
             # Log if response was truncated
@@ -585,12 +602,12 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
 
             # Only open the code editor when an actual problem statement was tagged
             if extracted_problem:
-                logger.info(f"[{session_id}] Coding problem detected via [PROBLEM] tags")
+                logger.info(f"[{session_id}] Coding problem detected via [PROBLEM] tags — {len(extracted_test_cases)} test case(s)")
                 await websocket.send_json({
                     "type": "coding_question",
                     "question": extracted_problem,
                     "language": "python",
-                    "testCases": [],
+                    "testCases": extracted_test_cases,
                     "initialCode": "# Write your code here\ndef solution(arr):\n    # Your implementation\n    return arr\n"
                 })
                 logger.info(f"[{session_id}] Code editor signal sent to frontend")
