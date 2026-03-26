@@ -52,6 +52,26 @@ def _extract_test_cases(text: str) -> list:
     return cases
 
 
+def _generate_initial_code(test_cases: list) -> str:
+    """Generate a Python function template matching the argument count inferred from the first test case."""
+    n_args = 1
+    if test_cases:
+        try:
+            first_input = eval(test_cases[0]['input'], {"__builtins__": {}})
+            if isinstance(first_input, (list, tuple)):
+                n_args = len(first_input)
+        except Exception:
+            pass
+
+    arg_names = {
+        1: ['arr'],
+        2: ['nums', 'target'],
+        3: ['arr', 'val', 'k'],
+    }
+    args = ', '.join(arg_names.get(n_args, [f'arg{i+1}' for i in range(n_args)]))
+    return f'# Write your code here\ndef solution({args}):\n    # Your implementation\n    pass\n'
+
+
 def clean_agent_response(text: str) -> str:
     """
     Clean agent response by removing stage directions and formatting issues.
@@ -533,8 +553,8 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 bedrock_total = time.time() - bedrock_start
                 logger.info(f"[PERF] Step 2 (Bedrock complete): {bedrock_total:.2f}s — response: {len(full_response)} chars")
 
-                # Strip [PROBLEM] and [TESTCASE] tags before TTS — tags are for parsing only, never spoken
-                tts_response = re.sub(r'\[PROBLEM\].*?\[/PROBLEM\]', '', full_response, flags=re.IGNORECASE | re.DOTALL)
+                # For TTS: keep problem text (spoken aloud), strip only the tag markers and testcase JSON blocks
+                tts_response = re.sub(r'\[PROBLEM\](.*?)\[/PROBLEM\]', r'\1', full_response, flags=re.IGNORECASE | re.DOTALL)
                 tts_response = re.sub(r'\[TESTCASE\].*?\[/TESTCASE\]', '', tts_response, flags=re.IGNORECASE | re.DOTALL).strip()
 
                 # Step B: Fire TTS tasks for all sentences immediately (non-blocking)
@@ -608,7 +628,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                     "question": extracted_problem,
                     "language": "python",
                     "testCases": extracted_test_cases,
-                    "initialCode": "# Write your code here\ndef solution(arr):\n    # Your implementation\n    return arr\n"
+                    "initialCode": _generate_initial_code(extracted_test_cases)
                 })
                 logger.info(f"[{session_id}] Code editor signal sent to frontend")
 
@@ -701,19 +721,29 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                                     candidate_name = session_data.get("candidate_name", "candidate") if session_data else "candidate"
 
                                     # Build context for the agent about the code submission
+                                    submitted_code = data.get('code', '')
                                     if all_passed:
-                                        prompt = f"[CONTEXT: {candidate_name} just submitted {language} code that passed all {len(test_results)} test cases successfully.]\n"
+                                        prompt = f"[CONTEXT: {candidate_name} just submitted {language} code that passed all {len(test_results)} test cases.]\n"
+                                        prompt += f"[CODE SUBMITTED:\n{submitted_code}\n]\n"
                                         prompt += "[INSTRUCTION: Provide brief positive feedback and ask a follow-up question about their approach or optimization.]\n"
-                                        prompt += f"Code submission: All tests passed!"
+                                        prompt += "Code submission: All tests passed!"
                                     elif error:
-                                        prompt = f"[CONTEXT: {candidate_name} just submitted {language} code that had an error: {error}]\n"
-                                        prompt += "[INSTRUCTION: Provide constructive feedback on the error and guide them to fix it.]\n"
-                                        prompt += f"Code submission: Execution error occurred."
+                                        prompt = f"[CONTEXT: {candidate_name} submitted {language} code with a top-level error: {error}]\n"
+                                        prompt += f"[CODE SUBMITTED:\n{submitted_code}\n]\n"
+                                        prompt += "[INSTRUCTION: Identify the error from the code and guide them to fix it without giving the answer.]\n"
+                                        prompt += "Code submission: Execution error occurred."
                                     else:
-                                        failed_count = len([t for t in test_results if not t.get('passed')])
-                                        prompt = f"[CONTEXT: {candidate_name} just submitted {language} code. {len(test_results) - failed_count} tests passed, {failed_count} tests failed.]\n"
-                                        prompt += "[INSTRUCTION: Provide constructive feedback on what might be wrong and guide them to debug.]\n"
-                                        prompt += f"Code submission: Some tests failed."
+                                        failed = [t for t in test_results if not t.get('passed')]
+                                        failed_count = len(failed)
+                                        # Include first failure's error detail so Neerja knows exactly what went wrong
+                                        first_error = failed[0].get('error') if failed else None
+                                        prompt = f"[CONTEXT: {candidate_name} submitted {language} code. {len(test_results) - failed_count}/{len(test_results)} tests passed."
+                                        if first_error:
+                                            prompt += f" First failing test error: {first_error}"
+                                        prompt += "]\n"
+                                        prompt += f"[CODE SUBMITTED:\n{submitted_code}\n]\n"
+                                        prompt += "[INSTRUCTION: Based on the error, provide a targeted hint without giving the solution. Point to the specific issue.]\n"
+                                        prompt += "Code submission: Some tests failed."
 
                                     prompt += "\n[REMINDER: Respond with MAXIMUM 2-3 sentences. Ask EXACTLY ONE question. NO bullet points, NO lists, NO asterisks.]"
 
