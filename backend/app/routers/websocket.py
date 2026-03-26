@@ -458,13 +458,9 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 }
             ))
 
-            # Step 2: Get response from Bedrock Agent (streaming) - starts IMMEDIATELY
-            step_start = time.time()
-            logger.info(f"[{datetime.now()}] Calling Bedrock Agent...")
+            # Step 2: Get response from Claude (direct streaming)
+            logger.info(f"[{datetime.now()}] Starting Claude direct stream...")
             full_response = ""
-            text_buffer = ""
-            sentence_endings = re.compile(r'[.!?]\s*')
-            coding_question_detected = False
             bedrock_first_token_time = None
             bedrock_start = time.time()
 
@@ -508,15 +504,6 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 else:
                     current_phase = phases[-1]  # closing
 
-                session_state_for_bedrock = {
-                    "interviewType": session_data.get("interview_type", "Technical Interview") if session_data else "Technical Interview",
-                    "candidateName": session_data.get("candidate_name", "candidate") if session_data else "candidate",
-                    "resumeSummary": session_data.get("resume_summary", "Not provided") if session_data else "Not provided",
-                    "turnCount": turn_count,
-                    "currentPhase": current_phase,
-                    "difficultyLevel": "medium"  # Adapt based on performance
-                }
-
                 # Add context and constraints to the prompt
                 # This ensures the agent knows all the interview details
                 candidate_name = session_data.get("candidate_name", "candidate") if session_data else "candidate"
@@ -545,58 +532,92 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 constraint_reminder = "[REMINDER: Respond with MAXIMUM 2-3 sentences. Ask EXACTLY ONE question. NO bullet points, NO lists, NO asterisks.]\n\n"
                 enhanced_input = context_prefix + constraint_reminder + transcript
 
-                event_stream = bedrock_service.invoke_agent(
-                    session_id=session_id,
-                    input_text=enhanced_input,
-                    session_state=session_state_for_bedrock
-                )
-                logger.info(f"[{datetime.now()}] Bedrock Agent invoked with session state")
+                # Build conversation history for direct Claude call (no KB overhead, true token streaming)
+                transcript_msgs = session_data.get("transcript", []) if session_data else []
+                conversation_history = [
+                    {"role": m["role"], "content": m["content"]}
+                    for m in transcript_msgs
+                    if m.get("role") in ("user", "assistant") and m.get("content")
+                ]
+                logger.info(f"[{datetime.now()}] Invoking Claude direct stream ({len(conversation_history)} prior turns)")
 
-                # Step A: Collect full response from Bedrock (Agent sends 1-3 large chunks, not tokens)
-                for event in event_stream:
-                    if 'chunk' in event:
-                        chunk_data = event['chunk']
-                        if 'bytes' in chunk_data:
-                            if bedrock_first_token_time is None:
-                                bedrock_first_token_time = time.time() - bedrock_start
-                                logger.info(f"[TIMING] [3] Bedrock first chunk:  {bedrock_first_token_time*1000:.0f}ms")
-                            full_response += chunk_data['bytes'].decode('utf-8')
+                # Async bridge: run sync boto3 generator in thread pool (non-blocking event loop)
+                async def _stream_tokens():
+                    loop = asyncio.get_event_loop()
+                    gen = bedrock_service.invoke_claude_stream(conversation_history, enhanced_input)
+                    while True:
+                        try:
+                            token = await loop.run_in_executor(None, next, gen)
+                            yield token
+                        except StopIteration:
+                            return
+
+                # Sentence boundary: punctuation followed by whitespace
+                sentence_boundary = re.compile(r'(?<=[.!?])\s+')
+
+                # Step A: Stream tokens — send to frontend immediately, fire TTS per complete sentence
+                tts_tasks = []
+                tts_buffer = ""
+                problem_detected = False  # [PROBLEM] tag seen → switch to batch TTS
+
+                async for token in _stream_tokens():
+                    if bedrock_first_token_time is None:
+                        bedrock_first_token_time = time.time() - bedrock_start
+                        logger.info(f"[TIMING] [3] Claude first token:   {bedrock_first_token_time*1000:.0f}ms")
+                    full_response += token
+                    # True token streaming to frontend — no word-by-word artificial delay
+                    await websocket.send_json({"type": "llm_chunk", "text": token})
+
+                    if not problem_detected:
+                        tts_buffer += token
+                        # Detect [PROBLEM] tag — switch to batch TTS for coding questions
+                        if re.search(r'\[PROBLEM\]', tts_buffer, re.IGNORECASE):
+                            problem_detected = True
+                            # TTS the intro sentence(s) spoken before the problem
+                            intro = re.split(r'\[PROBLEM\]', tts_buffer, maxsplit=1, flags=re.IGNORECASE)[0]
+                            for sent in re.split(r'(?<=[.!?])\s', intro.strip()):
+                                sent = sent.strip()
+                                if sent:
+                                    cleaned = clean_agent_response(sent)
+                                    if cleaned:
+                                        tts_tasks.append(asyncio.create_task(text_to_speech(cleaned)))
+                            tts_buffer = ""
+                        else:
+                            # Fire TTS per complete sentence as tokens arrive
+                            while True:
+                                m = sentence_boundary.search(tts_buffer)
+                                if not m:
+                                    break
+                                sentence = tts_buffer[:m.start() + 1].strip()
+                                tts_buffer = tts_buffer[m.end():]
+                                cleaned = clean_agent_response(sentence)
+                                if cleaned:
+                                    tts_tasks.append(asyncio.create_task(text_to_speech(cleaned)))
+                                    logger.info(f"[TIMING] [4] TTS fired (stream):     +{(time.time()-overall_start)*1000:.0f}ms")
 
                 bedrock_total = time.time() - bedrock_start
-                logger.info(f"[TIMING] [3] Bedrock complete:     {bedrock_total*1000:.0f}ms  (+{(time.time()-overall_start)*1000:.0f}ms total | {len(full_response)} chars)")
+                logger.info(f"[TIMING] [3] Claude complete:      {bedrock_total*1000:.0f}ms  (+{(time.time()-overall_start)*1000:.0f}ms total | {len(full_response)} chars)")
 
-                # For TTS: keep problem text (spoken aloud), strip only the tag markers and testcase JSON blocks
-                tts_response = re.sub(r'\[PROBLEM\](.*?)\[/PROBLEM\]', r'\1', full_response, flags=re.IGNORECASE | re.DOTALL)
-                tts_response = re.sub(r'\[TESTCASE\].*?\[/TESTCASE\]', '', tts_response, flags=re.IGNORECASE | re.DOTALL).strip()
-
-                # Step B: Fire TTS tasks for all sentences immediately (non-blocking)
-                tts_fire_start = time.time()
-                tts_tasks = []
-                raw_sentences = sentence_endings.split(tts_response)
-                for i, sentence in enumerate(raw_sentences[:-1]):
-                    sentence = sentence.strip()
-                    if sentence:
-                        cleaned = clean_agent_response(sentence)
-                        if cleaned:
-                            tts_tasks.append(asyncio.create_task(text_to_speech(cleaned)))
-                remaining = raw_sentences[-1].strip() if raw_sentences else ""
-                if remaining:
-                    cleaned = clean_agent_response(remaining)
+                # Flush remaining buffer (last sentence may not end with whitespace)
+                if not problem_detected and tts_buffer.strip():
+                    cleaned = clean_agent_response(tts_buffer.strip())
                     if cleaned:
                         tts_tasks.append(asyncio.create_task(text_to_speech(cleaned)))
-                logger.info(f"[TIMING] [4] TTS tasks fired:      +{(time.time()-overall_start)*1000:.0f}ms total  ({len(tts_tasks)} sentences)")
 
-                # Step C: Stream text word-by-word to frontend (simulates token streaming)
-                # Bedrock Agent sends full response as 1-3 chunks — re-stream progressively
-                text_stream_start = time.time()
-                words = tts_response.split()
-                for i, word in enumerate(words):
-                    chunk = word if i == 0 else ' ' + word
-                    await websocket.send_json({"type": "llm_chunk", "text": chunk})
-                    await asyncio.sleep(0)  # yield event loop control but don't artificially delay
-                logger.info(f"[TIMING] [4] Text stream done:     {(time.time()-text_stream_start)*1000:.0f}ms  ({len(words)} words @ 40ms/word)")
+                # For coding questions: batch TTS for the problem description text
+                if problem_detected:
+                    problem_match = re.search(r'\[PROBLEM\](.*?)\[/PROBLEM\]', full_response, re.IGNORECASE | re.DOTALL)
+                    if problem_match:
+                        for sent in re.split(r'(?<=[.!?])\s', problem_match.group(1).strip()):
+                            sent = sent.strip()
+                            if sent:
+                                cleaned = clean_agent_response(sent)
+                                if cleaned:
+                                    tts_tasks.append(asyncio.create_task(text_to_speech(cleaned)))
 
-                # Step D: Send audio in order — most TTS tasks are done by now
+                logger.info(f"[TIMING] [4] All TTS tasks fired:  +{(time.time()-overall_start)*1000:.0f}ms  ({len(tts_tasks)} tasks)")
+
+                # Step B: Send audio in order — TTS tasks started during streaming, most are already done
                 first_audio_sent = False
                 for task in tts_tasks:
                     audio_bytes = await task

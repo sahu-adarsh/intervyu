@@ -32,8 +32,17 @@ class BedrockService:
             aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
             config=config
         )
+        # Direct bedrock-runtime client for converse_stream (no KB overhead, true token streaming)
+        self.bedrock_runtime_client = boto3.client(
+            'bedrock-runtime',
+            region_name=AWS_REGION,
+            aws_access_key_id=AWS_ACCESS_KEY,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            config=config
+        )
         self.agent_id = BEDROCK_AGENT_ID
         self.agent_alias_id = BEDROCK_AGENT_ALIAS_ID
+        self._system_prompt: Optional[str] = None
 
         # Session state cache (in production, use Redis or DynamoDB)
         self.session_states: Dict[str, Dict[str, Any]] = {}
@@ -226,3 +235,63 @@ class BedrockService:
                 if 'bytes' in chunk_data:
                     text_chunk = chunk_data['bytes'].decode('utf-8')
                     yield text_chunk
+
+    def _load_system_prompt(self) -> str:
+        """Load Neerja system prompt from agent_instruction.txt (cached after first read)."""
+        if self._system_prompt is None:
+            import os
+            prompt_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'agent_instruction.txt')
+            try:
+                with open(os.path.abspath(prompt_path), 'r') as f:
+                    self._system_prompt = f.read().strip()
+            except Exception as e:
+                logger.warning(f"Could not load agent_instruction.txt: {e}")
+                self._system_prompt = "You are Neerja, a professional technical interviewer. Respond with 2-3 sentences and exactly one question."
+        return self._system_prompt
+
+    def invoke_claude_stream(
+        self,
+        conversation_history: list,
+        user_message: str,
+    ):
+        """
+        Direct Claude streaming via bedrock-runtime converse_stream.
+        No KB lookup overhead — true token-by-token streaming for low latency TTS pipeline.
+
+        Args:
+            conversation_history: List of prior turns [{"role": "user"/"assistant", "content": "..."}]
+            user_message: The current user message (with injected context prefix)
+
+        Yields:
+            Text tokens as they stream from Claude
+        """
+        system_prompt = self._load_system_prompt()
+
+        messages = []
+        for msg in conversation_history:
+            role = msg.get("role")
+            content = msg.get("content", "")
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": [{"text": content}]})
+
+        messages.append({"role": "user", "content": [{"text": user_message}]})
+
+        try:
+            response = self.bedrock_runtime_client.converse_stream(
+                modelId="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+                system=[{"text": system_prompt}],
+                messages=messages,
+                inferenceConfig={
+                    "maxTokens": 300,
+                    "temperature": 0.7,
+                }
+            )
+            stream = response.get("stream", [])
+            for event in stream:
+                delta = event.get("contentBlockDelta", {}).get("delta", {})
+                text = delta.get("text", "")
+                if text:
+                    yield text
+        except Exception as e:
+            logger.error(f"invoke_claude_stream error: {e}")
+            raise
