@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Code2, Cloud, Users, Terminal } from 'lucide-react';
+import { Code2, Cloud, Users, Terminal, History } from 'lucide-react';
 
 type InterviewType = {
   id: string;
@@ -51,9 +51,18 @@ export default function Home() {
             <span className="text-lg font-bold tracking-tight text-white">intervyu.io</span>
             <span className="text-xs text-slate-500 hidden sm:inline">AI-powered interview preparation</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-xs text-slate-500 hidden sm:inline">System online</span>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => router.push('/history')}
+              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+            >
+              <History size={14} />
+              <span className="hidden sm:inline">Past Interviews</span>
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-xs text-slate-500 hidden sm:inline">System online</span>
+            </div>
           </div>
         </div>
       </header>

@@ -294,6 +294,13 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
       await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/interviews/${sessionId}/end`, {
         method: 'POST',
       });
+      // Persist session reference in localStorage for history page
+      try {
+        const stored = JSON.parse(localStorage.getItem('intervyu_sessions') || '[]');
+        const entry = { sessionId, interviewType, candidateName, date: new Date().toISOString() };
+        const updated = [entry, ...stored.filter((s: any) => s.sessionId !== sessionId)].slice(0, 20);
+        localStorage.setItem('intervyu_sessions', JSON.stringify(updated));
+      } catch {}
       router.push(`/interview/${sessionId}/report`);
     } catch {
       router.push(`/interview/${sessionId}/report`);
