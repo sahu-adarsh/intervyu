@@ -27,7 +27,7 @@ jobs:
           script: |
             set -e
 
-            cd /home/ubuntu/prepai
+            cd /home/ubuntu/intervyu
 
             echo "Pulling latest changes..."
             git pull origin main
