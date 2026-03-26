@@ -6,8 +6,11 @@ if (typeof window !== 'undefined') {
   const _warn = console.warn.bind(console);
   const _error = console.error.bind(console);
   const isONNX = (s: unknown) => typeof s === 'string' && s.includes('onnxruntime');
-  const isVADDebug = (s: unknown) => typeof s === 'string' && s.startsWith('VAD | debug');
-  console.log = (...args: unknown[]) => { if (isVADDebug(args[0])) return; _log(...args); };
+  const isVADNoise = (s: unknown) => typeof s === 'string' && (
+    s.startsWith('VAD | debug') ||
+    s.includes('using default audio context')
+  );
+  console.log = (...args: unknown[]) => { if (isVADNoise(args[0])) return; _log(...args); };
   console.warn = (...args: unknown[]) => { if (isONNX(args[0])) return; _warn(...args); };
   console.error = (...args: unknown[]) => { if (isONNX(args[0])) return; _error(...args); };
 }
