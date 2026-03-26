@@ -542,15 +542,16 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 logger.info(f"[{datetime.now()}] Invoking Claude direct stream ({len(conversation_history)} prior turns)")
 
                 # Async bridge: run sync boto3 generator in thread pool (non-blocking event loop)
+                # Use next(gen, _DONE) sentinel to avoid StopIteration→RuntimeError (PEP 479)
                 async def _stream_tokens():
                     loop = asyncio.get_event_loop()
                     gen = bedrock_service.invoke_claude_stream(conversation_history, enhanced_input)
+                    _DONE = object()
                     while True:
-                        try:
-                            token = await loop.run_in_executor(None, next, gen)
-                            yield token
-                        except StopIteration:
+                        token = await loop.run_in_executor(None, next, gen, _DONE)
+                        if token is _DONE:
                             return
+                        yield token
 
                 # Sentence boundary: punctuation followed by whitespace
                 sentence_boundary = re.compile(r'(?<=[.!?])\s+')
