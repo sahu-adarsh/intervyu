@@ -17,3 +17,4 @@ edge-tts  # Fast, free TTS using Microsoft Edge
 python-dotenv
 pydantic
 httpx  # Async HTTP client (Deepgram STT API)
+pypdf  # PDF text extraction fallback when Textract is unavailable

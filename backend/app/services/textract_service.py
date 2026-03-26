@@ -191,13 +191,15 @@ class TextractService:
         return [p.strip() for p in pages if p.strip()]
 
     def _fallback_pdf_extraction(self, pdf_bytes: bytes) -> str:
-        """Fallback PDF extraction using PyPDF2"""
+        """Fallback PDF extraction using pypdf"""
         try:
-            import PyPDF2
-            pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
+            import pypdf
+            pdf_reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
             text = []
             for page in pdf_reader.pages:
-                text.append(page.extract_text())
+                extracted = page.extract_text()
+                if extracted:
+                    text.append(extracted)
             return '\n'.join(text)
         except Exception as e:
             logger.error(f"Fallback extraction error: {e}")
