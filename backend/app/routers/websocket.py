@@ -421,13 +421,16 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
         # Start overall timer
         import time
         overall_start = time.time()
+        audio_kb = len(audio_data) / 1024
+        logger.info(f"[TIMING] ══════════════════════════════════════════")
+        logger.info(f"[TIMING] Voice turn started — audio: {audio_kb:.1f} KB")
 
         try:
             # Step 1: Speech-to-Text
             step_start = time.time()
             transcript = await transcribe_audio(audio_data)
             step_elapsed = time.time() - step_start
-            logger.info(f"[PERF] Step 1 (Whisper STT): {step_elapsed:.2f}s")
+            logger.info(f"[TIMING] [1] Deepgram STT:        {step_elapsed*1000:.0f}ms  (transcript: {len(transcript)} chars)")
 
             if not transcript:
                 processing = False
@@ -470,7 +473,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 session_state_start = time.time()
                 session_data = _get_cached_session(s3_service, session_id)
                 session_state_elapsed = time.time() - session_state_start
-                logger.info(f"[PERF] Step 2a (session fetch, cached={session_id in _session_cache}): {session_state_elapsed:.4f}s")
+                logger.info(f"[TIMING] [2] Session fetch:        {session_state_elapsed*1000:.0f}ms  (cached={session_id in _session_cache})")
 
                 # Debug: Log session data
                 logger.info(f"[{session_id}] Session data retrieved:")
@@ -556,17 +559,18 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                         if 'bytes' in chunk_data:
                             if bedrock_first_token_time is None:
                                 bedrock_first_token_time = time.time() - bedrock_start
-                                logger.info(f"[PERF] Step 2b (Bedrock first chunk): {bedrock_first_token_time:.2f}s")
+                                logger.info(f"[TIMING] [3] Bedrock first chunk:  {bedrock_first_token_time*1000:.0f}ms")
                             full_response += chunk_data['bytes'].decode('utf-8')
 
                 bedrock_total = time.time() - bedrock_start
-                logger.info(f"[PERF] Step 2 (Bedrock complete): {bedrock_total:.2f}s — response: {len(full_response)} chars")
+                logger.info(f"[TIMING] [3] Bedrock complete:     {bedrock_total*1000:.0f}ms  (+{(time.time()-overall_start)*1000:.0f}ms total | {len(full_response)} chars)")
 
                 # For TTS: keep problem text (spoken aloud), strip only the tag markers and testcase JSON blocks
                 tts_response = re.sub(r'\[PROBLEM\](.*?)\[/PROBLEM\]', r'\1', full_response, flags=re.IGNORECASE | re.DOTALL)
                 tts_response = re.sub(r'\[TESTCASE\].*?\[/TESTCASE\]', '', tts_response, flags=re.IGNORECASE | re.DOTALL).strip()
 
                 # Step B: Fire TTS tasks for all sentences immediately (non-blocking)
+                tts_fire_start = time.time()
                 tts_tasks = []
                 raw_sentences = sentence_endings.split(tts_response)
                 for i, sentence in enumerate(raw_sentences[:-1]):
@@ -580,20 +584,29 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                     cleaned = clean_agent_response(remaining)
                     if cleaned:
                         tts_tasks.append(asyncio.create_task(text_to_speech(cleaned)))
+                logger.info(f"[TIMING] [4] TTS tasks fired:      +{(time.time()-overall_start)*1000:.0f}ms total  ({len(tts_tasks)} sentences)")
 
                 # Step C: Stream text word-by-word to frontend (simulates token streaming)
                 # Bedrock Agent sends full response as 1-3 chunks — re-stream progressively
+                text_stream_start = time.time()
                 words = tts_response.split()
                 for i, word in enumerate(words):
                     chunk = word if i == 0 else ' ' + word
                     await websocket.send_json({"type": "llm_chunk", "text": chunk})
                     await asyncio.sleep(0.04)  # ~25 words/sec — visible but not slow
+                logger.info(f"[TIMING] [4] Text stream done:     {(time.time()-text_stream_start)*1000:.0f}ms  ({len(words)} words @ 40ms/word)")
 
                 # Step D: Send audio in order — most TTS tasks are done by now
+                first_audio_sent = False
                 for task in tts_tasks:
                     audio_bytes = await task
                     if len(audio_bytes) > 44:
+                        if not first_audio_sent:
+                            first_audio_sent = True
+                            logger.info(f"[TIMING] [5] First audio sent:     +{(time.time()-overall_start)*1000:.0f}ms total  ({len(audio_bytes)//1024} KB)")
                         await websocket.send_bytes(audio_bytes)
+                if tts_tasks:
+                    logger.info(f"[TIMING] [5] Last audio sent:      +{(time.time()-overall_start)*1000:.0f}ms total")
 
             except Exception as e:
                 logger.error(f"Bedrock Agent error: {e}")
@@ -653,9 +666,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
 
             # Final performance summary
             overall_elapsed = time.time() - overall_start
-            logger.info(f"[PERF] ========================================")
-            logger.info(f"[PERF] TOTAL END-TO-END: {overall_elapsed:.2f}s")
-            logger.info(f"[PERF] ========================================")
+            logger.info(f"[TIMING] ══ TOTAL: {overall_elapsed*1000:.0f}ms (speech_end → last audio sent) ══════════")
 
         except Exception as e:
             logger.error(f"Voice processing error: {e}")
@@ -689,7 +700,8 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                             streaming_audio_chunks = []
                             accumulated_transcript = ""
                         elif data.get('type') == 'speech_end':
-                            logger.info(f"[{session_id}] Speech ended, processing...")
+                            import time as _t
+                            logger.info(f"[TIMING] speech_end received — {len(streaming_audio_chunks)} audio chunks buffered")
                             streaming_active = False
                             if streaming_audio_chunks:
                                 combined_audio = b''.join(streaming_audio_chunks)

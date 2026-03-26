@@ -93,6 +93,11 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   const wordQueueRef = useRef<string[]>([]);         // pending words to reveal
   const wordRevealRef = useRef<NodeJS.Timeout | null>(null); // interval dripping words onto screen
   const speechEndTimeRef = useRef<number | null>(null); // latency measurement
+  // Timing refs for pipeline latency logging
+  const transcriptReceivedAtRef = useRef<number | null>(null);
+  const firstLLMChunkAtRef = useRef<number | null>(null);
+  const firstAudioReceivedAtRef = useRef<number | null>(null);
+  const firstAudioPlayedAtRef = useRef<boolean>(false);
 
   // Silero VAD — neural speech detection via ONNX model in a Web Worker
   const vad = useMicVAD({
@@ -115,7 +120,16 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
       }
     },
     onSpeechEnd: (audio: Float32Array) => {
-      speechEndTimeRef.current = Date.now();
+      const t0 = performance.now();
+      speechEndTimeRef.current = t0;
+      // Reset per-turn timing refs
+      transcriptReceivedAtRef.current = null;
+      firstLLMChunkAtRef.current = null;
+      firstAudioReceivedAtRef.current = null;
+      firstAudioPlayedAtRef.current = false;
+      const durationSec = (audio.length / 16000).toFixed(1);
+      console.log(`[TIMING] ── speech_end sent ─────────────────────────`);
+      console.log(`[TIMING] Audio: ${audio.length} samples (${durationSec}s @ 16kHz)`);
       const wavBlob = float32ToWav(audio);
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(wavBlob);
@@ -136,6 +150,14 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     wsRef.current.onmessage = async (event) => {
       if (event.data instanceof Blob) {
         const audioBuffer = await event.data.arrayBuffer();
+        if (firstAudioReceivedAtRef.current === null && speechEndTimeRef.current !== null) {
+          firstAudioReceivedAtRef.current = performance.now();
+          const sinceEnd = (firstAudioReceivedAtRef.current - speechEndTimeRef.current).toFixed(0);
+          const sinceTranscript = transcriptReceivedAtRef.current
+            ? (firstAudioReceivedAtRef.current - transcriptReceivedAtRef.current).toFixed(0)
+            : '?';
+          console.log(`[TIMING] [5] First audio received: +${sinceEnd}ms since speech_end  (+${sinceTranscript}ms since transcript)`);
+        }
         audioQueueRef.current.push(audioBuffer);
         if (!isPlayingRef.current) {
           playNextAudioChunk();
@@ -144,6 +166,11 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
         const data = JSON.parse(event.data);
 
         if (data.type === 'transcript' && data.role === 'user') {
+          if (speechEndTimeRef.current !== null) {
+            const sttMs = (performance.now() - speechEndTimeRef.current).toFixed(0);
+            console.log(`[TIMING] [1] STT round-trip:       +${sttMs}ms (speech_end → transcript)`);
+          }
+          transcriptReceivedAtRef.current = performance.now();
           speechEndTimeRef.current = null;
           // Flush any pending word reveals immediately
           if (wordRevealRef.current) { clearInterval(wordRevealRef.current); wordRevealRef.current = null; }
@@ -154,6 +181,11 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
           setError('');
           setIsProcessing(true);
         } else if (data.type === 'llm_chunk') {
+          if (firstLLMChunkAtRef.current === null && transcriptReceivedAtRef.current !== null) {
+            firstLLMChunkAtRef.current = performance.now();
+            const ms = (firstLLMChunkAtRef.current - transcriptReceivedAtRef.current).toFixed(0);
+            console.log(`[TIMING] [2] First LLM chunk:      +${ms}ms since transcript`);
+          }
           // Queue words for gradual reveal (~150ms/word) to match TTS speech pace
           const words = data.text.split(/(\s+)/);
           wordQueueRef.current.push(...words.filter((w: string) => w.length > 0));
@@ -170,6 +202,10 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
             }, 150);
           }
         } else if (data.type === 'assistant_complete') {
+          if (transcriptReceivedAtRef.current !== null) {
+            const totalMs = (performance.now() - transcriptReceivedAtRef.current).toFixed(0);
+            console.log(`[TIMING] [3] assistant_complete:   +${totalMs}ms since transcript (LLM+TTS pipeline)`);
+          }
           // Flush remaining queued words immediately, then move to message list
           if (wordRevealRef.current) { clearInterval(wordRevealRef.current); wordRevealRef.current = null; }
           if (wordQueueRef.current.length > 0) {
@@ -285,6 +321,16 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
         currentAudioSourceRef.current = null;
         playNextAudioChunk();
       };
+      if (!firstAudioPlayedAtRef.current && firstAudioReceivedAtRef.current !== null) {
+        firstAudioPlayedAtRef.current = true;
+        const sinceReceived = (performance.now() - firstAudioReceivedAtRef.current).toFixed(0);
+        const sinceEnd = speechEndTimeRef.current !== null
+          ? (performance.now() - speechEndTimeRef.current).toFixed(0)
+          : transcriptReceivedAtRef.current !== null
+            ? (performance.now() - transcriptReceivedAtRef.current).toFixed(0) + 'ms since transcript'
+            : '?';
+        console.log(`[TIMING] [6] First audio PLAYING:   +${sinceReceived}ms decode+schedule  (total ~${sinceEnd}ms since speech_end)`);
+      }
       source.start();
     } catch (err) {
       setError('Failed to play audio: ' + (err as Error).message);
