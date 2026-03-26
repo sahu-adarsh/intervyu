@@ -177,13 +177,16 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
           }, 200);
         } else if (data.type === 'coding_question') {
           const lang = data.language || 'python';
-          setCodingQuestion({
-            question: data.question || data.text || '',
-            language: lang,
-            testCases: data.testCases || [],
-            initialCode: data.initialCode || ''
-          });
-          setCurrentLanguage(lang);
+          const question = data.question || '';
+          if (question) {
+            setCodingQuestion(prev => prev ?? {
+              question,
+              language: lang,
+              testCases: data.testCases || [],
+              initialCode: data.initialCode || ''
+            });
+            setCurrentLanguage(prev => prev || lang);
+          }
           setShowCodeEditor(true);
         } else if (data.type === 'error') {
           setError(data.message);

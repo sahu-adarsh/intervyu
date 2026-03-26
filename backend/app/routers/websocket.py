@@ -33,14 +33,9 @@ def _invalidate_session_cache(session_id: str):
 
 
 def _extract_problem_statement(text: str) -> str:
-    """Strip conversational preamble, return only the core problem statement."""
-    problem_starters = re.compile(
-        r'(?:^|\.\s+)((?:Write|Implement|Given|Create|Design|Find|Return|Your task|'
-        r'Solve|Build|Consider)[^.]*\..*)',
-        re.IGNORECASE | re.DOTALL
-    )
-    match = problem_starters.search(text)
-    return match.group(1).strip() if match else text.strip()
+    """Extract problem statement from [PROBLEM]...[/PROBLEM] tags. Returns '' if not found."""
+    match = re.search(r'\[PROBLEM\](.*?)\[/PROBLEM\]', text, re.IGNORECASE | re.DOTALL)
+    return match.group(1).strip() if match else ''
 
 
 def clean_agent_response(text: str) -> str:
@@ -524,9 +519,12 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 bedrock_total = time.time() - bedrock_start
                 logger.info(f"[PERF] Step 2 (Bedrock complete): {bedrock_total:.2f}s — response: {len(full_response)} chars")
 
+                # Strip [PROBLEM] tags before TTS and display — tags are for parsing only
+                tts_response = re.sub(r'\[/?PROBLEM\]', '', full_response, flags=re.IGNORECASE).strip()
+
                 # Step B: Fire TTS tasks for all sentences immediately (non-blocking)
                 tts_tasks = []
-                raw_sentences = sentence_endings.split(full_response)
+                raw_sentences = sentence_endings.split(tts_response)
                 for i, sentence in enumerate(raw_sentences[:-1]):
                     sentence = sentence.strip()
                     if sentence:
@@ -541,7 +539,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
 
                 # Step C: Stream text word-by-word to frontend (simulates token streaming)
                 # Bedrock Agent sends full response as 1-3 chunks — re-stream progressively
-                words = full_response.split()
+                words = tts_response.split()
                 for i, word in enumerate(words):
                     chunk = word if i == 0 else ' ' + word
                     await websocket.send_json({"type": "llm_chunk", "text": chunk})
@@ -562,43 +560,35 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 })
                 full_response = "I apologize, but I encountered an error processing your response."
 
-            # Validate and truncate response to enforce formatting rules
-            validated_response = validate_and_truncate_response(full_response)
+            # Extract problem statement BEFORE validation — truncation would destroy the tags
+            extracted_problem = _extract_problem_statement(full_response)
+
+            # Validate and truncate the conversational part only (strip tags first so
+            # the sentence-limiter and "stop at ?" logic see only spoken text)
+            spoken_response = re.sub(r'\[PROBLEM\].*?\[/PROBLEM\]', '', full_response, flags=re.IGNORECASE | re.DOTALL).strip()
+            validated_response = validate_and_truncate_response(spoken_response)
 
             # Log if response was truncated
-            if len(validated_response) < len(full_response):
-                logger.info(f"[{session_id}] Response truncated: {len(full_response)} -> {len(validated_response)} chars")
-                logger.info(f"[{session_id}] Original: {full_response[:100]}...")
+            if len(validated_response) < len(spoken_response):
+                logger.info(f"[{session_id}] Response truncated: {len(spoken_response)} -> {len(validated_response)} chars")
+                logger.info(f"[{session_id}] Original: {spoken_response[:100]}...")
                 logger.info(f"[{session_id}] Validated: {validated_response}")
 
-            # Use validated response for all further processing
             full_response = validated_response
 
-            # Detect coding question patterns in the response
-            coding_keywords = [
-                'write a function', 'implement', 'code', 'algorithm',
-                'write code', 'solve this problem', 'coding problem',
-                'programming challenge', 'leetcode', 'code editor',
-                'function that', 'write a program', 'implement a solution'
-            ]
-
-            full_response_lower = full_response.lower()
-            coding_question_detected = any(keyword in full_response_lower for keyword in coding_keywords)
-
-            # Signal completion
+            # Signal completion with the clean spoken text (no tags)
             await websocket.send_json({
                 "type": "assistant_complete",
                 "text": full_response,
                 "role": "assistant"
             })
 
-            # If coding question detected, send coding_question signal
-            if coding_question_detected:
-                logger.info(f"[{session_id}] Coding question detected in response")
-
+            # Only open the code editor when an actual problem statement was tagged
+            if extracted_problem:
+                logger.info(f"[{session_id}] Coding problem detected via [PROBLEM] tags")
                 await websocket.send_json({
                     "type": "coding_question",
-                    "question": _extract_problem_statement(full_response),
+                    "question": extracted_problem,
                     "language": "python",
                     "testCases": [],
                     "initialCode": "# Write your code here\ndef solution(arr):\n    # Your implementation\n    return arr\n"
