@@ -20,10 +20,12 @@ import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { useMicVAD } from '@ricky0123/vad-react';
-import { Code2, ChevronDown, ChevronUp, Mic, Bot, User } from 'lucide-react';
+import { Code2, ChevronDown, ChevronUp, Mic, Bot, User, FileText } from 'lucide-react';
 
-// Dynamically import CodeEditor to avoid SSR issues
+// Dynamically import CodeEditor and CV components to avoid SSR issues
 const CodeEditor = dynamic(() => import('./code-editor/CodeEditor'), { ssr: false });
+const CVUpload = dynamic(() => import('./cv/CVUpload'), { ssr: false });
+const CVAnalysisDisplay = dynamic(() => import('./cv/CVAnalysisDisplay'), { ssr: false });
 
 type Message = {
   role: 'user' | 'assistant';
@@ -71,6 +73,8 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   const [showCodeEditor, setShowCodeEditor] = useState(false);
   const [problemStatementCollapsed, setProblemStatementCollapsed] = useState(false);
   const [currentLanguage, setCurrentLanguage] = useState('python');
+  const [leftTab, setLeftTab] = useState<'transcript' | 'cv'>('transcript');
+  const [cvAnalysis, setCvAnalysis] = useState<any>(null);
   const [codingQuestion, setCodingQuestion] = useState<{
     question: string;
     language?: string;
@@ -347,49 +351,89 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden flex-col md:flex-row">
 
-        {/* Left — Transcript */}
+        {/* Left — Transcript / CV */}
         <div className="w-full md:w-1/2 flex flex-col border-b md:border-b-0 md:border-r border-slate-800 h-56 sm:h-64 md:h-auto flex-shrink-0 md:flex-shrink">
-          <div className="flex-shrink-0 px-5 py-3 border-b border-slate-800 bg-slate-900">
-            <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Transcript</h2>
+          {/* Tab bar */}
+          <div className="flex-shrink-0 flex border-b border-slate-800 bg-slate-900">
+            <button
+              onClick={() => setLeftTab('transcript')}
+              className={`flex items-center gap-1.5 px-5 py-3 text-xs font-semibold uppercase tracking-widest transition-colors border-b-2 ${
+                leftTab === 'transcript'
+                  ? 'text-slate-100 border-blue-500'
+                  : 'text-slate-500 border-transparent hover:text-slate-300'
+              }`}
+            >
+              Transcript
+            </button>
+            <button
+              onClick={() => setLeftTab('cv')}
+              className={`flex items-center gap-1.5 px-5 py-3 text-xs font-semibold uppercase tracking-widest transition-colors border-b-2 ${
+                leftTab === 'cv'
+                  ? 'text-slate-100 border-blue-500'
+                  : 'text-slate-500 border-transparent hover:text-slate-300'
+              }`}
+            >
+              <FileText size={12} />
+              CV
+              {cvAnalysis && <span className="w-1.5 h-1.5 rounded-full bg-green-400 ml-0.5" />}
+            </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-            {messages.map((msg, idx) => (
-              <div key={idx} className={`flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                <span className="text-xs text-slate-500 px-1">
-                  {msg.role === 'user' ? 'You' : 'Neerja'} · {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                </span>
-                <div className={`max-w-[85%] px-4 py-2.5 rounded-xl text-sm leading-relaxed ${
-                  msg.role === 'user'
-                    ? 'bg-blue-600 text-white rounded-br-sm'
-                    : 'bg-slate-800 text-slate-100 rounded-bl-sm'
-                }`}>
-                  {msg.content}
+          {/* Transcript panel */}
+          {leftTab === 'transcript' && (
+            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+              {messages.map((msg, idx) => (
+                <div key={idx} className={`flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                  <span className="text-xs text-slate-500 px-1">
+                    {msg.role === 'user' ? 'You' : 'Neerja'} · {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </span>
+                  <div className={`max-w-[85%] px-4 py-2.5 rounded-xl text-sm leading-relaxed ${
+                    msg.role === 'user'
+                      ? 'bg-blue-600 text-white rounded-br-sm'
+                      : 'bg-slate-800 text-slate-100 rounded-bl-sm'
+                  }`}>
+                    {msg.content}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
 
-            {currentTranscript && (
-              <div className="flex flex-col gap-1 items-end">
-                <span className="text-xs text-slate-500 px-1">You · transcribing...</span>
-                <div className="max-w-[85%] px-4 py-2.5 rounded-xl rounded-br-sm text-sm bg-blue-600/40 text-blue-200 border border-blue-500/30 italic">
-                  {currentTranscript}
+              {currentTranscript && (
+                <div className="flex flex-col gap-1 items-end">
+                  <span className="text-xs text-slate-500 px-1">You · transcribing...</span>
+                  <div className="max-w-[85%] px-4 py-2.5 rounded-xl rounded-br-sm text-sm bg-blue-600/40 text-blue-200 border border-blue-500/30 italic">
+                    {currentTranscript}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {currentResponse && (
-              <div className="flex flex-col gap-1 items-start">
-                <span className="text-xs text-slate-500 px-1">Neerja · responding...</span>
-                <div className="max-w-[85%] px-4 py-2.5 rounded-xl rounded-bl-sm text-sm bg-slate-800 text-slate-100 border border-slate-700/50">
-                  {currentResponse}
-                  <span className="inline-block w-1.5 h-3.5 bg-blue-400 ml-1 animate-pulse rounded-sm align-middle" />
+              {currentResponse && (
+                <div className="flex flex-col gap-1 items-start">
+                  <span className="text-xs text-slate-500 px-1">Neerja · responding...</span>
+                  <div className="max-w-[85%] px-4 py-2.5 rounded-xl rounded-bl-sm text-sm bg-slate-800 text-slate-100 border border-slate-700/50">
+                    {currentResponse}
+                    <span className="inline-block w-1.5 h-3.5 bg-blue-400 ml-1 animate-pulse rounded-sm align-middle" />
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            <div ref={messagesEndRef} />
-          </div>
+              <div ref={messagesEndRef} />
+            </div>
+          )}
+
+          {/* CV panel */}
+          {leftTab === 'cv' && (
+            <div className="flex-1 overflow-y-auto p-4 bg-white">
+              {cvAnalysis ? (
+                <CVAnalysisDisplay analysis={cvAnalysis} onUpdate={setCvAnalysis} />
+              ) : (
+                <CVUpload
+                  sessionId={sessionId}
+                  onUploadSuccess={setCvAnalysis}
+                  onUploadError={() => {}}
+                />
+              )}
+            </div>
+          )}
         </div>
 
         {/* Right — Voice + Problem Statement + Editor */}
