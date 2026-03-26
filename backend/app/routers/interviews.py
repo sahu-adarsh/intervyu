@@ -186,7 +186,7 @@ async def get_cv_analysis(session_id: str):
             raise HTTPException(status_code=404, detail="Session not found")
 
         if not session_data.get("cv_uploaded"):
-            raise HTTPException(status_code=404, detail="No CV uploaded for this session")
+            return JSONResponse(content={"success": True, "analysis": None, "filename": ""})
 
         return JSONResponse(content={
             "success": True,

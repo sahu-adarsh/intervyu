@@ -446,8 +446,10 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
             await asyncio.sleep(0)  # Force context switch, let message send
             logger.info(f"[{datetime.now().strftime('%H:%M:%S')}] Transcript sent: {transcript}")
 
-            # Save to S3 in background (don't wait) and invalidate session cache
-            _invalidate_session_cache(session_id)
+            # Save user transcript to S3 in background (non-blocking).
+            # Do NOT invalidate the session cache here — the save is async so
+            # a re-fetch would get the same stale data anyway (wasting 100-200ms).
+            # Cache is invalidated at end of turn after the assistant response is saved.
             asyncio.create_task(asyncio.to_thread(
                 s3_service.update_session_transcript,
                 session_id,
