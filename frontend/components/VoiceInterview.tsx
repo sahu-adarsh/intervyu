@@ -290,9 +290,9 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
       await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/interviews/${sessionId}/end`, {
         method: 'POST',
       });
-      router.push('/');
+      router.push(`/interview/${sessionId}/report`);
     } catch {
-      router.push('/');
+      router.push(`/interview/${sessionId}/report`);
     }
   };
 
