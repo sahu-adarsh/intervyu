@@ -88,7 +88,7 @@ intervyu/
 - **SSL**: ACM cert `b4030462-0a7e-4ede-a076-09da4f122dc2` attached to CloudFront
 - **Backend**: EC2 `i-032c3535f7a8f1d89` (t3.small, Ubuntu), IP `44.200.25.1`, port 8000
 - **EC2 SSH**: `ssh -i ~/.ssh/prepai-backend-key.pem ubuntu@44.200.25.1`
-- **Restart backend**: `sudo systemctl restart prepai-backend`
+- **Restart backend**: `sudo systemctl restart intervyu-backend`
 - **Redeploy frontend**: `cd frontend && npm run build && aws s3 sync out/ s3://prepai-frontend-1773670407/ --delete && aws cloudfront create-invalidation --distribution-id EEQ8MGLCMSZXT --paths "/*"`
 - **Lambda deploy**: `cd lambda-tools && sam build && sam deploy`
 

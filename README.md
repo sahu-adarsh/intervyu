@@ -187,10 +187,10 @@ aws cloudfront create-invalidation --distribution-id YOUR_CF_ID --paths "/*"
 
 ```bash
 # Copy .env to server
-scp -i ~/.ssh/your-key.pem backend/.env ubuntu@YOUR_EC2_IP:/home/ubuntu/prepai/backend/.env
+scp -i ~/.ssh/your-key.pem backend/.env ubuntu@YOUR_EC2_IP:/home/ubuntu/intervyu/backend/.env
 
 # Restart service
-ssh -i ~/.ssh/your-key.pem ubuntu@YOUR_EC2_IP "sudo systemctl restart prepai-backend"
+ssh -i ~/.ssh/your-key.pem ubuntu@YOUR_EC2_IP "sudo systemctl restart intervyu-backend"
 ```
 ---
 

@@ -39,8 +39,8 @@ jobs:
             pip install -r backend/requirements.txt --quiet
 
             echo "Restarting backend service..."
-            sudo systemctl restart prepai-backend
+            sudo systemctl restart intervyu-backend
 
             echo "Waiting for service to come up..."
             sleep 3
-            sudo systemctl is-active --quiet prepai-backend && echo "Service is running." || (echo "Service failed to start!" && sudo journalctl -u prepai-backend -n 50 && exit 1)
+            sudo systemctl is-active --quiet intervyu-backend && echo "Service is running." || (echo "Service failed to start!" && sudo journalctl -u intervyu-backend -n 50 && exit 1)
