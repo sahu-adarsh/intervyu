@@ -8,7 +8,7 @@ import io
 import re
 import logging
 from typing import Dict, Any, List, Optional
-from app.config import AWS_REGION, AWS_ACCESS_KEY, AWS_SECRET_ACCESS_KEY
+from app.config import AWS_REGION, TEXTRACT_AWS_ACCESS_KEY, TEXTRACT_AWS_SECRET_ACCESS_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +17,8 @@ class TextractService:
         self.textract_client = boto3.client(
             'textract',
             region_name=AWS_REGION,
-            aws_access_key_id=AWS_ACCESS_KEY,
-            aws_secret_access_key=AWS_SECRET_ACCESS_KEY
+            aws_access_key_id=TEXTRACT_AWS_ACCESS_KEY,
+            aws_secret_access_key=TEXTRACT_AWS_SECRET_ACCESS_KEY
         )
 
     def extract_text_from_pdf(self, pdf_bytes: bytes) -> str:
