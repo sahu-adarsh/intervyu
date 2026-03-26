@@ -1,10 +1,13 @@
 'use client';
 
-// Suppress ONNX Runtime C++ WASM layer graph-optimizer warnings (harmless, dev-only noise)
+// Suppress ONNX Runtime warnings and VAD debug logs (harmless, noisy in production)
 if (typeof window !== 'undefined') {
+  const _log = console.log.bind(console);
   const _warn = console.warn.bind(console);
   const _error = console.error.bind(console);
   const isONNX = (s: unknown) => typeof s === 'string' && s.includes('onnxruntime');
+  const isVADDebug = (s: unknown) => typeof s === 'string' && s.startsWith('VAD | debug');
+  console.log = (...args: unknown[]) => { if (isVADDebug(args[0])) return; _log(...args); };
   console.warn = (...args: unknown[]) => { if (isONNX(args[0])) return; _warn(...args); };
   console.error = (...args: unknown[]) => { if (isONNX(args[0])) return; _error(...args); };
 }
@@ -134,10 +137,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
         const data = JSON.parse(event.data);
 
         if (data.type === 'transcript' && data.role === 'user') {
-          if (speechEndTimeRef.current !== null) {
-            console.log(`[latency] speech_end → transcript: ${Date.now() - speechEndTimeRef.current}ms`);
-            speechEndTimeRef.current = null;
-          }
+          speechEndTimeRef.current = null;
           // Flush any pending word reveals immediately
           if (wordRevealRef.current) { clearInterval(wordRevealRef.current); wordRevealRef.current = null; }
           wordQueueRef.current = [];
