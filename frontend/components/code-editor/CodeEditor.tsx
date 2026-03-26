@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react';
 import Editor from '@monaco-editor/react';
-import { Play, RotateCcw, Save, Loader2, CheckCircle, XCircle, ChevronDown } from 'lucide-react';
+import { Play, RotateCcw, Save, Loader2, CheckCircle, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface TestCase {
   input: string;
@@ -49,6 +49,7 @@ export default function CodeEditor({
   const [currentLanguage, setCurrentLanguage] = useState(language);
   const [isRunning, setIsRunning] = useState(false);
   const [testResults, setTestResults] = useState<TestResult | null>(null);
+  const [testResultsExpanded, setTestResultsExpanded] = useState(true);
   const [isLanguageDropdownOpen, setIsLanguageDropdownOpen] = useState(false);
   const editorRef = useRef<any>(null);
 
@@ -103,6 +104,7 @@ export default function CodeEditor({
 
       const result: TestResult = await response.json();
       setTestResults(result);
+      setTestResultsExpanded(true);
       onCodeSubmit?.(code, result, currentLanguage);
     } catch (error) {
       const errorResult: TestResult = {
@@ -113,6 +115,7 @@ export default function CodeEditor({
         error: error instanceof Error ? error.message : 'Execution failed'
       };
       setTestResults(errorResult);
+      setTestResultsExpanded(true);
       onCodeSubmit?.(code, errorResult, currentLanguage);
     } finally {
       setIsRunning(false);
@@ -223,8 +226,11 @@ export default function CodeEditor({
 
       {/* Test Results */}
       {testResults && (
-        <div className="border-t border-gray-200 bg-gray-50 p-3 sm:p-4 max-h-64 overflow-y-auto">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div className="border-t border-gray-200 bg-gray-50">
+          <button
+            onClick={() => setTestResultsExpanded(!testResultsExpanded)}
+            className="w-full px-3 sm:px-4 py-2.5 flex items-center justify-between hover:bg-gray-100 transition-colors"
+          >
             <h3 className="text-base sm:text-lg font-semibold text-gray-900">Test Results</h3>
             <div className="flex items-center gap-2">
               {testResults.allTestsPassed ? (
@@ -239,9 +245,11 @@ export default function CodeEditor({
                 </span>
               )}
               <span className="text-xs text-gray-500">({testResults.executionTime.toFixed(3)}s)</span>
+              {testResultsExpanded ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
             </div>
-          </div>
+          </button>
 
+          {testResultsExpanded && <div className="px-3 sm:px-4 pb-3 sm:pb-4 max-h-64 overflow-y-auto">
           {testResults.error ? (
             <div className="bg-red-50 border border-red-200 rounded-lg p-3">
               <p className="text-red-800 text-sm font-mono">{testResults.error}</p>
@@ -290,6 +298,7 @@ export default function CodeEditor({
               ))}
             </div>
           )}
+          </div>}
         </div>
       )}
     </div>
