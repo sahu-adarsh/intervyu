@@ -301,9 +301,9 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
         const updated = [entry, ...stored.filter((s: any) => s.sessionId !== sessionId)].slice(0, 20);
         localStorage.setItem('intervyu_sessions', JSON.stringify(updated));
       } catch {}
-      router.push(`/interview/${sessionId}/report`);
+      router.push(`/report?session=${sessionId}`);
     } catch {
-      router.push(`/interview/${sessionId}/report`);
+      router.push(`/report?session=${sessionId}`);
     }
   };
 

@@ -100,7 +100,7 @@ export default function HistoryPage() {
         ) : (
           <InterviewHistory
             sessions={sessions}
-            onSessionClick={(id) => router.push(`/interview/${id}/report`)}
+            onSessionClick={(id) => router.push(`/report?session=${id}`)}
           />
         )}
       </div>

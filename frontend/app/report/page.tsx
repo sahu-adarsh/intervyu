@@ -1,23 +1,27 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState, useRef } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import PerformanceDashboard from '@/components/performance/PerformanceDashboard';
 import { exportToPDF } from '@/components/common/PDFExport';
 import { Loader2, Home, RefreshCw } from 'lucide-react';
 
-export default function ReportPage() {
-  const params = useParams();
+function ReportContent() {
+  const searchParams = useSearchParams();
   const router = useRouter();
-  const sessionId = params.sessionId as string;
+  const sessionId = searchParams.get('session');
 
   const [report, setReport] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [retrying, setRetrying] = useState(false);
   const hasFetched = useRef(false);
 
   const fetchReport = async () => {
+    if (!sessionId) {
+      setError('No session ID provided.');
+      setLoading(false);
+      return;
+    }
     try {
       setError(null);
       const res = await fetch(
@@ -26,25 +30,22 @@ export default function ReportPage() {
       if (!res.ok) {
         throw new Error(res.status === 404 ? 'Report not ready yet.' : 'Failed to load report.');
       }
-      const data = await res.json();
-      setReport(data);
+      setReport(await res.json());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load report.');
     } finally {
       setLoading(false);
-      setRetrying(false);
     }
   };
 
   useEffect(() => {
-    if (!sessionId || hasFetched.current) return;
+    if (hasFetched.current) return;
     hasFetched.current = true;
     fetchReport();
   }, [sessionId]);
 
   const handleRetry = () => {
     setLoading(true);
-    setRetrying(true);
     hasFetched.current = false;
     fetchReport();
   };
@@ -76,10 +77,9 @@ export default function ReportPage() {
           <div className="flex items-center justify-center gap-3">
             <button
               onClick={handleRetry}
-              disabled={retrying}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
             >
-              <RefreshCw className={`w-4 h-4 ${retrying ? 'animate-spin' : ''}`} />
+              <RefreshCw className="w-4 h-4" />
               Retry
             </button>
             <button
@@ -98,20 +98,30 @@ export default function ReportPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
       <div className="max-w-4xl mx-auto space-y-4">
-        <div className="flex items-center justify-between">
-          <button
-            onClick={() => router.push('/')}
-            className="flex items-center gap-2 text-gray-500 hover:text-gray-800 transition-colors text-sm"
-          >
-            <Home className="w-4 h-4" />
-            Back to Home
-          </button>
-        </div>
+        <button
+          onClick={() => router.push('/')}
+          className="flex items-center gap-2 text-gray-500 hover:text-gray-800 transition-colors text-sm"
+        >
+          <Home className="w-4 h-4" />
+          Back to Home
+        </button>
 
         <div id="performance-report-content">
           <PerformanceDashboard report={report} onExportPDF={handleExportPDF} />
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ReportPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Loader2 className="w-10 h-10 animate-spin text-blue-500" />
+      </div>
+    }>
+      <ReportContent />
+    </Suspense>
   );
 }
