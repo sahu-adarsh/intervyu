@@ -593,7 +593,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 for i, word in enumerate(words):
                     chunk = word if i == 0 else ' ' + word
                     await websocket.send_json({"type": "llm_chunk", "text": chunk})
-                    await asyncio.sleep(0.04)  # ~25 words/sec — visible but not slow
+                    await asyncio.sleep(0)  # yield event loop control but don't artificially delay
                 logger.info(f"[TIMING] [4] Text stream done:     {(time.time()-text_stream_start)*1000:.0f}ms  ({len(words)} words @ 40ms/word)")
 
                 # Step D: Send audio in order — most TTS tasks are done by now

@@ -105,6 +105,11 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     model: 'legacy',     // legacy has ~20 ONNX warnings vs v5's 572; all suppressed by console filter above
     baseAssetPath: '/',
     onnxWASMBasePath: '/',
+    // Latency tuning: default redemptionMs = 1400ms — reduce to 600ms silence before speech_end fires
+    redemptionMs: 600,
+    // Higher thresholds reduce false triggers from background noise
+    positiveSpeechThreshold: 0.6,
+    negativeSpeechThreshold: 0.45,
     ortConfig: (ort) => {
       ort.env.logLevel = 'error';    // Suppress ONNX Runtime info/warning logs
       ort.env.wasm.numThreads = 1;   // Avoid SharedArrayBuffer requirement (no COOP/COEP headers needed)
@@ -199,7 +204,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
               }
               const word = wordQueueRef.current.shift()!;
               setCurrentResponse(prev => prev + word);
-            }, 150);
+            }, 40); // 40ms/word ≈ 25 words/sec — matches TTS speech pace
           }
         } else if (data.type === 'assistant_complete') {
           if (transcriptReceivedAtRef.current !== null) {
