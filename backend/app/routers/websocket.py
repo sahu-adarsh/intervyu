@@ -19,6 +19,13 @@ router = APIRouter()
 # Edge TTS voice - Indian English female (fast and natural)
 EDGE_TTS_VOICE = "en-IN-NeerjaNeural"
 
+# Persistent HTTP client — reuses TCP/TLS connection to Deepgram across all sessions
+# Creating a new AsyncClient per STT call costs 200-500ms for TCP+TLS handshake.
+_http_client = httpx.AsyncClient(
+    timeout=30.0,
+    limits=httpx.Limits(max_keepalive_connections=5, keepalive_expiry=30)
+)
+
 # In-memory session cache — avoids repeated S3 round-trips each voice turn
 _session_cache: dict = {}
 
@@ -216,18 +223,17 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
         start_time = time.time()
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    "https://api.deepgram.com/v1/listen?model=nova-2&language=en",
-                    headers={
-                        "Authorization": f"Token {DEEPGRAM_API_KEY}",
-                        "Content-Type": "audio/wav",
-                    },
-                    content=audio_data,
-                )
-                response.raise_for_status()
-                data = response.json()
-                text = data["results"]["channels"][0]["alternatives"][0]["transcript"]
+            response = await _http_client.post(
+                "https://api.deepgram.com/v1/listen?model=nova-2&language=en",
+                headers={
+                    "Authorization": f"Token {DEEPGRAM_API_KEY}",
+                    "Content-Type": "audio/wav",
+                },
+                content=audio_data,
+            )
+            response.raise_for_status()
+            data = response.json()
+            text = data["results"]["channels"][0]["alternatives"][0]["transcript"]
 
             elapsed = time.time() - start_time
             logger.info(f"[DEEPGRAM] Transcription took {elapsed:.2f}s")
@@ -426,11 +432,20 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
         logger.info(f"[TIMING] Voice turn started — audio: {audio_kb:.1f} KB")
 
         try:
-            # Step 1: Speech-to-Text
+            # Step 1: STT + session fetch in parallel — both are I/O-bound with no dependency
+            async def _warm_session():
+                if session_id not in _session_cache:
+                    _raw = await asyncio.to_thread(s3_service.get_session, session_id)
+                    _session_cache[session_id] = _raw or {}
+
             step_start = time.time()
-            transcript = await transcribe_audio(audio_data)
+            transcript, _ = await asyncio.gather(
+                transcribe_audio(audio_data),
+                _warm_session()
+            )
             step_elapsed = time.time() - step_start
             logger.info(f"[TIMING] [1] Deepgram STT:        {step_elapsed*1000:.0f}ms  (transcript: {len(transcript)} chars)")
+            logger.info(f"[TIMING] [2] Session fetch:        0ms  (ran in parallel with STT)")
 
             if not transcript:
                 processing = False
@@ -447,9 +462,6 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
             logger.info(f"[{datetime.now().strftime('%H:%M:%S')}] Transcript sent: {transcript}")
 
             # Save user transcript to S3 in background (non-blocking).
-            # Do NOT invalidate the session cache here — the save is async so
-            # a re-fetch would get the same stale data anyway (wasting 100-200ms).
-            # Cache is invalidated at end of turn after the assistant response is saved.
             asyncio.create_task(asyncio.to_thread(
                 s3_service.update_session_transcript,
                 session_id,
@@ -459,6 +471,13 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                     "timestamp": datetime.utcnow().isoformat()
                 }
             ))
+            # Update cache in-place so session_data next turn includes this user turn
+            if session_id in _session_cache:
+                _session_cache[session_id].setdefault("transcript", []).append({
+                    "role": "user",
+                    "content": transcript,
+                    "timestamp": datetime.utcnow().isoformat()
+                })
 
             # Step 2: Get response from Claude (direct streaming)
             logger.info(f"[{datetime.now()}] Starting Claude direct stream...")
@@ -467,22 +486,10 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
             bedrock_start = time.time()
 
             try:
-                # Get session state — async if cache miss to avoid blocking the event loop
-                session_state_start = time.time()
-                if session_id not in _session_cache:
-                    _raw = await asyncio.to_thread(s3_service.get_session, session_id)
-                    _session_cache[session_id] = _raw or {}
-                session_data = _session_cache[session_id]
-                session_state_elapsed = time.time() - session_state_start
-                logger.info(f"[TIMING] [2] Session fetch:        {session_state_elapsed*1000:.0f}ms  (cached={session_id in _session_cache})")
-
-                # Debug: Log session data
-                logger.info(f"[{session_id}] Session data retrieved:")
-                logger.info(f"  - candidate_name: {session_data.get('candidate_name') if session_data else 'NO SESSION DATA'}")
-                logger.info(f"  - interview_type: {session_data.get('interview_type') if session_data else 'NO SESSION DATA'}")
+                session_data = _session_cache.get(session_id, {})
 
                 # Count turns from transcript to determine current phase
-                transcript_history = session_data.get("transcript", []) if session_data else []
+                transcript_history = session_data.get("transcript", [])
                 turn_count = len([msg for msg in transcript_history if msg.get("role") == "user"])
 
                 # Get interview configuration to determine phase progression
@@ -692,13 +699,19 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 })
                 logger.info(f"[{session_id}] Code editor signal sent to frontend")
 
-            # Save assistant response to transcript and invalidate cache
+            # Save assistant response to transcript and update cache in-place
             s3_service.update_session_transcript(session_id, {
                 "role": "assistant",
                 "content": full_response,
                 "timestamp": datetime.utcnow().isoformat()
             })
-            _invalidate_session_cache(session_id)  # next turn re-fetches fresh transcript
+            # Update cache in-place — next turn session fetch is a free dict lookup (0ms)
+            if session_id in _session_cache:
+                _session_cache[session_id].setdefault("transcript", []).append({
+                    "role": "assistant",
+                    "content": full_response,
+                    "timestamp": datetime.utcnow().isoformat()
+                })
 
             accumulated_transcript = ""
 
