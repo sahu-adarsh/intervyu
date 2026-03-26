@@ -144,7 +144,7 @@ export default function Home() {
         <div className="space-y-2">
           <h1 className="text-2xl sm:text-3xl font-bold text-white">Start an Interview</h1>
           <p className="text-slate-400 text-sm max-w-lg">
-            Real-time voice interview with AI. Select a type, enter your name, and begin.
+            Real-time voice interview with Intervyu AI.
           </p>
         </div>
 
