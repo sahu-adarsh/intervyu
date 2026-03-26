@@ -217,15 +217,12 @@ export default function Home() {
           </div>
 
           <div className="max-w-md border border-slate-700 rounded-xl bg-slate-900 overflow-hidden">
-            {/* Collapsible header */}
-            <button
-              onClick={() => setCvExpanded(!cvExpanded)}
-              className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-800/50 transition-colors"
-            >
-              <div className="flex items-center gap-2.5">
+            {/* Collapsible header — split into toggle area + action buttons to avoid nested buttons */}
+            <div className="flex items-center px-4 py-3 hover:bg-slate-800/50 transition-colors cursor-pointer" onClick={() => setCvExpanded(!cvExpanded)}>
+              <div className="flex items-center gap-2.5 flex-1 min-w-0">
                 <FileText size={15} className={cvFile ? 'text-emerald-400' : 'text-slate-500'} />
                 {cvFile ? (
-                  <span className="text-sm text-slate-200">
+                  <span className="text-sm text-slate-200 truncate">
                     {cvFile.name}
                     <span className="text-slate-500 ml-2 text-xs">{formatBytes(cvFile.size)}</span>
                   </span>
@@ -246,7 +243,7 @@ export default function Home() {
                 )}
                 {cvExpanded ? <ChevronUp size={14} className="text-slate-500" /> : <ChevronDown size={14} className="text-slate-500" />}
               </div>
-            </button>
+            </div>
 
             {/* Expandable drop zone */}
             {cvExpanded && !cvFile && (
