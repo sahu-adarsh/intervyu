@@ -105,13 +105,15 @@ export default function CodeEditor({
       setTestResults(result);
       onCodeSubmit?.(code, result, currentLanguage);
     } catch (error) {
-      setTestResults({
+      const errorResult: TestResult = {
         success: false,
         testResults: [],
         allTestsPassed: false,
         executionTime: 0,
         error: error instanceof Error ? error.message : 'Execution failed'
-      });
+      };
+      setTestResults(errorResult);
+      onCodeSubmit?.(code, errorResult, currentLanguage);
     } finally {
       setIsRunning(false);
     }
