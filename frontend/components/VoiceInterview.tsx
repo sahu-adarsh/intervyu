@@ -211,6 +211,16 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     };
   }, [sessionId]);
 
+  // Pre-load CV analysis if it was uploaded on the home page before the interview
+  useEffect(() => {
+    if (cvAnalysis) return; // already set
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    fetch(`${apiUrl}/api/interviews/${sessionId}/cv-analysis`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.analysis) setCvAnalysis(data.analysis); })
+      .catch(() => {});
+  }, [sessionId]);
+
   useEffect(() => {
     if (isActive) {
       timerRef.current = setInterval(() => {

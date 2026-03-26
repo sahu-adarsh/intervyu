@@ -13,6 +13,7 @@ function InterviewSessionContent() {
 
   const interviewType = searchParams.get('type');
   const candidateName = searchParams.get('name');
+  const existingSession = searchParams.get('session');
 
   useEffect(() => {
     if (!interviewType || !candidateName) {
@@ -20,7 +21,14 @@ function InterviewSessionContent() {
       return;
     }
 
-    // Create a new interview session
+    // If session was pre-created on the home page (with CV upload), use it directly
+    if (existingSession) {
+      setSessionId(existingSession);
+      setLoading(false);
+      return;
+    }
+
+    // Otherwise create a new session
     const createSession = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -49,7 +57,7 @@ function InterviewSessionContent() {
     };
 
     createSession();
-  }, [interviewType, candidateName, router]);
+  }, [interviewType, candidateName, existingSession, router]);
 
   if (loading) {
     return (

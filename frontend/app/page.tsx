@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Code2, Cloud, Users, Terminal, History } from 'lucide-react';
+import { Code2, Cloud, Users, Terminal, History, FileText, ChevronDown, ChevronUp, X, Upload } from 'lucide-react';
 
 type InterviewType = {
   id: string;
@@ -29,16 +29,86 @@ const categoryMeta: Record<string, { color: string; icon: React.ReactNode }> = {
   Coding:      { color: 'text-amber-400 bg-amber-400/10',  icon: <Terminal size={14} /> },
 };
 
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export default function Home() {
   const router = useRouter();
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [candidateName, setCandidateName] = useState('');
 
-  const canStart = selectedType && candidateName.trim();
+  // CV upload state
+  const [cvFile, setCvFile] = useState<File | null>(null);
+  const [cvExpanded, setCvExpanded] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleStart = () => {
+  // Start flow state
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+
+  const canStart = selectedType && candidateName.trim() && !starting;
+
+  const handleFileSelect = useCallback((file: File) => {
+    const allowed = ['application/pdf', 'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain'];
+    if (!allowed.includes(file.type) && !file.name.match(/\.(pdf|doc|docx|txt)$/i)) {
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) return; // 10 MB limit
+    setCvFile(file);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFileSelect(file);
+  }, [handleFileSelect]);
+
+  const handleStart = async () => {
     if (!canStart) return;
-    router.push(`/interview/new?type=${selectedType}&name=${encodeURIComponent(candidateName)}`);
+    setStarting(true);
+    setStartError(null);
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+      // Create session
+      const sessionRes = await fetch(`${apiUrl}/api/sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          interview_type: selectedType,
+          candidate_name: candidateName.trim(),
+        }),
+      });
+      if (!sessionRes.ok) throw new Error('Failed to create session');
+      const { session_id } = await sessionRes.json();
+
+      // Upload CV if provided (non-blocking — failure doesn't prevent interview)
+      if (cvFile) {
+        try {
+          const fd = new FormData();
+          fd.append('file', cvFile);
+          await fetch(`${apiUrl}/api/interviews/${session_id}/upload-cv`, {
+            method: 'POST',
+            body: fd,
+          });
+        } catch {
+          // CV upload failed silently — interview continues without CV context
+        }
+      }
+
+      router.push(`/interview/new?type=${selectedType}&name=${encodeURIComponent(candidateName.trim())}&session=${session_id}`);
+    } catch (err) {
+      setStartError((err as Error).message || 'Something went wrong. Please try again.');
+      setStarting(false);
+    }
   };
 
   return (
@@ -138,22 +208,109 @@ export default function Home() {
           />
         </div>
 
-        {/* Step 3 — Start */}
+        {/* Step 3 — Upload CV (optional) */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <span className={`w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0 transition-colors ${candidateName.trim() ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400'}`}>3</span>
+            <label className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Upload CV</label>
+            <span className="text-xs text-slate-600">(optional)</span>
+          </div>
+
+          <div className="max-w-md border border-slate-700 rounded-xl bg-slate-900 overflow-hidden">
+            {/* Collapsible header */}
+            <button
+              onClick={() => setCvExpanded(!cvExpanded)}
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-800/50 transition-colors"
+            >
+              <div className="flex items-center gap-2.5">
+                <FileText size={15} className={cvFile ? 'text-emerald-400' : 'text-slate-500'} />
+                {cvFile ? (
+                  <span className="text-sm text-slate-200">
+                    {cvFile.name}
+                    <span className="text-slate-500 ml-2 text-xs">{formatBytes(cvFile.size)}</span>
+                  </span>
+                ) : (
+                  <span className="text-sm text-slate-400">
+                    Upload your CV — Neerja will personalise questions to your background
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {cvFile && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setCvFile(null); }}
+                    className="p-1 rounded hover:bg-slate-700 text-slate-500 hover:text-slate-300 transition-colors"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+                {cvExpanded ? <ChevronUp size={14} className="text-slate-500" /> : <ChevronDown size={14} className="text-slate-500" />}
+              </div>
+            </button>
+
+            {/* Expandable drop zone */}
+            {cvExpanded && !cvFile && (
+              <div className="px-4 pb-4">
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+                  onDragLeave={() => setIsDragOver(false)}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`border-2 border-dashed rounded-lg px-6 py-8 text-center cursor-pointer transition-colors ${
+                    isDragOver
+                      ? 'border-blue-500 bg-blue-500/10'
+                      : 'border-slate-700 hover:border-slate-500 hover:bg-slate-800/50'
+                  }`}
+                >
+                  <Upload size={22} className="mx-auto mb-2 text-slate-600" />
+                  <p className="text-sm text-slate-400">Drop your CV here or <span className="text-blue-400">browse</span></p>
+                  <p className="text-xs text-slate-600 mt-1">PDF, DOCX, TXT · max 10 MB</p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.doc,.docx,.txt"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) { handleFileSelect(f); setCvExpanded(false); }
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Step 4 — Start */}
         <div className="space-y-3 pb-4">
           <div className="flex items-center gap-2">
-            <span className={`w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0 transition-colors ${canStart ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400'}`}>3</span>
+            <span className={`w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0 transition-colors ${canStart ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400'}`}>4</span>
             <label className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Begin</label>
           </div>
+
+          {startError && (
+            <p className="text-xs text-red-400 bg-red-950/40 border border-red-800 rounded-lg px-3 py-2 max-w-md">
+              {startError}
+            </p>
+          )}
+
           <button
             onClick={handleStart}
             disabled={!canStart}
-            className={`w-full sm:w-auto px-8 py-3 rounded-lg text-sm font-semibold transition-all duration-150 ${
+            className={`w-full sm:w-auto px-8 py-3 rounded-lg text-sm font-semibold transition-all duration-150 flex items-center gap-2 ${
               canStart
                 ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30'
                 : 'bg-slate-800 text-slate-500 cursor-not-allowed'
             }`}
           >
-            {canStart ? `Start Interview →` : 'Select a type and enter your name'}
+            {starting ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                {cvFile ? 'Uploading CV & setting up...' : 'Setting up...'}
+              </>
+            ) : (
+              canStart ? `Start Interview →` : 'Select a type and enter your name'
+            )}
           </button>
         </div>
       </main>
