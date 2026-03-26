@@ -53,13 +53,13 @@ Browser
                                reports)    └── performance-evaluator
                       │
                  Textract (CV parsing)
-                 Whisper  (speech-to-text)
+                 Deepgram (speech-to-text, cloud API)
                  edge-tts (text-to-speech)
 ```
 
 **Frontend**: Next.js 15, React 19, TypeScript, Tailwind CSS 4, Monaco Editor, Recharts
 
-**Backend**: FastAPI (Python 3.11), faster-whisper (STT), edge-tts (TTS), WebSockets
+**Backend**: FastAPI (Python 3.11), Deepgram Nova-2 (STT), edge-tts (TTS), WebSockets
 
 **AWS**: Bedrock Agent, S3, Lambda (SAM), Textract, CloudFront, ACM, EC2
 
@@ -151,7 +151,7 @@ BEDROCK_AGENT_ID=
 BEDROCK_AGENT_ALIAS_ID=
 BEDROCK_KNOWLEDGE_BASE_ID=
 
-WHISPER_MODEL=small
+DEEPGRAM_API_KEY=
 TTS_VOICE=en-IN-NeerjaExpressiveNeural
 
 LAMBDA_CODE_EXECUTOR=prepai-code-executor

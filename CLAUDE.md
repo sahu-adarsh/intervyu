@@ -63,7 +63,7 @@ intervyu/
 ## Tech Stack
 
 ### Backend (FastAPI)
-- **STT**: faster-whisper (`small` model, Apple Silicon int8 quantized)
+- **STT**: Deepgram Nova-2 API (cloud, `httpx` async POST to `api.deepgram.com/v1/listen`)
 - **TTS**: edge-tts (`en-IN-NeerjaExpressiveNeural` voice, WAV chunks streamed)
 - **AI**: AWS Bedrock Agent (Claude Haiku 4.5 — `us.anthropic.claude-haiku-4-5-20251001-v1:0`) + RAG Knowledge Base
 - **Storage**: S3 (`prepai-user-data-2026`) — sessions JSON, CVs, audio, reports
@@ -148,7 +148,7 @@ S3_BUCKET_KNOWLEDGE_BASE=prepai-knowledge-base-2026
 BEDROCK_AGENT_ID=QWKJJLWIUO
 BEDROCK_AGENT_ALIAS_ID=TSTALIASID
 BEDROCK_KNOWLEDGE_BASE_ID=FGBOJOTC4C
-WHISPER_MODEL=small
+DEEPGRAM_API_KEY=...
 TTS_VOICE=en-IN-NeerjaExpressiveNeural
 LAMBDA_CODE_EXECUTOR=prepai-code-executor
 LAMBDA_CV_ANALYZER=prepai-cv-analyzer
@@ -214,12 +214,13 @@ Phase 5 (Production) — live at `https://intervyu.io`:
 Each type has configurable phases with duration targets and evaluation guidelines defined in `backend/app/config/interview_types.py`.
 
 ## Performance Notes
-- Whisper model loads lazily on first request
+- STT via Deepgram Nova-2 API (~300–500ms cloud GPU, replaces local faster-whisper which was 3–9s on t3.small)
 - Bedrock connection pool: 50 max connections with adaptive retries
 - TTS is sentence-chunked for low latency streaming
 - S3 saves are non-blocking (asyncio background tasks)
 - Hardcoded fast intro to avoid Bedrock cold start on session open
 - Silero VAD (neural ONNX) replaces amplitude VAD — eliminates mid-sentence cut-offs; audio sent as single WAV blob per utterance
+- End-to-end latency (speech_end → transcript displayed): ~1–2.5s measured production (2026-03-26)
 
 ---
 
