@@ -465,9 +465,12 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
             bedrock_start = time.time()
 
             try:
-                # Get session state (cached — avoids S3 round-trip on every turn)
+                # Get session state — async if cache miss to avoid blocking the event loop
                 session_state_start = time.time()
-                session_data = _get_cached_session(s3_service, session_id)
+                if session_id not in _session_cache:
+                    _raw = await asyncio.to_thread(s3_service.get_session, session_id)
+                    _session_cache[session_id] = _raw or {}
+                session_data = _session_cache[session_id]
                 session_state_elapsed = time.time() - session_state_start
                 logger.info(f"[TIMING] [2] Session fetch:        {session_state_elapsed*1000:.0f}ms  (cached={session_id in _session_cache})")
 
@@ -556,8 +559,37 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 # Sentence boundary: punctuation followed by whitespace
                 sentence_boundary = re.compile(r'(?<=[.!?])\s+')
 
-                # Step A: Stream tokens — send to frontend immediately, fire TTS per complete sentence
-                tts_tasks = []
+                # Step A+B concurrent: stream tokens + fire TTS per sentence + send audio immediately
+                # Audio sender runs concurrently — sends each audio chunk as soon as its TTS task resolves,
+                # without waiting for the full Claude stream to finish.
+                tts_queue: asyncio.Queue = asyncio.Queue()
+                tts_count = 0
+                first_audio_sent = False
+
+                async def _audio_sender():
+                    nonlocal first_audio_sent
+                    while True:
+                        task = await tts_queue.get()
+                        if task is None:  # sentinel — all TTS tasks enqueued
+                            break
+                        audio_bytes = await task
+                        if len(audio_bytes) > 44:
+                            if not first_audio_sent:
+                                first_audio_sent = True
+                                logger.info(f"[TIMING] [5] First audio sent:     +{(time.time()-overall_start)*1000:.0f}ms total  ({len(audio_bytes)//1024} KB)")
+                            await websocket.send_bytes(audio_bytes)
+
+                audio_sender_task = asyncio.create_task(_audio_sender())
+
+                def _fire_tts(text: str):
+                    nonlocal tts_count
+                    cleaned = clean_agent_response(text)
+                    if cleaned:
+                        task = asyncio.create_task(text_to_speech(cleaned))
+                        tts_queue.put_nowait(task)
+                        tts_count += 1
+                        logger.info(f"[TIMING] [4] TTS fired (stream):     +{(time.time()-overall_start)*1000:.0f}ms")
+
                 tts_buffer = ""
                 problem_detected = False  # [PROBLEM] tag seen → switch to batch TTS
 
@@ -574,14 +606,10 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                         # Detect [PROBLEM] tag — switch to batch TTS for coding questions
                         if re.search(r'\[PROBLEM\]', tts_buffer, re.IGNORECASE):
                             problem_detected = True
-                            # TTS the intro sentence(s) spoken before the problem
                             intro = re.split(r'\[PROBLEM\]', tts_buffer, maxsplit=1, flags=re.IGNORECASE)[0]
                             for sent in re.split(r'(?<=[.!?])\s', intro.strip()):
-                                sent = sent.strip()
-                                if sent:
-                                    cleaned = clean_agent_response(sent)
-                                    if cleaned:
-                                        tts_tasks.append(asyncio.create_task(text_to_speech(cleaned)))
+                                if sent.strip():
+                                    _fire_tts(sent.strip())
                             tts_buffer = ""
                         else:
                             # Fire TTS per complete sentence as tokens arrive
@@ -591,43 +619,29 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                                     break
                                 sentence = tts_buffer[:m.start() + 1].strip()
                                 tts_buffer = tts_buffer[m.end():]
-                                cleaned = clean_agent_response(sentence)
-                                if cleaned:
-                                    tts_tasks.append(asyncio.create_task(text_to_speech(cleaned)))
-                                    logger.info(f"[TIMING] [4] TTS fired (stream):     +{(time.time()-overall_start)*1000:.0f}ms")
+                                _fire_tts(sentence)
 
                 bedrock_total = time.time() - bedrock_start
                 logger.info(f"[TIMING] [3] Claude complete:      {bedrock_total*1000:.0f}ms  (+{(time.time()-overall_start)*1000:.0f}ms total | {len(full_response)} chars)")
 
                 # Flush remaining buffer (last sentence may not end with whitespace)
                 if not problem_detected and tts_buffer.strip():
-                    cleaned = clean_agent_response(tts_buffer.strip())
-                    if cleaned:
-                        tts_tasks.append(asyncio.create_task(text_to_speech(cleaned)))
+                    _fire_tts(tts_buffer.strip())
 
                 # For coding questions: batch TTS for the problem description text
                 if problem_detected:
                     problem_match = re.search(r'\[PROBLEM\](.*?)\[/PROBLEM\]', full_response, re.IGNORECASE | re.DOTALL)
                     if problem_match:
                         for sent in re.split(r'(?<=[.!?])\s', problem_match.group(1).strip()):
-                            sent = sent.strip()
-                            if sent:
-                                cleaned = clean_agent_response(sent)
-                                if cleaned:
-                                    tts_tasks.append(asyncio.create_task(text_to_speech(cleaned)))
+                            if sent.strip():
+                                _fire_tts(sent.strip())
 
-                logger.info(f"[TIMING] [4] All TTS tasks fired:  +{(time.time()-overall_start)*1000:.0f}ms  ({len(tts_tasks)} tasks)")
+                logger.info(f"[TIMING] [4] All TTS tasks fired:  +{(time.time()-overall_start)*1000:.0f}ms  ({tts_count} tasks)")
 
-                # Step B: Send audio in order — TTS tasks started during streaming, most are already done
-                first_audio_sent = False
-                for task in tts_tasks:
-                    audio_bytes = await task
-                    if len(audio_bytes) > 44:
-                        if not first_audio_sent:
-                            first_audio_sent = True
-                            logger.info(f"[TIMING] [5] First audio sent:     +{(time.time()-overall_start)*1000:.0f}ms total  ({len(audio_bytes)//1024} KB)")
-                        await websocket.send_bytes(audio_bytes)
-                if tts_tasks:
+                # Signal audio sender that all tasks are enqueued, then wait for it to finish
+                await tts_queue.put(None)
+                await audio_sender_task
+                if tts_count:
                     logger.info(f"[TIMING] [5] Last audio sent:      +{(time.time()-overall_start)*1000:.0f}ms total")
 
             except Exception as e:
