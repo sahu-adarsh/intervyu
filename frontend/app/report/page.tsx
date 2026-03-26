@@ -30,7 +30,8 @@ function ReportContent() {
       if (!res.ok) {
         throw new Error(res.status === 404 ? 'Report not ready yet.' : 'Failed to load report.');
       }
-      setReport(await res.json());
+      const data = await res.json();
+      setReport(data.report ?? data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load report.');
     } finally {
