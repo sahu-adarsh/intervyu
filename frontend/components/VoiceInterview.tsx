@@ -182,13 +182,13 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
           const lang = data.language || 'python';
           const question = data.question || '';
           if (question) {
-            setCodingQuestion(prev => prev ?? {
+            setCodingQuestion({
               question,
               language: lang,
               testCases: data.testCases || [],
               initialCode: data.initialCode || ''
             });
-            setCurrentLanguage(prev => prev || lang);
+            setCurrentLanguage(lang);
           }
           setShowCodeEditor(true);
         } else if (data.type === 'error') {
