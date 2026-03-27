@@ -1,8 +1,8 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.services.bedrock_service import BedrockService
 from app.services.s3_service import S3Service
-from app.config.settings import DEEPGRAM_API_KEY
-import edge_tts
+from app.config.settings import DEEPGRAM_API_KEY, AZURE_SPEECH_KEY, AZURE_SPEECH_REGION
+import azure.cognitiveservices.speech as speechsdk
 import httpx
 import io
 import os
@@ -16,8 +16,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Edge TTS voice - Indian English female (fast and natural)
-EDGE_TTS_VOICE = "en-IN-NeerjaNeural"
+# Azure Speech SDK — module-level config (persistent connection per synthesizer instance)
+# en-IN-NeerjaExpressiveNeural is the same voice edge-tts used, via the official SDK
+_speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_SPEECH_REGION)
+_speech_config.speech_synthesis_voice_name = "en-IN-NeerjaExpressiveNeural"
+_speech_config.set_speech_synthesis_output_format(
+    speechsdk.SpeechSynthesisOutputFormat.Riff16Khz16BitMonoPcm  # WAV — browser decodes natively
+)
 
 # Persistent HTTP client — reuses TCP/TLS connection to Deepgram across all sessions
 # Creating a new AsyncClient per STT call costs 200-500ms for TCP+TLS handshake.
@@ -244,10 +249,12 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
 
     async def text_to_speech(text: str) -> bytes:
         """
-        Convert text to speech using Edge TTS (Microsoft Azure).
-        Fast, free, and high-quality neural voices.
+        Convert text to speech using Azure Cognitive Services Speech SDK.
+        Same en-IN-NeerjaExpressiveNeural voice as edge-tts, but via the official SDK
+        which maintains a persistent connection — ~50-200ms vs edge-tts's 200-2700ms.
         """
         import time
+        import html
         start_time = time.time()
 
         # Expand acronyms so TTS reads them as individual letters
@@ -265,23 +272,28 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
             text = re.sub(pattern, replacement, text)
 
         try:
-            # Create Edge TTS communication — rate +20% for a brisker pace
-            communicate = edge_tts.Communicate(text, EDGE_TTS_VOICE, rate="+20%")
-
-            # Generate audio and collect chunks
-            audio_buffer = io.BytesIO()
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    audio_buffer.write(chunk["data"])
+            # SSML with +20% rate — same pace as the old edge-tts call
+            # html.escape() prevents XML injection from special chars in text
+            ssml = (
+                '<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-IN">'
+                '<voice name="en-IN-NeerjaExpressiveNeural">'
+                f'<prosody rate="+20%">{html.escape(text)}</prosody>'
+                '</voice></speak>'
+            )
+            # New synthesizer per call — safe for concurrent sentence tasks
+            synthesizer = speechsdk.SpeechSynthesizer(speech_config=_speech_config, audio_config=None)
+            result = await asyncio.to_thread(lambda: synthesizer.speak_ssml_async(ssml).get())
 
             elapsed = time.time() - start_time
-            logger.info(f"[EDGE-TTS] Generated {len(text)} chars in {elapsed:.2f}s (~{len(text)/elapsed:.0f} chars/s)")
-
-            return audio_buffer.getvalue()
+            if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+                logger.info(f"[AZURE-TTS] {len(text)} chars in {elapsed*1000:.0f}ms ({len(result.audio_data)} bytes)")
+                return result.audio_data
+            else:
+                details = result.cancellation_details.error_details if result.cancellation_details else "unknown"
+                logger.error(f"[AZURE-TTS] Failed: {result.reason} — {details}")
+                return b""
         except Exception as e:
-            logger.error(f"[EDGE-TTS] Error: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"[AZURE-TTS] Error: {e}")
             return b""
 
     async def send_interviewer_introduction():

@@ -26,5 +26,9 @@ WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
 # Deepgram STT
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
 
+# Azure Cognitive Services Speech (TTS)
+AZURE_SPEECH_KEY = os.getenv("AZURE_SPEECH_KEY", "")
+AZURE_SPEECH_REGION = os.getenv("AZURE_SPEECH_REGION", "eastus")
+
 # WebSocket Configuration
 WS_CONNECTION_TIMEOUT = int(os.getenv("WS_CONNECTION_TIMEOUT", "900"))  # 15 minutes
