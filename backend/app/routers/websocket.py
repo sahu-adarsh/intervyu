@@ -235,6 +235,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
     accumulated_transcript = ""
     processing = False
     interview_started = False
+    last_turn_completed_at: float = 0.0  # monotonic time when last turn finished
 
     async def transcribe_audio(audio_data: bytes) -> str:
         """Convert audio to text using Deepgram Nova-2"""
@@ -447,7 +448,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
 
     async def process_voice_turn(audio_data: bytes):
         """Process complete voice turn: STT -> Bedrock -> TTS"""
-        nonlocal processing, accumulated_transcript
+        nonlocal processing, accumulated_transcript, last_turn_completed_at
 
         if processing:
             return
@@ -478,6 +479,19 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
             logger.info(f"[TIMING] [2] Session fetch:        0ms  (ran in parallel with STT)")
 
             if not transcript:
+                processing = False
+                return
+
+            # Short-utterance guard: if the transcript is very short (≤3 words) AND arrives
+            # within 3s of the last turn finishing, it's almost certainly a VAD mis-fire
+            # (thinking pause cut-off, stray noise, echo fragment). Drop it silently.
+            # Legitimate short answers ("Yes", "No", "O of n") are fine because they only
+            # arrive AFTER a full silence gap, not right after a completed turn.
+            import time as _t
+            word_count = len(transcript.split())
+            time_since_last_turn = _t.monotonic() - last_turn_completed_at
+            if word_count <= 3 and time_since_last_turn < 3.0:
+                logger.info(f"[VAD-GUARD] Dropped short fragment ({word_count}w, {time_since_last_turn:.1f}s after last turn): '{transcript}'")
                 processing = False
                 return
 
@@ -783,6 +797,8 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 "message": str(e)
             })
         finally:
+            import time as _t
+            last_turn_completed_at = _t.monotonic()
             processing = False
 
     # Main WebSocket loop

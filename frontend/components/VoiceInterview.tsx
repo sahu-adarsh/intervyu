@@ -105,8 +105,8 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     model: 'legacy',     // legacy has ~20 ONNX warnings vs v5's 572; all suppressed by console filter above
     baseAssetPath: '/',
     onnxWASMBasePath: '/',
-    // Latency tuning: default redemptionMs = 1400ms — reduce to 600ms silence before speech_end fires
-    redemptionMs: 600,
+    // 1800ms silence before speech_end fires — catches mid-thought pauses without sluggish UX
+    redemptionMs: 1800,
     // Higher thresholds reduce false triggers from background noise
     positiveSpeechThreshold: 0.6,
     negativeSpeechThreshold: 0.45,
