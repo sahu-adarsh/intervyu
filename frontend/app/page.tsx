@@ -118,8 +118,11 @@ export default function Home() {
       <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-lg font-bold tracking-tight text-white">intervyu.io</span>
-            <span className="text-xs text-slate-500 hidden sm:inline">AI-powered interview preparation</span>
+            <img src="/logo-icon.svg" alt="intervyu" className="h-8 w-8" />
+            <span className="text-xl font-bold tracking-tight leading-none">
+              <span className="text-white">interv</span>
+              <span className="bg-gradient-to-r from-blue-400 to-teal-400 bg-clip-text text-transparent">yu</span>
+            </span>
           </div>
           <div className="flex items-center gap-4">
             <button
