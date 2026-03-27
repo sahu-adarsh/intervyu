@@ -595,8 +595,37 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                             return
                         yield token
 
-                # Sentence boundary: punctuation followed by whitespace
-                sentence_boundary = re.compile(r'(?<=[.!?])\s+')
+                # TTS split helper — hard split at .!?, soft split at ,; only for long chunks
+                def _find_tts_split(buf: str):
+                    """
+                    Returns (chunk, remainder) if a split point is found, else (None, buf).
+                    Hard split: .!? followed by whitespace — always.
+                    Soft split: , or ; followed by whitespace — only when chunk > 60 chars
+                    AND remainder after the comma > 20 chars (prevents tiny prosody-killing fragments).
+                    """
+                    m_hard = re.search(r'(?<=[.!?])\s+', buf)
+                    m_soft = re.search(r'(?<=[,;])\s+', buf)
+
+                    use_pos = None
+                    use_end = None
+
+                    if m_hard:
+                        use_pos = m_hard.start() + 1
+                        use_end = m_hard.end()
+
+                    if m_soft:
+                        # Prefer soft split only if it comes before any hard split
+                        if m_hard is None or m_soft.start() < m_hard.start():
+                            soft_chunk = buf[:m_soft.start() + 1].strip()
+                            soft_remainder = buf[m_soft.end():]
+                            if len(soft_chunk) > 60 and len(soft_remainder) > 20:
+                                use_pos = m_soft.start() + 1
+                                use_end = m_soft.end()
+
+                    if use_pos is None:
+                        return None, buf
+
+                    return buf[:use_pos].strip(), buf[use_end:]
 
                 # Step A+B concurrent: stream tokens + fire TTS per sentence + send audio immediately
                 # Audio sender runs concurrently — sends each audio chunk as soon as its TTS task resolves,
@@ -651,14 +680,12 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                                     _fire_tts(sent.strip())
                             tts_buffer = ""
                         else:
-                            # Fire TTS per complete sentence as tokens arrive
+                            # Fire TTS per sentence/clause as tokens arrive
                             while True:
-                                m = sentence_boundary.search(tts_buffer)
-                                if not m:
+                                chunk, tts_buffer = _find_tts_split(tts_buffer)
+                                if chunk is None:
                                     break
-                                sentence = tts_buffer[:m.start() + 1].strip()
-                                tts_buffer = tts_buffer[m.end():]
-                                _fire_tts(sentence)
+                                _fire_tts(chunk)
 
                 bedrock_total = time.time() - bedrock_start
                 logger.info(f"[TIMING] [3] Claude complete:      {bedrock_total*1000:.0f}ms  (+{(time.time()-overall_start)*1000:.0f}ms total | {len(full_response)} chars)")
