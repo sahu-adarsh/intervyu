@@ -17,12 +17,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Azure Speech SDK — module-level config + pool of persistent synthesizers
-# en-IN-NeerjaExpressiveNeural is the same voice edge-tts used, via the official SDK.
+# en-IN-NeerjaNeural via the official SDK.
 # MP3 output matches edge-tts quality (~10-15KB/sentence vs 95-280KB for WAV).
 # Pool of 3 synthesizers handles up to 3 concurrent sentence TTS tasks per turn;
 # each instance keeps its Azure WebSocket alive across turns (~50-200ms vs ~700ms cold).
 _speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_SPEECH_REGION)
-_speech_config.speech_synthesis_voice_name = "en-IN-NeerjaExpressiveNeural"
+_speech_config.speech_synthesis_voice_name = "en-IN-NeerjaNeural"
 _speech_config.set_speech_synthesis_output_format(
     speechsdk.SpeechSynthesisOutputFormat.Audio24Khz48KBitRateMonoMp3  # MP3 — matches edge-tts size
 )
@@ -264,7 +264,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
     async def text_to_speech(text: str) -> bytes:
         """
         Convert text to speech using Azure Cognitive Services Speech SDK.
-        Same en-IN-NeerjaExpressiveNeural voice as edge-tts, but via the official SDK
+        en-IN-NeerjaNeural voice via the official SDK
         which maintains a persistent connection — ~50-200ms vs edge-tts's 200-2700ms.
         """
         import time
@@ -290,7 +290,7 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
             # html.escape() prevents XML injection from special chars in text
             ssml = (
                 '<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-IN">'
-                '<voice name="en-IN-NeerjaExpressiveNeural">'
+                '<voice name="en-IN-NeerjaNeural">'
                 f'<prosody rate="+20%">{html.escape(text)}</prosody>'
                 '</voice></speak>'
             )

@@ -53,15 +53,15 @@ Browser
                4.5, streaming) reports)    └── performance-evaluator
                       │
                  Textract (CV parsing)
-                 Deepgram Nova-2 (STT, persistent httpx client, ~500ms)
-                 edge-tts (TTS, concurrent asyncio.Queue sender)
+                 Deepgram Nova-2 (STT, persistent httpx client, ~300–800ms)
+                 Azure Speech SDK (TTS, NeerjaNeural, MP3, pool of 3 synthesizers)
 ```
 
-**Voice pipeline**: Silero VAD → Deepgram STT (~500ms) + session fetch in parallel → Claude Haiku 4.5 stream → per-sentence TTS → browser plays immediately. Typical latency: ~1.6–2.5s speech_end → first audio.
+**Voice pipeline**: Silero VAD → Deepgram STT (~300–800ms) + session fetch in parallel → Claude Haiku 4.5 stream → per-clause TTS (splits at `,`/`;` for long chunks) → browser plays MP3 immediately. Typical latency: ~1.7s speech_end → first audio; ~2.9–4.0s last audio.
 
 **Frontend**: Next.js 15, React 19, TypeScript, Tailwind CSS 4, Monaco Editor, Recharts
 
-**Backend**: FastAPI (Python 3.11), Deepgram Nova-2 (STT), edge-tts (TTS), WebSockets
+**Backend**: FastAPI (Python 3.11), Deepgram Nova-2 (STT), Azure Speech SDK (TTS), WebSockets
 
 **AWS**: bedrock-runtime (Claude Haiku 4.5), S3, Lambda (SAM), Textract, CloudFront, ACM, EC2
 
@@ -147,12 +147,10 @@ AWS_SECRET_ACCESS_KEY=
 AWS_REGION=us-east-1
 
 S3_BUCKET_USER_DATA=
-S3_BUCKET_KNOWLEDGE_BASE=
-
-BEDROCK_KNOWLEDGE_BASE_ID=
 
 DEEPGRAM_API_KEY=
-TTS_VOICE=en-IN-NeerjaExpressiveNeural
+AZURE_SPEECH_KEY=
+AZURE_SPEECH_REGION=eastus
 
 LAMBDA_CODE_EXECUTOR=prepai-code-executor
 LAMBDA_CV_ANALYZER=prepai-cv-analyzer
