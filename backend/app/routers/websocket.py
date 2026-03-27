@@ -16,13 +16,27 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Azure Speech SDK — module-level config (persistent connection per synthesizer instance)
-# en-IN-NeerjaExpressiveNeural is the same voice edge-tts used, via the official SDK
+# Azure Speech SDK — module-level config + pool of persistent synthesizers
+# en-IN-NeerjaExpressiveNeural is the same voice edge-tts used, via the official SDK.
+# MP3 output matches edge-tts quality (~10-15KB/sentence vs 95-280KB for WAV).
+# Pool of 3 synthesizers handles up to 3 concurrent sentence TTS tasks per turn;
+# each instance keeps its Azure WebSocket alive across turns (~50-200ms vs ~700ms cold).
 _speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_SPEECH_REGION)
 _speech_config.speech_synthesis_voice_name = "en-IN-NeerjaExpressiveNeural"
 _speech_config.set_speech_synthesis_output_format(
-    speechsdk.SpeechSynthesisOutputFormat.Riff16Khz16BitMonoPcm  # WAV — browser decodes natively
+    speechsdk.SpeechSynthesisOutputFormat.Audio24Khz48KBitRateMonoMp3  # MP3 — matches edge-tts size
 )
+_synth_pool: asyncio.Queue | None = None  # lazily initialized on first async call
+
+def _get_synth_pool() -> asyncio.Queue:
+    global _synth_pool
+    if _synth_pool is None:
+        _synth_pool = asyncio.Queue()
+        for _ in range(3):
+            _synth_pool.put_nowait(speechsdk.SpeechSynthesizer(
+                speech_config=_speech_config, audio_config=None
+            ))
+    return _synth_pool
 
 # Persistent HTTP client — reuses TCP/TLS connection to Deepgram across all sessions
 # Creating a new AsyncClient per STT call costs 200-500ms for TCP+TLS handshake.
@@ -280,9 +294,13 @@ async def voice_interview_websocket(websocket: WebSocket, session_id: str):
                 f'<prosody rate="+20%">{html.escape(text)}</prosody>'
                 '</voice></speak>'
             )
-            # New synthesizer per call — safe for concurrent sentence tasks
-            synthesizer = speechsdk.SpeechSynthesizer(speech_config=_speech_config, audio_config=None)
-            result = await asyncio.to_thread(lambda: synthesizer.speak_ssml_async(ssml).get())
+            # Acquire a pooled synthesizer — persistent connection, no per-call TCP+TLS
+            pool = _get_synth_pool()
+            synthesizer = await pool.get()
+            try:
+                result = await asyncio.to_thread(lambda: synthesizer.speak_ssml_async(ssml).get())
+            finally:
+                await pool.put(synthesizer)  # always return to pool
 
             elapsed = time.time() - start_time
             if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
