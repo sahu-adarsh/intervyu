@@ -63,9 +63,9 @@ intervyu/
 ## Tech Stack
 
 ### Backend (FastAPI)
-- **STT**: Deepgram Nova-2 API (cloud, `httpx` async POST to `api.deepgram.com/v1/listen`)
-- **TTS**: edge-tts (`en-IN-NeerjaExpressiveNeural` voice, WAV chunks streamed)
-- **AI**: AWS Bedrock Agent (Claude Haiku 4.5 — `us.anthropic.claude-haiku-4-5-20251001-v1:0`) + RAG Knowledge Base
+- **STT**: Deepgram Nova-2 API (cloud, persistent `httpx.AsyncClient` module-level singleton to `api.deepgram.com/v1/listen`)
+- **TTS**: edge-tts (`en-IN-NeerjaExpressiveNeural` voice, WAV chunks streamed via asyncio.Queue concurrent sender)
+- **AI**: AWS bedrock-runtime `converse_stream` (Claude Haiku 4.5 — `us.anthropic.claude-haiku-4-5-20251001-v1:0`); conversation history managed manually in `_session_cache`
 - **Storage**: S3 (`prepai-user-data-2026`) — sessions JSON, CVs, audio, reports
 - **CV Parsing**: AWS Textract + `prepai-cv-analyzer` Lambda
 - **Real-time**: WebSocket at `/ws/interview/{session_id}`
@@ -214,13 +214,17 @@ Phase 5 (Production) — live at `https://intervyu.io`:
 Each type has configurable phases with duration targets and evaluation guidelines defined in `backend/app/config/interview_types.py`.
 
 ## Performance Notes
-- STT via Deepgram Nova-2 API (~300–500ms cloud GPU, replaces local faster-whisper which was 3–9s on t3.small)
-- Bedrock connection pool: 50 max connections with adaptive retries
-- TTS is sentence-chunked for low latency streaming
-- S3 saves are non-blocking (asyncio background tasks)
-- Hardcoded fast intro to avoid Bedrock cold start on session open
-- Silero VAD (neural ONNX) replaces amplitude VAD — eliminates mid-sentence cut-offs; audio sent as single WAV blob per utterance
-- End-to-end latency (speech_end → transcript displayed): ~1–2.5s measured production (2026-03-26)
+- **STT**: Deepgram Nova-2 API via persistent `httpx.AsyncClient` singleton — ~500–620ms stable (was 660–3726ms with per-call TCP+TLS)
+- **STT + session fetch parallelised**: `asyncio.gather(transcribe_audio, _warm_session)` — session fetch is 0ms on critical path
+- **Session cache in-place**: user+assistant turns appended to `_session_cache` after each turn; next turn's session fetch is a free dict lookup (0ms), no S3 re-read
+- **LLM**: bedrock-runtime `converse_stream` → direct Claude Haiku 4.5 token streaming (replaced Bedrock Agent; no ~300ms Agent overhead)
+- **TTS**: sentence-chunked, fired concurrently as tokens stream; asyncio.Queue `_audio_sender()` sends each WAV to browser immediately upon completion
+- **S3 saves** are non-blocking (asyncio background tasks)
+- **Silero VAD** (neural ONNX) replaces amplitude VAD — eliminates mid-sentence cut-offs; audio sent as single WAV blob per utterance
+- **Hardcoded fast intro** hides any cold-start latency on session open
+- **Bedrock connection pool**: 50 max connections with adaptive retries
+- **Remaining bottleneck**: edge-TTS EC2→Azure jitter (0.2–2.7s/sentence); Amazon Polly (same AWS region, ~50–200ms) is planned (needs `polly:SynthesizeSpeech` IAM)
+- **End-to-end latency** (speech_end → first audio): ~1.6s typical short turn; ~4s for long 3-sentence responses (2026-03-27)
 
 ---
 

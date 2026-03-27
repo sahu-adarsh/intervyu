@@ -14,7 +14,7 @@
 
 ## What It Does
 
-- **Voice Interview** — Speak naturally with Neerja, an AI interviewer powered by AWS Bedrock (Claude Haiku 4.5). She adapts difficulty based on your answers.
+- **Voice Interview** — Speak naturally with Neerja, an AI interviewer powered by Claude Haiku 4.5 via AWS bedrock-runtime. She adapts difficulty based on your answers.
 - **Live Code Editor** — Monaco-based editor with sandboxed execution for coding questions. Supports Python and JavaScript.
 - **CV Upload & Analysis** — Upload your resume (PDF/DOCX) for Neerja to reference during the interview.
 - **Performance Report** — Get scored across 5 dimensions with a HIRE/NO_HIRE recommendation and percentile benchmarks.
@@ -47,21 +47,23 @@ Browser
                                 │
                       ┌─────────┼──────────────┐
                       │         │              │
-                Bedrock Agent  S3 Bucket   Lambda (×3)
-                (Claude Haiku  (sessions,  ├── code-executor
-                 4.5 + RAG)    CVs,        ├── cv-analyzer
-                               reports)    └── performance-evaluator
+              bedrock-runtime  S3 Bucket   Lambda (×3)
+              converse_stream  (sessions,  ├── code-executor
+              (Claude Haiku    CVs,        ├── cv-analyzer
+               4.5, streaming) reports)    └── performance-evaluator
                       │
                  Textract (CV parsing)
-                 Deepgram (speech-to-text, cloud API)
-                 edge-tts (text-to-speech)
+                 Deepgram Nova-2 (STT, persistent httpx client, ~500ms)
+                 edge-tts (TTS, concurrent asyncio.Queue sender)
 ```
+
+**Voice pipeline**: Silero VAD → Deepgram STT (~500ms) + session fetch in parallel → Claude Haiku 4.5 stream → per-sentence TTS → browser plays immediately. Typical latency: ~1.6–2.5s speech_end → first audio.
 
 **Frontend**: Next.js 15, React 19, TypeScript, Tailwind CSS 4, Monaco Editor, Recharts
 
 **Backend**: FastAPI (Python 3.11), Deepgram Nova-2 (STT), edge-tts (TTS), WebSockets
 
-**AWS**: Bedrock Agent, S3, Lambda (SAM), Textract, CloudFront, ACM, EC2
+**AWS**: bedrock-runtime (Claude Haiku 4.5), S3, Lambda (SAM), Textract, CloudFront, ACM, EC2
 
 ---
 
@@ -147,8 +149,6 @@ AWS_REGION=us-east-1
 S3_BUCKET_USER_DATA=
 S3_BUCKET_KNOWLEDGE_BASE=
 
-BEDROCK_AGENT_ID=
-BEDROCK_AGENT_ALIAS_ID=
 BEDROCK_KNOWLEDGE_BASE_ID=
 
 DEEPGRAM_API_KEY=
