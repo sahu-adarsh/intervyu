@@ -16,11 +16,13 @@ if (typeof window !== 'undefined') {
 }
 
 import { useState, useRef, useEffect } from 'react';
-
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { useMicVAD } from '@ricky0123/vad-react';
-import { Code2, ChevronDown, ChevronUp, Mic, Bot, User, FileText } from 'lucide-react';
+import {
+  Code2, Mic, MicOff, PhoneOff, MessageSquare, FileText,
+  Grid3X3, UserRound, X, BarChart2, MoreHorizontal
+} from 'lucide-react';
 
 // Dynamically import CodeEditor and CV components to avoid SSR issues
 const CodeEditor = dynamic(() => import('./code-editor/CodeEditor'), { ssr: false });
@@ -68,12 +70,12 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   const [error, setError] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isTTSSpeaking, setIsTTSSpeaking] = useState(false);
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [showCodeEditor, setShowCodeEditor] = useState(false);
-  const [problemStatementCollapsed, setProblemStatementCollapsed] = useState(false);
-  const [currentLanguage, setCurrentLanguage] = useState('python');
-  const [leftTab, setLeftTab] = useState<'transcript' | 'cv'>('transcript');
+  const [showTranscript, setShowTranscript] = useState(false);
+  const [showCV, setShowCV] = useState(false);
   const [cvAnalysis, setCvAnalysis] = useState<any>(null);
   const [codingQuestion, setCodingQuestion] = useState<{
     question: string;
@@ -90,10 +92,9 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   const currentAudioSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const wordQueueRef = useRef<string[]>([]);         // pending words to reveal
-  const wordRevealRef = useRef<NodeJS.Timeout | null>(null); // interval dripping words onto screen
-  const speechEndTimeRef = useRef<number | null>(null); // latency measurement
-  // Timing refs for pipeline latency logging
+  const wordQueueRef = useRef<string[]>([]);
+  const wordRevealRef = useRef<NodeJS.Timeout | null>(null);
+  const speechEndTimeRef = useRef<number | null>(null);
   const transcriptReceivedAtRef = useRef<number | null>(null);
   const firstLLMChunkAtRef = useRef<number | null>(null);
   const firstAudioReceivedAtRef = useRef<number | null>(null);
@@ -101,22 +102,20 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
 
   // Silero VAD — neural speech detection via ONNX model in a Web Worker
   const vad = useMicVAD({
-    startOnLoad: true,   // Must be true — avoids React Strict Mode destroy() crash on unstarted VAD
-    model: 'legacy',     // legacy has ~20 ONNX warnings vs v5's 572; all suppressed by console filter above
+    startOnLoad: true,
+    model: 'legacy',
     baseAssetPath: '/',
     onnxWASMBasePath: '/',
     // 1800ms silence before speech_end fires — catches mid-thought pauses without sluggish UX
     redemptionMs: 1800,
-    // Higher thresholds reduce false triggers from background noise
     positiveSpeechThreshold: 0.6,
     negativeSpeechThreshold: 0.45,
     ortConfig: (ort) => {
-      ort.env.logLevel = 'error';    // Suppress ONNX Runtime info/warning logs
-      ort.env.wasm.numThreads = 1;   // Avoid SharedArrayBuffer requirement (no COOP/COEP headers needed)
+      ort.env.logLevel = 'error';
+      ort.env.wasm.numThreads = 1;
     },
     getStream: async () => navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false } }),
     onSpeechStart: () => {
-      // Ignore if TTS is playing — mic echo would otherwise interrupt Neerja mid-sentence
       if (isTTSPlayingRef.current) return;
       stopAudioPlayback();
       setIsRecording(true);
@@ -127,7 +126,6 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     onSpeechEnd: (audio: Float32Array) => {
       const t0 = performance.now();
       speechEndTimeRef.current = t0;
-      // Reset per-turn timing refs
       transcriptReceivedAtRef.current = null;
       firstLLMChunkAtRef.current = null;
       firstAudioReceivedAtRef.current = null;
@@ -177,7 +175,6 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
           }
           transcriptReceivedAtRef.current = performance.now();
           speechEndTimeRef.current = null;
-          // Flush any pending word reveals immediately
           if (wordRevealRef.current) { clearInterval(wordRevealRef.current); wordRevealRef.current = null; }
           wordQueueRef.current = [];
           setMessages(prev => [...prev, { role: 'user', content: data.text, timestamp: new Date() }]);
@@ -191,7 +188,6 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
             const ms = (firstLLMChunkAtRef.current - transcriptReceivedAtRef.current).toFixed(0);
             console.log(`[TIMING] [2] First LLM chunk:      +${ms}ms since transcript`);
           }
-          // Queue words for gradual reveal (~150ms/word) to match TTS speech pace
           const words = data.text.split(/(\s+)/);
           wordQueueRef.current.push(...words.filter((w: string) => w.length > 0));
           setIsProcessing(true);
@@ -204,14 +200,13 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
               }
               const word = wordQueueRef.current.shift()!;
               setCurrentResponse(prev => prev + word);
-            }, 40); // 40ms/word ≈ 25 words/sec — matches TTS speech pace
+            }, 40);
           }
         } else if (data.type === 'assistant_complete') {
           if (transcriptReceivedAtRef.current !== null) {
             const totalMs = (performance.now() - transcriptReceivedAtRef.current).toFixed(0);
             console.log(`[TIMING] [3] assistant_complete:   +${totalMs}ms since transcript (LLM+TTS pipeline)`);
           }
-          // Flush remaining queued words immediately, then move to message list
           if (wordRevealRef.current) { clearInterval(wordRevealRef.current); wordRevealRef.current = null; }
           if (wordQueueRef.current.length > 0) {
             const remaining = wordQueueRef.current.join('');
@@ -233,9 +228,10 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
               testCases: data.testCases || [],
               initialCode: data.initialCode || ''
             });
-            setCurrentLanguage(lang);
           }
           setShowCodeEditor(true);
+          setShowTranscript(false);
+          setShowCV(false);
         } else if (data.type === 'error') {
           setError(data.message);
           setIsProcessing(false);
@@ -254,7 +250,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
 
   // Pre-load CV analysis if it was uploaded on the home page before the interview
   useEffect(() => {
-    if (cvAnalysis) return; // already set
+    if (cvAnalysis) return;
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
     fetch(`${apiUrl}/api/interviews/${sessionId}/cv-analysis`)
       .then(r => r.ok ? r.json() : null)
@@ -296,18 +292,21 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     audioQueueRef.current = [];
     isPlayingRef.current = false;
     isTTSPlayingRef.current = false;
+    setIsTTSSpeaking(false);
   };
 
   const playNextAudioChunk = async () => {
     if (audioQueueRef.current.length === 0) {
       isPlayingRef.current = false;
       isTTSPlayingRef.current = false;
+      setIsTTSSpeaking(false);
       currentAudioSourceRef.current = null;
       return;
     }
 
     isPlayingRef.current = true;
     isTTSPlayingRef.current = true;
+    setIsTTSSpeaking(true);
     const audioBuffer = audioQueueRef.current.shift()!;
 
     try {
@@ -347,7 +346,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   const handleEndInterview = async () => {
     if (!confirmEnd) {
       setConfirmEnd(true);
-      setTimeout(() => setConfirmEnd(false), 3000); // auto-reset after 3s
+      setTimeout(() => setConfirmEnd(false), 3000);
       return;
     }
     setConfirmEnd(false);
@@ -355,7 +354,6 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
       await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/interviews/${sessionId}/end`, {
         method: 'POST',
       });
-      // Persist session reference in localStorage for history page
       try {
         const stored = JSON.parse(localStorage.getItem('intervyu_sessions') || '[]');
         const entry = { sessionId, interviewType, candidateName, date: new Date().toISOString() };
@@ -378,208 +376,264 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, currentResponse, currentTranscript]);
 
-  const statusConfig = isRecording
-    ? { label: 'Listening', sublabel: 'Speak your answer...', ringColor: 'ring-emerald-400', bgColor: 'bg-emerald-500', icon: <Mic size={28} className="text-white" /> }
-    : isProcessing
-    ? { label: 'Processing', sublabel: 'Interviewer is responding...', ringColor: 'ring-blue-400', bgColor: 'bg-blue-500', icon: <Bot size={28} className="text-white" /> }
-    : { label: 'Ready', sublabel: 'Speak when ready', ringColor: 'ring-slate-300', bgColor: 'bg-slate-400', icon: <User size={28} className="text-white" /> };
+  const displayType = interviewType.replace(/-/g, ' ').toUpperCase();
+  const neerjaActive = isProcessing || isTTSSpeaking;
 
   return (
-    <div className="flex flex-col h-screen bg-slate-950 text-slate-100">
+    <div className="flex flex-col h-screen bg-black text-white overflow-hidden">
 
-      {/* Header */}
-      <header className="flex-shrink-0 bg-slate-900 border-b border-slate-800 px-4 sm:px-6 py-3">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
-            <div className="min-w-0">
-              <h1 className="text-sm font-semibold text-slate-100 tracking-wide">intervyu.io</h1>
-              <p className="text-xs text-slate-400 truncate">{candidateName} · {interviewType}</p>
-            </div>
+      {/* ── Top Bar ── */}
+      <div className="flex-shrink-0 flex items-center justify-between px-5 py-2.5 bg-black border-b border-slate-800/50 z-20">
+        {/* Logo */}
+        <div className="flex items-center gap-2">
+          <Grid3X3 size={16} className="text-blue-400" />
+          <span className="text-sm font-semibold text-white tracking-wide">intervyu</span>
+        </div>
+        {/* Interview type */}
+        <span className="text-slate-200 text-xs font-semibold tracking-widest uppercase">
+          {displayType}
+        </span>
+        {/* Status + Timer */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-emerald-400 text-xs font-medium">ONLINE</span>
           </div>
-          <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
-            <span className="font-mono text-sm text-slate-300 bg-slate-800 px-3 py-1 rounded-md">
-              {formatTime(timeElapsed)}
-            </span>
-            <button
-              onClick={handleEndInterview}
-              className={`px-3 sm:px-4 py-1.5 text-sm text-white rounded-md transition-colors font-medium whitespace-nowrap ${confirmEnd ? 'bg-red-700 ring-2 ring-red-400' : 'bg-red-600 hover:bg-red-500'}`}
-            >
-              {confirmEnd ? 'Tap again to end' : (
-                <>
-                  <span className="hidden sm:inline">End Session</span>
-                  <span className="sm:hidden">End</span>
-                </>
-              )}
-            </button>
+          <span className="font-mono text-xs text-slate-300 bg-slate-800 px-2.5 py-1 rounded">
+            {formatTime(timeElapsed)}
+          </span>
+        </div>
+      </div>
+
+      {/* ── Main Area ── */}
+      <div className="flex-1 relative overflow-hidden bg-slate-950">
+
+        {/* User avatar — centered */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="relative flex items-center justify-center">
+            {/* pulsing rings when recording */}
+            {isRecording && (
+              <>
+                <div className="absolute w-56 h-56 rounded-full bg-emerald-500/10 animate-ping" />
+                <div className="absolute w-48 h-48 rounded-full bg-emerald-500/10 animate-pulse" />
+              </>
+            )}
+            {/* Avatar circle */}
+            <div className={`w-36 h-36 rounded-full flex items-center justify-center text-5xl font-bold select-none transition-all duration-500 ${
+              isRecording
+                ? 'bg-teal-600 ring-4 ring-emerald-400/70 shadow-2xl shadow-emerald-500/20'
+                : neerjaActive
+                ? 'bg-slate-700 ring-4 ring-purple-500/40 shadow-2xl shadow-purple-500/10'
+                : 'bg-slate-700 ring-2 ring-slate-600'
+            }`}>
+              {candidateName.charAt(0).toUpperCase()}
+            </div>
           </div>
         </div>
-      </header>
 
-      {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden flex-col md:flex-row">
-
-        {/* Left — Transcript / CV */}
-        <div className="w-full md:w-1/2 flex flex-col border-b md:border-b-0 md:border-r border-slate-800 h-56 sm:h-64 md:h-auto flex-shrink-0 md:flex-shrink">
-          {/* Tab bar */}
-          <div className="flex-shrink-0 flex border-b border-slate-800 bg-slate-900">
-            <button
-              onClick={() => setLeftTab('transcript')}
-              className={`flex items-center gap-1.5 px-5 py-3 text-xs font-semibold uppercase tracking-widest transition-colors border-b-2 ${
-                leftTab === 'transcript'
-                  ? 'text-slate-100 border-blue-500'
-                  : 'text-slate-500 border-transparent hover:text-slate-300'
-              }`}
-            >
-              Transcript
-            </button>
-            <button
-              onClick={() => setLeftTab('cv')}
-              className={`flex items-center gap-1.5 px-5 py-3 text-xs font-semibold uppercase tracking-widest transition-colors border-b-2 ${
-                leftTab === 'cv'
-                  ? 'text-slate-100 border-blue-500'
-                  : 'text-slate-500 border-transparent hover:text-slate-300'
-              }`}
-            >
-              <FileText size={12} />
-              CV
-              {cvAnalysis && <span className="w-1.5 h-1.5 rounded-full bg-green-400 ml-0.5" />}
-            </button>
+        {/* Neerja PiP — top right */}
+        <div className={`absolute top-4 right-4 w-48 rounded-xl overflow-hidden border shadow-2xl transition-all duration-300 ${
+          neerjaActive ? 'border-purple-500/60 shadow-purple-500/20' : 'border-slate-700/50'
+        }`}>
+          <div className="bg-slate-800/90 aspect-video relative flex flex-col items-center justify-center">
+            {/* Speaking animation overlay */}
+            {neerjaActive && (
+              <div className="absolute inset-0 border-2 border-purple-400/40 rounded-xl animate-pulse" />
+            )}
+            {/* Avatar icon */}
+            <div className="w-12 h-12 rounded-full bg-slate-600 flex items-center justify-center mb-1">
+              <UserRound size={28} className="text-slate-200" />
+            </div>
+            {/* Label bar */}
+            <div className="absolute bottom-0 left-0 right-0 bg-black/70 backdrop-blur-sm px-2.5 py-1.5 flex items-center justify-between">
+              <span className="text-white text-xs font-medium">Neerja</span>
+              {/* Speaking bars */}
+              {neerjaActive && (
+                <div className="flex items-end gap-px h-4">
+                  {[10, 14, 8, 12, 7].map((h, i) => (
+                    <div
+                      key={i}
+                      className="w-0.5 bg-purple-400 rounded-full animate-pulse"
+                      style={{ height: `${h}px`, animationDelay: `${i * 0.13}s` }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-
-          {/* Transcript panel */}
-          {leftTab === 'transcript' && (
-            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-              {messages.map((msg, idx) => (
-                <div key={idx} className={`flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                  <span className="text-xs text-slate-500 px-1">
-                    {msg.role === 'user' ? 'You' : 'Neerja'} · {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                  </span>
-                  <div className={`max-w-[85%] px-4 py-2.5 rounded-xl text-sm leading-relaxed ${
-                    msg.role === 'user'
-                      ? 'bg-blue-600 text-white rounded-br-sm'
-                      : 'bg-slate-800 text-slate-100 rounded-bl-sm'
-                  }`}>
-                    {msg.content}
-                  </div>
-                </div>
-              ))}
-
-              {currentTranscript && (
-                <div className="flex flex-col gap-1 items-end">
-                  <span className="text-xs text-slate-500 px-1">You · transcribing...</span>
-                  <div className="max-w-[85%] px-4 py-2.5 rounded-xl rounded-br-sm text-sm bg-blue-600/40 text-blue-200 border border-blue-500/30 italic">
-                    {currentTranscript}
-                  </div>
-                </div>
-              )}
-
-              {currentResponse && (
-                <div className="flex flex-col gap-1 items-start">
-                  <span className="text-xs text-slate-500 px-1">Neerja · responding...</span>
-                  <div className="max-w-[85%] px-4 py-2.5 rounded-xl rounded-bl-sm text-sm bg-slate-800 text-slate-100 border border-slate-700/50">
-                    {currentResponse}
-                    <span className="inline-block w-1.5 h-3.5 bg-blue-400 ml-1 animate-pulse rounded-sm align-middle" />
-                  </div>
-                </div>
-              )}
-
-              <div ref={messagesEndRef} />
-            </div>
-          )}
-
-          {/* CV panel */}
-          {leftTab === 'cv' && (
-            <div className="flex-1 overflow-y-auto p-4 bg-white">
-              {cvAnalysis ? (
-                <CVAnalysisDisplay analysis={cvAnalysis} onUpdate={setCvAnalysis} />
-              ) : (
-                <CVUpload
-                  sessionId={sessionId}
-                  onUploadSuccess={setCvAnalysis}
-                  onUploadError={() => {}}
-                />
-              )}
-            </div>
-          )}
         </div>
 
-        {/* Right — Voice + Problem Statement + Editor */}
-        <div className="w-full md:w-1/2 flex flex-col bg-slate-900 overflow-hidden flex-1">
+        {/* Candidate name tag — bottom left of main area */}
+        <div className="absolute bottom-4 left-4">
+          <span className="bg-slate-900/80 backdrop-blur-sm text-white text-xs px-3 py-1.5 rounded-lg border border-slate-700/40 font-medium">
+            {candidateName}
+          </span>
+        </div>
 
-          {/* Problem Statement — persistent, collapsible */}
-          {codingQuestion && (
-            <div className="flex-shrink-0 border-b border-slate-800">
+        {/* Initialization message */}
+        {!isActive && !error && (
+          <div className="absolute bottom-16 left-1/2 -translate-x-1/2">
+            <p className="text-blue-400 text-xs animate-pulse whitespace-nowrap">
+              Connecting — please allow microphone access
+            </p>
+          </div>
+        )}
+
+        {/* Error overlay */}
+        {(error || vad.errored) && (
+          <div className="absolute inset-0 flex items-center justify-center z-10">
+            <div className="bg-red-950/90 border border-red-800 rounded-2xl px-6 py-5 max-w-sm w-full mx-4 space-y-3 backdrop-blur-sm shadow-2xl">
+              <p className="text-sm font-semibold text-red-400">Connection Error</p>
+              <p className="text-sm text-red-300">{error || String(vad.errored)}</p>
               <button
-                onClick={() => setProblemStatementCollapsed(prev => !prev)}
-                className="w-full flex items-center justify-between px-5 py-3 bg-slate-800/60 hover:bg-slate-800 transition-colors"
+                onClick={initializeInterview}
+                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
               >
-                <div className="flex items-center gap-2">
-                  <Code2 size={14} className="text-blue-400" />
-                  <span className="text-xs font-semibold text-slate-300 uppercase tracking-widest">Problem Statement</span>
-                  <span className="text-xs text-slate-500 bg-slate-700 px-2 py-0.5 rounded-full font-mono">
-                    {currentLanguage}
-                  </span>
-                </div>
-                {problemStatementCollapsed
-                  ? <ChevronDown size={14} className="text-slate-400" />
-                  : <ChevronUp size={14} className="text-slate-400" />
-                }
+                Retry
               </button>
+            </div>
+          </div>
+        )}
 
-              {!problemStatementCollapsed && (
-                <div className="px-5 py-4 bg-slate-950/40 max-h-52 overflow-y-auto">
-                  <p className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">
+        {/* ── Transcript slide-in panel — from left ── */}
+        <div className={`absolute top-0 left-0 bottom-0 w-80 bg-white z-30 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${
+          showTranscript ? 'translate-x-0' : '-translate-x-full'
+        }`}>
+          {/* Header */}
+          <div className="flex-shrink-0 flex items-center justify-between px-4 py-3.5 border-b border-gray-200">
+            <span className="font-semibold text-slate-800 text-sm">Transcription</span>
+            <button
+              onClick={() => setShowTranscript(false)}
+              className="p-1 rounded-md hover:bg-gray-100 text-slate-500 transition-colors"
+            >
+              <X size={16} />
+            </button>
+          </div>
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+            {messages.map((msg, idx) => (
+              <div key={idx} className={`flex items-end gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                {/* Avatar */}
+                <div className={`w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold ${
+                  msg.role === 'user' ? 'bg-teal-600 text-white' : 'bg-gray-200 text-slate-600'
+                }`}>
+                  {msg.role === 'user'
+                    ? candidateName.charAt(0).toUpperCase()
+                    : <UserRound size={14} />
+                  }
+                </div>
+                {/* Bubble */}
+                <div className={`max-w-[75%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                  msg.role === 'user'
+                    ? 'bg-purple-600 text-white rounded-br-sm'
+                    : 'bg-gray-100 text-slate-800 rounded-bl-sm'
+                }`}>
+                  {msg.content}
+                </div>
+              </div>
+            ))}
+
+            {/* In-progress user speech */}
+            {currentTranscript && (
+              <div className="flex items-end gap-2 flex-row-reverse">
+                <div className="w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold bg-teal-500 text-white">
+                  {candidateName.charAt(0).toUpperCase()}
+                </div>
+                <div className="max-w-[75%] px-3.5 py-2.5 rounded-2xl rounded-br-sm text-sm bg-purple-400/70 text-white italic">
+                  {currentTranscript}
+                </div>
+              </div>
+            )}
+
+            {/* In-progress assistant response */}
+            {currentResponse && (
+              <div className="flex items-end gap-2 flex-row">
+                <div className="w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center bg-gray-200 text-slate-600">
+                  <UserRound size={14} />
+                </div>
+                <div className="max-w-[75%] px-3.5 py-2.5 rounded-2xl rounded-bl-sm text-sm bg-gray-100 text-slate-800">
+                  {currentResponse}
+                  <span className="inline-block w-1 h-3.5 bg-purple-500 ml-1 animate-pulse rounded-sm align-middle" />
+                </div>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
+
+        {/* ── CV slide-in panel — from right ── */}
+        <div className={`absolute top-0 right-0 bottom-0 w-96 bg-white z-30 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${
+          showCV ? 'translate-x-0' : 'translate-x-full'
+        }`}>
+          <div className="flex-shrink-0 flex items-center justify-between px-4 py-3.5 border-b border-gray-200">
+            <span className="font-semibold text-slate-800 text-sm">Resume</span>
+            <button
+              onClick={() => setShowCV(false)}
+              className="p-1 rounded-md hover:bg-gray-100 text-slate-500 transition-colors"
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {cvAnalysis ? (
+              <CVAnalysisDisplay analysis={cvAnalysis} onUpdate={setCvAnalysis} />
+            ) : (
+              <CVUpload
+                sessionId={sessionId}
+                onUploadSuccess={setCvAnalysis}
+                onUploadError={() => {}}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* ── Code Editor full overlay ── */}
+        {codingQuestion && (
+          <div className={`absolute inset-0 z-40 bg-slate-950 flex flex-col ${showCodeEditor ? '' : 'hidden'}`}>
+            {/* Header */}
+            <div className="flex-shrink-0 flex items-center justify-between px-5 py-3 border-b border-slate-800 bg-slate-900">
+              <span className="text-white font-semibold text-sm flex items-center gap-2">
+                <Code2 size={16} className="text-blue-400" />
+                Code Editor
+              </span>
+              <button
+                onClick={() => setShowCodeEditor(false)}
+                className="p-1.5 rounded-md hover:bg-slate-700 text-slate-400 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            {/* Body: problem statement left + Monaco right */}
+            <div className="flex-1 flex min-h-0">
+              {/* Problem statement panel */}
+              <div className="w-64 flex-shrink-0 flex flex-col border-r border-slate-800 overflow-y-auto bg-slate-900/50">
+                <div className="p-5 space-y-4">
+                  <h3 className="text-white font-semibold text-sm">Problem Statement</h3>
+                  <p className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
                     {codingQuestion.question}
                   </p>
                   {codingQuestion.testCases && codingQuestion.testCases.length > 0 && (
-                    <div className="mt-4 space-y-2">
-                      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Test Cases</p>
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Test Cases</p>
                       {codingQuestion.testCases.map((tc, i) => (
-                        <div key={i} className="bg-slate-800 rounded-lg px-3 py-2 font-mono text-xs text-slate-300">
-                          <span className="text-slate-500">Input: </span>{tc.input}
-                          <span className="mx-2 text-slate-600">→</span>
-                          <span className="text-slate-500">Expected: </span>{tc.expected}
+                        <div key={i} className="bg-slate-800 rounded-lg px-3 py-2 font-mono text-xs text-slate-300 space-y-0.5">
+                          <div><span className="text-slate-500">in: </span>{tc.input}</div>
+                          <div><span className="text-slate-500">out: </span>{tc.expected}</div>
                         </div>
                       ))}
                     </div>
                   )}
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* Editor toggle bar — only shown when a coding question exists */}
-          {codingQuestion && (
-            <div className="flex-shrink-0 flex items-center justify-between px-5 py-2.5 bg-slate-900 border-b border-slate-800">
-              <span className="text-xs text-slate-500">
-                {showCodeEditor ? 'Code Editor is open' : 'Code Editor is hidden'}
-              </span>
-              <button
-                onClick={() => setShowCodeEditor(prev => !prev)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                  showCodeEditor
-                    ? 'bg-slate-700 hover:bg-slate-600 text-slate-200'
-                    : 'bg-blue-600 hover:bg-blue-500 text-white'
-                }`}
-              >
-                <Code2 size={12} />
-                {showCodeEditor ? 'Hide Editor' : 'Open Editor'}
-              </button>
-            </div>
-          )}
-
-          {/* Bottom area — Code Editor (always mounted to preserve state) + Voice Status */}
-          <div className="flex-1 min-h-0 relative">
-            {/* Code Editor — always mounted, hidden via CSS when not active */}
-            <div className={`absolute inset-0 ${showCodeEditor && codingQuestion ? '' : 'hidden'}`}>
-              {codingQuestion && (
+              </div>
+              {/* Monaco editor */}
+              <div className="flex-1 min-w-0">
                 <CodeEditor
                   sessionId={sessionId}
                   initialCode={codingQuestion.initialCode}
                   language={codingQuestion.language}
                   testCases={codingQuestion.testCases}
-                  onLanguageChange={setCurrentLanguage}
+
                   onCodeSubmit={(code, result, language) => {
                     if (wsRef.current?.readyState === WebSocket.OPEN) {
                       wsRef.current.send(JSON.stringify({
@@ -594,47 +648,103 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
                     }
                   }}
                 />
-              )}
-            </div>
-
-            {/* Voice Status Panel — shown when editor is hidden */}
-            {(!showCodeEditor || !codingQuestion) && (
-              <div className="flex flex-col items-center justify-center h-full gap-4 sm:gap-8 px-4 sm:px-8">
-                <div className="relative">
-                  <div className={`w-24 h-24 sm:w-36 sm:h-36 rounded-full flex items-center justify-center transition-all duration-300 ${statusConfig.bgColor} ring-4 ${statusConfig.ringColor} ${isRecording || isProcessing ? 'animate-pulse' : ''}`}>
-                    {statusConfig.icon}
-                  </div>
-                  {isRecording && (
-                    <span className="absolute -bottom-1 -right-1 w-5 h-5 bg-emerald-400 rounded-full border-2 border-slate-900 animate-ping" />
-                  )}
-                </div>
-
-                <div className="text-center space-y-1">
-                  <p className="text-base font-semibold text-slate-200">{statusConfig.label}</p>
-                  <p className="text-sm text-slate-500">{statusConfig.sublabel}</p>
-                </div>
-
-                {!isActive && !error && (
-                  <p className="text-sm text-blue-400 animate-pulse">Initializing — please allow microphone access</p>
-                )}
-
-                {(error || vad.errored) && (
-                  <div className="w-full max-w-sm bg-red-950/60 border border-red-800 rounded-xl px-5 py-4 space-y-3">
-                    <p className="text-sm font-semibold text-red-400">Error</p>
-                    <p className="text-sm text-red-300">{error || String(vad.errored)}</p>
-                    <button
-                      onClick={initializeInterview}
-                      className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
-                    >
-                      Retry
-                    </button>
-                  </div>
-                )}
               </div>
-            )}
+            </div>
           </div>
-        </div>
+        )}
+
       </div>
+
+      {/* ── Bottom Control Bar ── */}
+      <div className="flex-shrink-0 bg-black border-t border-slate-800/50 py-3 px-6 flex items-center justify-between z-20">
+
+        {/* Left: transcript + CV buttons */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { setShowTranscript(v => !v); setShowCV(false); }}
+            className={`p-2.5 rounded-xl transition-all ${
+              showTranscript
+                ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+            }`}
+            title="Transcription"
+          >
+            <MessageSquare size={18} />
+          </button>
+          <button
+            onClick={() => { setShowCV(v => !v); setShowTranscript(false); }}
+            className={`relative p-2.5 rounded-xl transition-all ${
+              showCV
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+            }`}
+            title="Resume"
+          >
+            <FileText size={18} />
+            {cvAnalysis && (
+              <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-emerald-400 rounded-full" />
+            )}
+          </button>
+        </div>
+
+        {/* Center: mic indicator + end call + code editor */}
+        <div className="flex items-center gap-4">
+          {/* Mic state indicator (non-interactive visual) */}
+          <div className={`w-11 h-11 rounded-full flex items-center justify-center transition-all ${
+            isRecording
+              ? 'bg-emerald-500/20 ring-2 ring-emerald-500 text-emerald-400'
+              : 'bg-slate-800 text-slate-500'
+          }`}>
+            {isRecording ? <Mic size={18} /> : <MicOff size={18} />}
+          </div>
+
+          {/* End call */}
+          <div className="relative flex flex-col items-center">
+            {confirmEnd && (
+              <span className="absolute -top-7 text-xs text-red-400 whitespace-nowrap font-medium">
+                Tap again to end
+              </span>
+            )}
+            <button
+              onClick={handleEndInterview}
+              className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg ${
+                confirmEnd
+                  ? 'bg-red-400 ring-4 ring-red-400/40 scale-110 shadow-red-400/30'
+                  : 'bg-red-600 hover:bg-red-500 shadow-red-500/20'
+              }`}
+            >
+              <PhoneOff size={22} className="text-white" />
+            </button>
+          </div>
+
+          {/* Code editor toggle / spacer */}
+          {codingQuestion ? (
+            <button
+              onClick={() => setShowCodeEditor(v => !v)}
+              className={`w-11 h-11 rounded-full flex items-center justify-center transition-all ${
+                showCodeEditor
+                  ? 'bg-blue-600 text-white ring-2 ring-blue-500 shadow-lg shadow-blue-500/20'
+                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+              }`}
+              title="Code Editor"
+            >
+              <Code2 size={18} />
+            </button>
+          ) : (
+            <div className="w-11" />
+          )}
+        </div>
+
+        {/* Right: signal indicator + more menu */}
+        <div className="flex items-center gap-2">
+          <BarChart2 size={16} className="text-slate-600" />
+          <button className="p-2 rounded-xl bg-slate-800 text-slate-500 hover:bg-slate-700 hover:text-slate-300 transition-colors">
+            <MoreHorizontal size={18} />
+          </button>
+        </div>
+
+      </div>
+
     </div>
   );
 }
