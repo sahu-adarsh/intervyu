@@ -20,8 +20,7 @@ import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { useMicVAD } from '@ricky0123/vad-react';
 import {
-  Code2, Mic, MicOff, PhoneOff, MessageSquare, FileText,
-  Grid3X3, UserRound, X, BarChart2, MoreHorizontal
+  Code2, Mic, MicOff, PhoneOff, MessageSquare, X
 } from 'lucide-react';
 
 // Dynamically import CodeEditor and CV components to avoid SSR issues
@@ -72,7 +71,8 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   const [isProcessing, setIsProcessing] = useState(false);
   const [isTTSSpeaking, setIsTTSSpeaking] = useState(false);
   const [timeElapsed, setTimeElapsed] = useState(0);
-  const [confirmEnd, setConfirmEnd] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [problemPanelWidth, setProblemPanelWidth] = useState(256);
   const [showCodeEditor, setShowCodeEditor] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
   const [showCV, setShowCV] = useState(false);
@@ -344,12 +344,6 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   };
 
   const handleEndInterview = async () => {
-    if (!confirmEnd) {
-      setConfirmEnd(true);
-      setTimeout(() => setConfirmEnd(false), 3000);
-      return;
-    }
-    setConfirmEnd(false);
     try {
       await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/interviews/${sessionId}/end`, {
         method: 'POST',
@@ -376,6 +370,11 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, currentResponse, currentTranscript]);
 
+  const toggleMute = () => {
+    if (isMuted) { vad.start(); setIsMuted(false); }
+    else { vad.pause(); setIsMuted(true); }
+  };
+
   const displayType = interviewType.replace(/-/g, ' ').toUpperCase();
   const neerjaActive = isProcessing || isTTSSpeaking;
 
@@ -385,9 +384,12 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
       {/* ── Top Bar ── */}
       <div className="flex-shrink-0 flex items-center justify-between px-5 py-2.5 bg-black border-b border-slate-800/50 z-20">
         {/* Logo */}
-        <div className="flex items-center gap-2">
-          <Grid3X3 size={16} className="text-blue-400" />
-          <span className="text-sm font-semibold text-white tracking-wide">intervyu</span>
+        <div className="flex items-center gap-2.5">
+          <img src="/logo-icon.svg" alt="intervyu" className="h-7 w-7" />
+          <span className="text-base font-bold tracking-tight leading-none">
+            <span className="text-white">interv</span>
+            <span className="bg-gradient-to-r from-blue-400 to-teal-400 bg-clip-text text-transparent">yu</span>
+          </span>
         </div>
         {/* Interview type */}
         <span className="text-slate-200 text-xs font-semibold tracking-widest uppercase">
@@ -410,51 +412,51 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
 
         {/* User avatar — centered */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="relative flex items-center justify-center">
-            {/* pulsing rings when recording */}
-            {isRecording && (
-              <>
-                <div className="absolute w-56 h-56 rounded-full bg-emerald-500/10 animate-ping" />
-                <div className="absolute w-48 h-48 rounded-full bg-emerald-500/10 animate-pulse" />
-              </>
-            )}
+          <div className="relative w-36 h-36">
             {/* Avatar circle */}
-            <div className={`w-36 h-36 rounded-full flex items-center justify-center text-5xl font-bold select-none transition-all duration-500 ${
-              isRecording
-                ? 'bg-teal-600 ring-4 ring-emerald-400/70 shadow-2xl shadow-emerald-500/20'
-                : neerjaActive
-                ? 'bg-slate-700 ring-4 ring-purple-500/40 shadow-2xl shadow-purple-500/10'
-                : 'bg-slate-700 ring-2 ring-slate-600'
-            }`}>
+            <div className="w-full h-full rounded-full bg-slate-700 flex items-center justify-center text-5xl font-bold select-none">
               {candidateName.charAt(0).toUpperCase()}
             </div>
+            {/* Radiating border overlay — mirrors interviewer's absolute inset-0 approach */}
+            {isRecording && (
+              <div
+                className="absolute inset-0 rounded-full border-2 border-purple-400/60 animate-pulse"
+                style={{ boxShadow: '0 0 20px 6px rgba(168,85,247,0.25), inset 0 0 12px 2px rgba(168,85,247,0.1)' }}
+              />
+            )}
           </div>
         </div>
 
-        {/* Neerja PiP — top right */}
-        <div className={`absolute top-4 right-4 w-48 rounded-xl overflow-hidden border shadow-2xl transition-all duration-300 ${
+        {/* interviyu AI PiP — top right */}
+        <div className={`absolute top-4 right-4 w-72 rounded-xl overflow-hidden border shadow-2xl transition-all duration-300 ${
           neerjaActive ? 'border-purple-500/60 shadow-purple-500/20' : 'border-slate-700/50'
         }`}>
-          <div className="bg-slate-800/90 aspect-video relative flex flex-col items-center justify-center">
+          <div className="bg-slate-700/80 aspect-video relative flex flex-col items-center justify-center">
             {/* Speaking animation overlay */}
             {neerjaActive && (
               <div className="absolute inset-0 border-2 border-purple-400/40 rounded-xl animate-pulse" />
             )}
-            {/* Avatar icon */}
-            <div className="w-12 h-12 rounded-full bg-slate-600 flex items-center justify-center mb-1">
-              <UserRound size={28} className="text-slate-200" />
+            {/* Avatar */}
+            <div className="w-16 h-16 rounded-full overflow-hidden flex items-center justify-center bg-slate-500">
+              <img src="/women-icon.svg" alt="intervyu AI" className="w-full h-full object-cover" />
             </div>
-            {/* Label bar */}
-            <div className="absolute bottom-0 left-0 right-0 bg-black/70 backdrop-blur-sm px-2.5 py-1.5 flex items-center justify-between">
-              <span className="text-white text-xs font-medium">Neerja</span>
-              {/* Speaking bars */}
+            {/* Label pill + waveform */}
+            <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
+              <span className="bg-slate-900/80 backdrop-blur-sm text-white text-xs px-3 py-1.5 rounded-lg border border-slate-700/40 font-medium">
+                intervyu AI
+              </span>
               {neerjaActive && (
-                <div className="flex items-end gap-px h-4">
-                  {[10, 14, 8, 12, 7].map((h, i) => (
+                <div className="flex items-center gap-0.5 mr-1">
+                  {[0.5, 1.0, 0.7, 1.0, 0.5].map((scale, i) => (
                     <div
                       key={i}
-                      className="w-0.5 bg-purple-400 rounded-full animate-pulse"
-                      style={{ height: `${h}px`, animationDelay: `${i * 0.13}s` }}
+                      className="w-0.5 rounded-full bg-purple-400"
+                      style={{
+                        height: '14px',
+                        transformOrigin: 'center',
+                        animation: `voiceBar ${0.55 + i * 0.1}s ease-in-out infinite alternate`,
+                        ['--bar-scale' as string]: scale,
+                      }}
                     />
                   ))}
                 </div>
@@ -469,6 +471,46 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
             {candidateName}
           </span>
         </div>
+
+        {/* Signal + audio visualizer — bottom right of main area */}
+        <div className="absolute bottom-4 right-4 flex items-end gap-3">
+          {/* Network signal bars */}
+          <div className="flex items-end gap-0.5">
+            {[6, 9, 12, 15].map((h, i) => (
+              <div
+                key={i}
+                className="w-1 rounded-sm bg-slate-400"
+                style={{ height: `${h}px` }}
+              />
+            ))}
+          </div>
+          {/* Animated audio waveform — 5 bars, CSS keyframe bounce */}
+          <div className="flex items-center gap-0.5 h-5">
+            {[0.6, 1.0, 0.75, 1.0, 0.6].map((scale, i) => (
+              <div
+                key={i}
+                className={`w-0.5 rounded-full ${
+                  isRecording ? 'bg-purple-400' : 'bg-slate-600'
+                }`}
+                style={{
+                  height: '16px',
+                  transformOrigin: 'center',
+                  transform: 'scaleY(0.2)',
+                  animation: isRecording
+                    ? `voiceBar ${0.55 + i * 0.1}s ease-in-out infinite alternate`
+                    : 'none',
+                  ['--bar-scale' as string]: scale,
+                }}
+              />
+            ))}
+          </div>
+        </div>
+        <style>{`
+          @keyframes voiceBar {
+            from { transform: scaleY(0.2); }
+            to   { transform: scaleY(var(--bar-scale, 1)); }
+          }
+        `}</style>
 
         {/* Initialization message */}
         {!isActive && !error && (
@@ -514,12 +556,12 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
             {messages.map((msg, idx) => (
               <div key={idx} className={`flex items-end gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                 {/* Avatar */}
-                <div className={`w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold ${
-                  msg.role === 'user' ? 'bg-teal-600 text-white' : 'bg-gray-200 text-slate-600'
+                <div className={`w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold overflow-hidden ${
+                  msg.role === 'user' ? 'bg-teal-600 text-white' : 'bg-gray-100'
                 }`}>
                   {msg.role === 'user'
                     ? candidateName.charAt(0).toUpperCase()
-                    : <UserRound size={14} />
+                    : <img src="/women-icon.svg" className="w-full h-full object-cover" alt="AI" />
                   }
                 </div>
                 {/* Bubble */}
@@ -548,8 +590,8 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
             {/* In-progress assistant response */}
             {currentResponse && (
               <div className="flex items-end gap-2 flex-row">
-                <div className="w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center bg-gray-200 text-slate-600">
-                  <UserRound size={14} />
+                <div className="w-7 h-7 rounded-full flex-shrink-0 overflow-hidden bg-gray-100">
+                  <img src="/women-icon.svg" className="w-full h-full object-cover" alt="AI" />
                 </div>
                 <div className="max-w-[75%] px-3.5 py-2.5 rounded-2xl rounded-bl-sm text-sm bg-gray-100 text-slate-800">
                   {currentResponse}
@@ -589,8 +631,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
         </div>
 
         {/* ── Code Editor full overlay ── */}
-        {codingQuestion && (
-          <div className={`absolute inset-0 z-40 bg-slate-950 flex flex-col ${showCodeEditor ? '' : 'hidden'}`}>
+        <div className={`absolute inset-0 z-40 bg-slate-950 flex flex-col ${showCodeEditor ? '' : 'hidden'}`}>
             {/* Header */}
             <div className="flex-shrink-0 flex items-center justify-between px-5 py-3 border-b border-slate-800 bg-slate-900">
               <span className="text-white font-semibold text-sm flex items-center gap-2">
@@ -607,13 +648,22 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
             {/* Body: problem statement left + Monaco right */}
             <div className="flex-1 flex min-h-0">
               {/* Problem statement panel */}
-              <div className="w-64 flex-shrink-0 flex flex-col border-r border-slate-800 overflow-y-auto bg-slate-900/50">
+              <div className="flex-shrink-0 flex flex-col border-r border-slate-800 overflow-y-auto bg-slate-900/50" style={{ width: problemPanelWidth }}>
                 <div className="p-5 space-y-4">
                   <h3 className="text-white font-semibold text-sm">Problem Statement</h3>
-                  <p className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
-                    {codingQuestion.question}
-                  </p>
-                  {codingQuestion.testCases && codingQuestion.testCases.length > 0 && (
+                  {!codingQuestion ? (
+                    <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
+                      <Code2 size={32} className="text-slate-600" />
+                      <p className="text-slate-500 text-sm leading-relaxed">
+                        No problem yet.<br />The interviewer will share one when it's time.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">
+                      {codingQuestion.question}
+                    </p>
+                  )}
+                  {codingQuestion?.testCases && codingQuestion.testCases.length > 0 && (
                     <div className="space-y-2">
                       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Test Cases</p>
                       {codingQuestion.testCases.map((tc, i) => (
@@ -626,13 +676,26 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
                   )}
                 </div>
               </div>
+              {/* Drag divider */}
+              <div
+                className="w-1 flex-shrink-0 bg-slate-800 hover:bg-purple-500/60 cursor-col-resize transition-colors active:bg-purple-500"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  const startX = e.clientX;
+                  const startW = problemPanelWidth;
+                  const onMove = (me: MouseEvent) => setProblemPanelWidth(Math.max(160, Math.min(520, startW + (me.clientX - startX))));
+                  const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+                  window.addEventListener('mousemove', onMove);
+                  window.addEventListener('mouseup', onUp);
+                }}
+              />
               {/* Monaco editor */}
               <div className="flex-1 min-w-0">
                 <CodeEditor
                   sessionId={sessionId}
-                  initialCode={codingQuestion.initialCode}
-                  language={codingQuestion.language}
-                  testCases={codingQuestion.testCases}
+                  initialCode={codingQuestion?.initialCode}
+                  language={codingQuestion?.language}
+                  testCases={codingQuestion?.testCases}
 
                   onCodeSubmit={(code, result, language) => {
                     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -651,18 +714,17 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
               </div>
             </div>
           </div>
-        )}
 
       </div>
 
       {/* ── Bottom Control Bar ── */}
       <div className="flex-shrink-0 bg-black border-t border-slate-800/50 py-3 px-6 flex items-center justify-between z-20">
 
-        {/* Left: transcript + CV buttons */}
-        <div className="flex items-center gap-2">
+        {/* Left: transcript button only */}
+        <div className="flex items-center">
           <button
             onClick={() => { setShowTranscript(v => !v); setShowCV(false); }}
-            className={`p-2.5 rounded-xl transition-all ${
+            className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
               showTranscript
                 ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20'
                 : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
@@ -671,75 +733,44 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
           >
             <MessageSquare size={18} />
           </button>
+        </div>
+
+        {/* Center: mic mute/unmute + end call */}
+        <div className="flex items-center gap-4">
+          {/* Mic mute/unmute */}
           <button
-            onClick={() => { setShowCV(v => !v); setShowTranscript(false); }}
-            className={`relative p-2.5 rounded-xl transition-all ${
-              showCV
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
-                : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+            onClick={toggleMute}
+            className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
+              isMuted
+                ? 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
             }`}
-            title="Resume"
+            title={isMuted ? 'Unmute' : 'Mute'}
           >
-            <FileText size={18} />
-            {cvAnalysis && (
-              <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-emerald-400 rounded-full" />
-            )}
+            {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
+          </button>
+
+          {/* End call */}
+          <button
+            onClick={handleEndInterview}
+            className="w-12 h-12 rounded-xl flex items-center justify-center bg-red-600 hover:bg-red-500 transition-all shadow-lg shadow-red-500/20"
+          >
+            <PhoneOff size={18} className="text-white" />
           </button>
         </div>
 
-        {/* Center: mic indicator + end call + code editor */}
-        <div className="flex items-center gap-4">
-          {/* Mic state indicator (non-interactive visual) */}
-          <div className={`w-11 h-11 rounded-full flex items-center justify-center transition-all ${
-            isRecording
-              ? 'bg-emerald-500/20 ring-2 ring-emerald-500 text-emerald-400'
-              : 'bg-slate-800 text-slate-500'
-          }`}>
-            {isRecording ? <Mic size={18} /> : <MicOff size={18} />}
-          </div>
-
-          {/* End call */}
-          <div className="relative flex flex-col items-center">
-            {confirmEnd && (
-              <span className="absolute -top-7 text-xs text-red-400 whitespace-nowrap font-medium">
-                Tap again to end
-              </span>
-            )}
-            <button
-              onClick={handleEndInterview}
-              className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg ${
-                confirmEnd
-                  ? 'bg-red-400 ring-4 ring-red-400/40 scale-110 shadow-red-400/30'
-                  : 'bg-red-600 hover:bg-red-500 shadow-red-500/20'
-              }`}
-            >
-              <PhoneOff size={22} className="text-white" />
-            </button>
-          </div>
-
-          {/* Code editor toggle / spacer */}
-          {codingQuestion ? (
-            <button
-              onClick={() => setShowCodeEditor(v => !v)}
-              className={`w-11 h-11 rounded-full flex items-center justify-center transition-all ${
-                showCodeEditor
-                  ? 'bg-blue-600 text-white ring-2 ring-blue-500 shadow-lg shadow-blue-500/20'
-                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
-              }`}
-              title="Code Editor"
-            >
-              <Code2 size={18} />
-            </button>
-          ) : (
-            <div className="w-11" />
-          )}
-        </div>
-
-        {/* Right: signal indicator + more menu */}
-        <div className="flex items-center gap-2">
-          <BarChart2 size={16} className="text-slate-600" />
-          <button className="p-2 rounded-xl bg-slate-800 text-slate-500 hover:bg-slate-700 hover:text-slate-300 transition-colors">
-            <MoreHorizontal size={18} />
+        {/* Right: code editor button */}
+        <div className="flex items-center">
+          <button
+            onClick={() => setShowCodeEditor(v => !v)}
+            className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
+              showCodeEditor
+                ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+            }`}
+            title="Code Editor"
+          >
+            <Code2 size={18} />
           </button>
         </div>
 

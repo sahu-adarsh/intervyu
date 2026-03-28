@@ -51,6 +51,7 @@ export default function CodeEditor({
   const [testResults, setTestResults] = useState<TestResult | null>(null);
   const [testResultsExpanded, setTestResultsExpanded] = useState(true);
   const [isLanguageDropdownOpen, setIsLanguageDropdownOpen] = useState(false);
+  const [testResultsHeight, setTestResultsHeight] = useState(220);
   const editorRef = useRef<any>(null);
 
   // Update code template when language changes
@@ -160,8 +161,7 @@ export default function CodeEditor({
               onClick={() => setIsLanguageDropdownOpen(!isLanguageDropdownOpen)}
               className="px-2 sm:px-3 py-1.5 bg-gray-700 text-gray-200 rounded hover:bg-gray-600 transition-colors flex items-center gap-1 text-xs sm:text-sm"
             >
-              <span className="hidden xs:inline">{currentLanguage === 'python' ? 'Python' : 'JS'}</span>
-              <span className="xs:hidden">{currentLanguage === 'python' ? 'Py' : 'JS'}</span>
+              <span>{currentLanguage === 'python' ? 'Python' : 'JavaScript'}</span>
               <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4" />
             </button>
 
@@ -226,10 +226,25 @@ export default function CodeEditor({
 
       {/* Test Results */}
       {testResults && (
-        <div className="border-t border-gray-200 bg-gray-50">
+        <div className="border-t border-gray-200 bg-gray-50 flex flex-col" style={{ height: testResultsExpanded ? testResultsHeight : 'auto' }}>
+          {/* Drag handle */}
+          {testResultsExpanded && (
+            <div
+              className="h-1.5 w-full bg-gray-200 hover:bg-blue-400 cursor-row-resize transition-colors flex-shrink-0"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const startY = e.clientY;
+                const startH = testResultsHeight;
+                const onMove = (me: MouseEvent) => setTestResultsHeight(Math.max(80, Math.min(560, startH - (me.clientY - startY))));
+                const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+                window.addEventListener('mousemove', onMove);
+                window.addEventListener('mouseup', onUp);
+              }}
+            />
+          )}
           <button
             onClick={() => setTestResultsExpanded(!testResultsExpanded)}
-            className="w-full px-3 sm:px-4 py-2.5 flex items-center justify-between hover:bg-gray-100 transition-colors"
+            className="w-full px-3 sm:px-4 py-2.5 flex items-center justify-between hover:bg-gray-100 transition-colors flex-shrink-0"
           >
             <h3 className="text-base sm:text-lg font-semibold text-gray-900">Test Results</h3>
             <div className="flex items-center gap-2">
@@ -249,7 +264,7 @@ export default function CodeEditor({
             </div>
           </button>
 
-          {testResultsExpanded && <div className="px-3 sm:px-4 pb-3 sm:pb-4 max-h-64 overflow-y-auto">
+          {testResultsExpanded && <div className="px-3 sm:px-4 pb-3 sm:pb-4 flex-1 overflow-y-auto min-h-0">
           {testResults.error ? (
             <div className="bg-red-50 border border-red-200 rounded-lg p-3">
               <p className="text-red-800 text-sm font-mono">{testResults.error}</p>
