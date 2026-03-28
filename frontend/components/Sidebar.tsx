@@ -130,7 +130,8 @@ function UserAvatar() {
 }
 
 export default function Sidebar() {
-  const pathname = usePathname();
+  const rawPathname = usePathname();
+  const pathname = rawPathname.replace(/\/$/, '') || '/';
 
   return (
     <aside className="w-16 h-screen bg-slate-900 border-r border-slate-800 flex flex-col items-center py-4 fixed left-0 top-0 z-30">
