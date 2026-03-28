@@ -18,3 +18,7 @@ python-dotenv
 pydantic
 httpx  # Async HTTP client (Deepgram STT API)
 pypdf  # PDF text extraction fallback when Textract is unavailable
+
+# Auth & Database
+PyJWT>=2.8.0     # Supabase JWT verification
+asyncpg>=0.29.0  # Async PostgreSQL driver (Supabase)

@@ -1,10 +1,11 @@
 import logging
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
 from app.models.session import TranscriptResponse, TranscriptMessage, EndSessionResponse
 from app.services.s3_service import S3Service
 from app.services.lambda_service import LambdaService
 from app.services.textract_service import TextractService, IndustrySkillExtractor
+from app.dependencies.auth import CurrentUser, get_current_user
 from datetime import datetime
 from typing import Optional
 import json
@@ -17,13 +18,19 @@ lambda_service = LambdaService()
 textract_service = TextractService()
 
 @router.get("/{session_id}/transcript", response_model=TranscriptResponse)
-async def get_transcript(session_id: str):
+async def get_transcript(
+    session_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """Get full interview transcript"""
     try:
         session_data = s3_service.get_session(session_id)
 
         if not session_data:
             raise HTTPException(status_code=404, detail="Session not found")
+
+        if session_data.get("user_id") and session_data["user_id"] != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
 
         transcript_messages = [
             TranscriptMessage(
@@ -45,13 +52,19 @@ async def get_transcript(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{session_id}/end", response_model=EndSessionResponse)
-async def end_interview(session_id: str):
+async def end_interview(
+    session_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """End interview session and generate performance report"""
     try:
         session_data = s3_service.get_session(session_id)
 
         if not session_data:
             raise HTTPException(status_code=404, detail="Session not found")
+
+        if session_data.get("user_id") and session_data["user_id"] != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
 
         # Update session status
         session_data["status"] = "completed"
@@ -67,7 +80,7 @@ async def end_interview(session_id: str):
             report = lambda_service.invoke_performance_evaluator(
                 session_id=session_id,
                 conversation_history=session_data.get("transcript", []),
-                code_submissions=[],  # TODO: Track code submissions in session
+                code_submissions=[],
                 interview_type=session_data.get("interview_type", "Technical Interview"),
                 duration=duration,
                 candidate_name=session_data.get("candidate_name", "Candidate"),
@@ -101,13 +114,20 @@ async def end_interview(session_id: str):
 
 
 @router.post("/{session_id}/upload-cv")
-async def upload_cv(session_id: str, file: UploadFile = File(...)):
+async def upload_cv(
+    session_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+    file: UploadFile = File(...),
+):
     """Upload and analyze candidate CV with PDF/DOCX support"""
     try:
         session_data = s3_service.get_session(session_id)
 
         if not session_data:
             raise HTTPException(status_code=404, detail="Session not found")
+
+        if session_data.get("user_id") and session_data["user_id"] != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
 
         # Read file content
         content = await file.read()
@@ -117,13 +137,10 @@ async def upload_cv(session_id: str, file: UploadFile = File(...)):
         cv_text = ""
 
         if file_extension == 'pdf':
-            # Use Textract for PDF
             cv_text = textract_service.extract_text_from_pdf(content)
         elif file_extension in ['doc', 'docx']:
-            # Use Textract for DOCX
             cv_text = textract_service.extract_text_from_pdf(content)  # Textract handles both
         elif file_extension == 'txt':
-            # Direct text extraction
             try:
                 cv_text = content.decode('utf-8')
             except:
@@ -177,13 +194,19 @@ async def upload_cv(session_id: str, file: UploadFile = File(...)):
 
 
 @router.get("/{session_id}/cv-analysis")
-async def get_cv_analysis(session_id: str):
+async def get_cv_analysis(
+    session_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """Get CV analysis for a session"""
     try:
         session_data = s3_service.get_session(session_id)
 
         if not session_data:
             raise HTTPException(status_code=404, detail="Session not found")
+
+        if session_data.get("user_id") and session_data["user_id"] != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
 
         if not session_data.get("cv_uploaded"):
             return JSONResponse(content={"success": True, "analysis": None, "filename": ""})
@@ -201,13 +224,19 @@ async def get_cv_analysis(session_id: str):
 
 
 @router.get("/{session_id}/performance-report")
-async def get_performance_report(session_id: str):
+async def get_performance_report(
+    session_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """Get performance report for a completed interview"""
     try:
         session_data = s3_service.get_session(session_id)
 
         if not session_data:
             raise HTTPException(status_code=404, detail="Session not found")
+
+        if session_data.get("user_id") and session_data["user_id"] != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
 
         if session_data.get("status") != "completed":
             raise HTTPException(status_code=400, detail="Interview not completed yet")

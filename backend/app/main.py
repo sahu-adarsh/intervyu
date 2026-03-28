@@ -1,5 +1,6 @@
 import os
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 logging.basicConfig(
@@ -8,12 +9,38 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S',
 )
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import sessions, interviews, websocket, code, analytics
+from app.routers import sessions, interviews, websocket, code, analytics, auth
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup: warm DB connection pool. Shutdown: close it."""
+    from app.config.settings import DATABASE_URL
+    if DATABASE_URL:
+        try:
+            from app.services import db_service
+            await db_service.get_pool()
+            logger.info("PostgreSQL connection pool initialized")
+        except Exception as exc:
+            logger.warning(f"DB pool init skipped (Supabase not configured?): {exc}")
+    yield
+    # Shutdown
+    try:
+        from app.services import db_service
+        if db_service._pool:
+            await db_service._pool.close()
+            logger.info("PostgreSQL connection pool closed")
+    except Exception:
+        pass
+
 
 app = FastAPI(
     title="intervyu Backend API",
     description="AI-Powered Interview Preparation Platform with Real-time Voice Communication",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS Configuration — reads from CORS_ORIGINS env var (comma-separated)
@@ -29,6 +56,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(auth.router)
 app.include_router(sessions.router)
 app.include_router(interviews.router)
 app.include_router(websocket.router)

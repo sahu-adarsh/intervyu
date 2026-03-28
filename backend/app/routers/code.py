@@ -3,7 +3,7 @@ Code Execution Router
 Handles code submission, execution, and tracking
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional
@@ -13,6 +13,7 @@ import uuid
 
 from app.services.lambda_service import LambdaService
 from app.services.s3_service import S3Service
+from app.dependencies.auth import CurrentUser, get_current_user
 
 logger = logging.getLogger(__name__)
 from app.models.code_submission import (
@@ -40,7 +41,10 @@ class CodeExecutionRequest(BaseModel):
 
 
 @router.post("/execute")
-async def execute_code(request: CodeExecutionRequest):
+async def execute_code(
+    request: CodeExecutionRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """
     Execute code against test cases and track submission
 
@@ -92,9 +96,12 @@ async def execute_code(request: CodeExecutionRequest):
             error=result.get('error')
         )
 
-        # Store in session
+        # Store in session (verify ownership first)
         session_data = s3_service.get_session(request.sessionId)
         if session_data:
+            if session_data.get("user_id") and session_data["user_id"] != current_user.user_id:
+                raise HTTPException(status_code=403, detail="Access denied")
+
             if 'code_submissions' not in session_data:
                 session_data['code_submissions'] = []
 
@@ -112,19 +119,27 @@ async def execute_code(request: CodeExecutionRequest):
             "error": submission.error
         })
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Code execution error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{session_id}/submissions")
-async def get_code_submissions(session_id: str):
+async def get_code_submissions(
+    session_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """Get all code submissions for a session"""
     try:
         session_data = s3_service.get_session(session_id)
 
         if not session_data:
             raise HTTPException(status_code=404, detail="Session not found")
+
+        if session_data.get("user_id") and session_data["user_id"] != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
 
         submissions = session_data.get('code_submissions', [])
 
@@ -148,13 +163,20 @@ async def get_code_submissions(session_id: str):
 
 
 @router.get("/{session_id}/submissions/{submission_id}")
-async def get_code_submission(session_id: str, submission_id: str):
+async def get_code_submission(
+    session_id: str,
+    submission_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """Get a specific code submission"""
     try:
         session_data = s3_service.get_session(session_id)
 
         if not session_data:
             raise HTTPException(status_code=404, detail="Session not found")
+
+        if session_data.get("user_id") and session_data["user_id"] != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
 
         submissions = session_data.get('code_submissions', [])
         submission = next((s for s in submissions if s['submission_id'] == submission_id), None)
@@ -174,13 +196,19 @@ async def get_code_submission(session_id: str, submission_id: str):
 
 
 @router.get("/{session_id}/quality-summary")
-async def get_quality_summary(session_id: str):
+async def get_quality_summary(
+    session_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """Get code quality summary for a session"""
     try:
         session_data = s3_service.get_session(session_id)
 
         if not session_data:
             raise HTTPException(status_code=404, detail="Session not found")
+
+        if session_data.get("user_id") and session_data["user_id"] != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
 
         submissions = session_data.get('code_submissions', [])
 

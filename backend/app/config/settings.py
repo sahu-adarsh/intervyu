@@ -30,5 +30,11 @@ DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY", "")
 AZURE_SPEECH_KEY = os.getenv("AZURE_SPEECH_KEY", "")
 AZURE_SPEECH_REGION = os.getenv("AZURE_SPEECH_REGION", "eastus")
 
+# Supabase Configuration
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+
 # WebSocket Configuration
 WS_CONNECTION_TIMEOUT = int(os.getenv("WS_CONNECTION_TIMEOUT", "900"))  # 15 minutes

@@ -3,9 +3,10 @@ Analytics Router
 Performance analytics, benchmarks, and trend analysis
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from app.services.s3_service import S3Service
+from app.dependencies.auth import CurrentUser, get_current_user
 from typing import List, Dict, Any
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -15,13 +16,17 @@ s3_service = S3Service()
 
 
 @router.get("/aggregate")
-async def get_aggregate_analytics():
-    """Get aggregate statistics across all interviews"""
+async def get_aggregate_analytics(
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Get aggregate statistics for the authenticated user's interviews"""
     try:
-        # Get all sessions
         all_sessions = s3_service.list_all_sessions()
 
-        if not all_sessions:
+        # Filter to current user's sessions only
+        user_sessions = [s for s in all_sessions if s.get("user_id") == current_user.user_id]
+
+        if not user_sessions:
             return JSONResponse(content={
                 "success": True,
                 "total_interviews": 0,
@@ -29,25 +34,25 @@ async def get_aggregate_analytics():
             })
 
         # Calculate aggregates
-        total = len(all_sessions)
-        completed = sum(1 for s in all_sessions if s.get('status') == 'completed')
+        total = len(user_sessions)
+        completed = sum(1 for s in user_sessions if s.get('status') == 'completed')
 
         # Interview types distribution
         interview_types = defaultdict(int)
-        for session in all_sessions:
+        for session in user_sessions:
             interview_types[session.get('interview_type', 'Unknown')] += 1
 
         # Average scores
         scores = [
             s.get('performance_report', {}).get('overallScore', 0)
-            for s in all_sessions
+            for s in user_sessions
             if s.get('performance_report')
         ]
         avg_score = sum(scores) / len(scores) if scores else 0
 
         # Recommendations distribution
         recommendations = defaultdict(int)
-        for session in all_sessions:
+        for session in user_sessions:
             rec = session.get('performance_report', {}).get('recommendation')
             if rec:
                 recommendations[rec] += 1
@@ -60,7 +65,6 @@ async def get_aggregate_analytics():
             "average_score": round(avg_score, 2),
             "interview_types": dict(interview_types),
             "recommendations": dict(recommendations),
-            "total_candidates": len(set(s.get('candidate_name') for s in all_sessions))
         })
 
     except Exception as e:
@@ -68,10 +72,12 @@ async def get_aggregate_analytics():
 
 
 @router.get("/benchmarks/{interview_type}")
-async def get_benchmarks(interview_type: str):
-    """Get benchmark scores for specific interview type"""
+async def get_benchmarks(
+    interview_type: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Get benchmark scores for specific interview type (global aggregates, anonymized)"""
     try:
-        # Get all sessions of this type
         all_sessions = s3_service.list_all_sessions()
         type_sessions = [
             s for s in all_sessions
@@ -108,7 +114,6 @@ async def get_benchmarks(interview_type: str):
                 "has_data": False
             })
 
-        # Calculate percentiles
         def calculate_percentiles(values):
             sorted_values = sorted(values)
             n = len(sorted_values)
@@ -144,16 +149,19 @@ async def get_benchmarks(interview_type: str):
 
 
 @router.get("/trends")
-async def get_trends(days: int = 30):
-    """Get performance trends over time"""
+async def get_trends(
+    days: int = 30,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Get performance trends over time for the authenticated user"""
     try:
-        # Get sessions from last N days
         cutoff_date = datetime.utcnow() - timedelta(days=days)
         all_sessions = s3_service.list_all_sessions()
 
         recent_sessions = [
             s for s in all_sessions
-            if datetime.fromisoformat(s.get('created_at', '2000-01-01')) >= cutoff_date
+            if s.get("user_id") == current_user.user_id
+            and datetime.fromisoformat(s.get('created_at', '2000-01-01')) >= cutoff_date
             and s.get('performance_report')
         ]
 
@@ -211,14 +219,66 @@ async def get_trends(days: int = 30):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/history")
+async def get_user_history(
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Get full interview history for the authenticated user"""
+    try:
+        all_sessions = s3_service.list_all_sessions()
+        user_sessions = [
+            s for s in all_sessions
+            if s.get("user_id") == current_user.user_id
+        ]
+
+        if not user_sessions:
+            return JSONResponse(content={
+                "success": True,
+                "has_history": False
+            })
+
+        # Sort by date, newest first
+        user_sessions.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+
+        scores_over_time = [
+            {
+                "session_id": s.get('session_id'),
+                "date": s.get('created_at'),
+                "interview_type": s.get('interview_type'),
+                "status": s.get('status'),
+                "score": s.get('performance_report', {}).get('overallScore') if s.get('performance_report') else None,
+                "recommendation": s.get('performance_report', {}).get('recommendation') if s.get('performance_report') else None,
+            }
+            for s in user_sessions
+        ]
+
+        return JSONResponse(content={
+            "success": True,
+            "has_history": True,
+            "total_interviews": len(user_sessions),
+            "completed_interviews": sum(1 for s in user_sessions if s.get('status') == 'completed'),
+            "sessions": scores_over_time,
+            "latest_score": next(
+                (s['score'] for s in scores_over_time if s['score'] is not None), None
+            )
+        })
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/candidate/{candidate_name}/history")
-async def get_candidate_history(candidate_name: str):
-    """Get interview history for specific candidate"""
+async def get_candidate_history(
+    candidate_name: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Get interview history filtered by candidate name (scoped to current user)"""
     try:
         all_sessions = s3_service.list_all_sessions()
         candidate_sessions = [
             s for s in all_sessions
-            if s.get('candidate_name', '').lower() == candidate_name.lower()
+            if s.get("user_id") == current_user.user_id
+            and s.get('candidate_name', '').lower() == candidate_name.lower()
         ]
 
         if not candidate_sessions:
@@ -228,10 +288,8 @@ async def get_candidate_history(candidate_name: str):
                 "has_history": False
             })
 
-        # Sort by date
         candidate_sessions.sort(key=lambda x: x.get('created_at', ''), reverse=True)
 
-        # Calculate progression
         scores_over_time = [
             {
                 "date": s.get('created_at'),

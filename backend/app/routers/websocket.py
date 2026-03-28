@@ -1,4 +1,4 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from app.services.bedrock_service import BedrockService
 from app.services.s3_service import S3Service
 from app.config.settings import DEEPGRAM_API_KEY, AZURE_SPEECH_KEY, AZURE_SPEECH_REGION
@@ -212,11 +212,24 @@ def validate_and_truncate_response(text: str) -> str:
 
 
 @router.websocket("/ws/interview/{session_id}")
-async def voice_interview_websocket(websocket: WebSocket, session_id: str):
+async def voice_interview_websocket(
+    websocket: WebSocket,
+    session_id: str,
+    token: str = Query(..., description="Supabase access token for authentication"),
+):
     """
     WebSocket endpoint for real-time voice interviews
     Handles: Audio streaming, Speech-to-Text, LLM interaction, Text-to-Speech
     """
+    # Verify JWT before accepting the connection
+    from app.services.auth_service import verify_supabase_jwt
+    try:
+        jwt_payload = verify_supabase_jwt(token)
+        ws_user_id: str = jwt_payload["sub"]
+    except ValueError as exc:
+        await websocket.close(code=4001, reason=f"Unauthorized: {exc}")
+        return
+
     try:
         # Accept connection FIRST for faster perceived performance
         await websocket.accept()
