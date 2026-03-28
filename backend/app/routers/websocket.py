@@ -440,14 +440,9 @@ async def voice_interview_websocket(
             })
 
             # Save introduction to transcript in background (non-blocking)
-            asyncio.create_task(asyncio.to_thread(
-                s3_service.update_session_transcript,
-                session_id,
-                {
-                    "role": "assistant",
-                    "content": full_response,
-                    "timestamp": datetime.utcnow().isoformat()
-                }
+            from app.services import db_service as _db
+            asyncio.create_task(_db.append_transcript_message(
+                session_id, "assistant", full_response
             ))
 
         except Exception as e:
@@ -518,15 +513,10 @@ async def voice_interview_websocket(
             await asyncio.sleep(0)  # Force context switch, let message send
             logger.info(f"[{datetime.now().strftime('%H:%M:%S')}] Transcript sent: {transcript}")
 
-            # Save user transcript to S3 in background (non-blocking).
-            asyncio.create_task(asyncio.to_thread(
-                s3_service.update_session_transcript,
-                session_id,
-                {
-                    "role": "user",
-                    "content": transcript,
-                    "timestamp": datetime.utcnow().isoformat()
-                }
+            # Save user transcript to DB in background (non-blocking).
+            from app.services import db_service as _db
+            asyncio.create_task(_db.append_transcript_message(
+                session_id, "user", transcript
             ))
             # Update cache in-place so session_data next turn includes this user turn
             if session_id in _session_cache:
@@ -783,12 +773,11 @@ async def voice_interview_websocket(
                 })
                 logger.info(f"[{session_id}] Code editor signal sent to frontend")
 
-            # Save assistant response to transcript and update cache in-place
-            s3_service.update_session_transcript(session_id, {
-                "role": "assistant",
-                "content": full_response,
-                "timestamp": datetime.utcnow().isoformat()
-            })
+            # Save assistant response to transcript in background
+            from app.services import db_service as _db
+            asyncio.create_task(_db.append_transcript_message(
+                session_id, "assistant", full_response
+            ))
             # Update cache in-place — next turn session fetch is a free dict lookup (0ms)
             if session_id in _session_cache:
                 _session_cache[session_id].setdefault("transcript", []).append({
@@ -859,14 +848,11 @@ async def voice_interview_websocket(
                             summary += f"Tests: {len([t for t in test_results if t.get('passed')])} passed, "
                             summary += f"{len([t for t in test_results if not t.get('passed')])} failed."
 
-                            # Add to session transcript
-                            s3_service.update_session_transcript(session_id, {
-                                "role": "system",
-                                "content": summary,
-                                "timestamp": datetime.utcnow().isoformat(),
-                                "code": code,
-                                "testResults": test_results
-                            })
+                            # Add to session transcript (background task)
+                            from app.services import db_service as _db
+                            asyncio.create_task(_db.append_transcript_message(
+                                session_id, "system", summary
+                            ))
 
                             logger.info(f"[{session_id}] Code submission logged: {summary}")
 
@@ -964,12 +950,11 @@ async def voice_interview_websocket(
                                         "role": "assistant"
                                     })
 
-                                    # Save assistant response to transcript
-                                    s3_service.update_session_transcript(session_id, {
-                                        "role": "assistant",
-                                        "content": full_response,
-                                        "timestamp": datetime.utcnow().isoformat()
-                                    })
+                                    # Save assistant response to transcript (background)
+                                    from app.services import db_service as _db
+                                    asyncio.create_task(_db.append_transcript_message(
+                                        session_id, "assistant", full_response
+                                    ))
 
                                     logger.info(f"[{session_id}] Chatbot response sent: {full_response}")
 

@@ -12,8 +12,8 @@ from datetime import datetime
 import uuid
 
 from app.services.lambda_service import LambdaService
-from app.services.s3_service import S3Service
 from app.dependencies.auth import CurrentUser, get_current_user
+from app.services import db_service
 
 logger = logging.getLogger(__name__)
 from app.models.code_submission import (
@@ -24,7 +24,6 @@ from app.models.code_submission import (
 
 router = APIRouter(prefix="/api/code", tags=["code"])
 lambda_service = LambdaService()
-s3_service = S3Service()
 
 
 class TestCaseRequest(BaseModel):
@@ -45,16 +44,13 @@ async def execute_code(
     request: CodeExecutionRequest,
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    """
-    Execute code against test cases and track submission
-
-    Flow:
-    1. Execute code via Lambda
-    2. Calculate quality metrics
-    3. Store submission in session
-    4. Return results with metrics
-    """
+    """Execute code against test cases and track submission"""
     try:
+        # Verify session ownership
+        session_data = await db_service.get_session(request.sessionId)
+        if session_data and session_data.get("user_id") != current_user.user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
         # Execute code via Lambda
         result = lambda_service.invoke_code_executor(
             code=request.code,
@@ -82,8 +78,9 @@ async def execute_code(
             ))
 
         # Create submission record
+        submission_id = str(uuid.uuid4())
         submission = CodeSubmission(
-            submission_id=str(uuid.uuid4()),
+            submission_id=submission_id,
             session_id=request.sessionId,
             timestamp=datetime.utcnow().isoformat(),
             code=request.code,
@@ -96,19 +93,12 @@ async def execute_code(
             error=result.get('error')
         )
 
-        # Store in session (verify ownership first)
-        session_data = s3_service.get_session(request.sessionId)
-        if session_data:
-            if session_data.get("user_id") and session_data["user_id"] != current_user.user_id:
-                raise HTTPException(status_code=403, detail="Access denied")
+        # Persist to PostgreSQL
+        try:
+            await db_service.save_code_submission(request.sessionId, submission.to_dict())
+        except Exception as e:
+            logger.error(f"Failed to save code submission to DB: {e}")
 
-            if 'code_submissions' not in session_data:
-                session_data['code_submissions'] = []
-
-            session_data['code_submissions'].append(submission.to_dict())
-            s3_service.save_session(session_data)
-
-        # Return results
         return JSONResponse(content={
             "success": result.get('success', True),
             "testResults": [tr.__dict__ for tr in test_results],
@@ -133,20 +123,16 @@ async def get_code_submissions(
 ):
     """Get all code submissions for a session"""
     try:
-        session_data = s3_service.get_session(session_id)
-
+        session_data = await db_service.get_session(session_id)
         if not session_data:
             raise HTTPException(status_code=404, detail="Session not found")
-
-        if session_data.get("user_id") and session_data["user_id"] != current_user.user_id:
+        if session_data.get("user_id") != current_user.user_id:
             raise HTTPException(status_code=403, detail="Access denied")
 
-        submissions = session_data.get('code_submissions', [])
+        submissions = await db_service.get_code_submissions(session_id)
 
-        # Parse submissions
+        # Parse for summary
         submission_objects = [CodeSubmission.from_dict(s) for s in submissions]
-
-        # Generate summary
         summary = CodeSubmissionTracker.get_submission_summary(submission_objects)
 
         return JSONResponse(content={
@@ -170,24 +156,19 @@ async def get_code_submission(
 ):
     """Get a specific code submission"""
     try:
-        session_data = s3_service.get_session(session_id)
-
+        session_data = await db_service.get_session(session_id)
         if not session_data:
             raise HTTPException(status_code=404, detail="Session not found")
-
-        if session_data.get("user_id") and session_data["user_id"] != current_user.user_id:
+        if session_data.get("user_id") != current_user.user_id:
             raise HTTPException(status_code=403, detail="Access denied")
 
-        submissions = session_data.get('code_submissions', [])
-        submission = next((s for s in submissions if s['submission_id'] == submission_id), None)
+        submissions = await db_service.get_code_submissions(session_id)
+        submission = next((s for s in submissions if s.get('submission_id') == submission_id), None)
 
         if not submission:
             raise HTTPException(status_code=404, detail="Submission not found")
 
-        return JSONResponse(content={
-            "success": True,
-            "submission": submission
-        })
+        return JSONResponse(content={"success": True, "submission": submission})
 
     except HTTPException:
         raise
@@ -202,15 +183,13 @@ async def get_quality_summary(
 ):
     """Get code quality summary for a session"""
     try:
-        session_data = s3_service.get_session(session_id)
-
+        session_data = await db_service.get_session(session_id)
         if not session_data:
             raise HTTPException(status_code=404, detail="Session not found")
-
-        if session_data.get("user_id") and session_data["user_id"] != current_user.user_id:
+        if session_data.get("user_id") != current_user.user_id:
             raise HTTPException(status_code=403, detail="Access denied")
 
-        submissions = session_data.get('code_submissions', [])
+        submissions = await db_service.get_code_submissions(session_id)
 
         if not submissions:
             return JSONResponse(content={
@@ -220,10 +199,7 @@ async def get_quality_summary(
                 "message": "No code submissions yet"
             })
 
-        # Parse submissions
         submission_objects = [CodeSubmission.from_dict(s) for s in submissions]
-
-        # Calculate aggregate metrics
         quality_scores = [s.quality_metrics.quality_score for s in submission_objects if s.quality_metrics]
         avg_complexity = sum(s.quality_metrics.cyclomatic_complexity for s in submission_objects if s.quality_metrics) / max(len(quality_scores), 1)
         avg_loc = sum(s.quality_metrics.lines_of_code for s in submission_objects if s.quality_metrics) / max(len(quality_scores), 1)

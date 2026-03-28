@@ -6,9 +6,8 @@ from app.services.s3_service import S3Service
 from app.services.lambda_service import LambdaService
 from app.services.textract_service import TextractService, IndustrySkillExtractor
 from app.dependencies.auth import CurrentUser, get_current_user
-from datetime import datetime
-from typing import Optional
-import json
+from app.services import db_service
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +16,17 @@ s3_service = S3Service()
 lambda_service = LambdaService()
 textract_service = TextractService()
 
+
+async def _verify_session_owner(session_id: str, user_id: str) -> dict:
+    """Fetch session from DB and verify ownership. Raises 404/403 on failure."""
+    session_data = await db_service.get_session(session_id)
+    if not session_data:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session_data.get("user_id") != user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return session_data
+
+
 @router.get("/{session_id}/transcript", response_model=TranscriptResponse)
 async def get_transcript(
     session_id: str,
@@ -24,32 +34,25 @@ async def get_transcript(
 ):
     """Get full interview transcript"""
     try:
-        session_data = s3_service.get_session(session_id)
+        await _verify_session_owner(session_id, current_user.user_id)
 
-        if not session_data:
-            raise HTTPException(status_code=404, detail="Session not found")
-
-        if session_data.get("user_id") and session_data["user_id"] != current_user.user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-
+        messages = await db_service.get_transcript(session_id)
         transcript_messages = [
             TranscriptMessage(
-                role=msg.get("role", ""),
-                content=msg.get("content", ""),
-                timestamp=msg.get("timestamp", "")
+                role=m["role"],
+                content=m["content"],
+                timestamp=m["timestamp"],
             )
-            for msg in session_data.get("transcript", [])
+            for m in messages
         ]
 
-        return TranscriptResponse(
-            session_id=session_id,
-            transcript=transcript_messages
-        )
+        return TranscriptResponse(session_id=session_id, transcript=transcript_messages)
 
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/{session_id}/end", response_model=EndSessionResponse)
 async def end_interview(
@@ -58,53 +61,51 @@ async def end_interview(
 ):
     """End interview session and generate performance report"""
     try:
-        session_data = s3_service.get_session(session_id)
+        session_data = await _verify_session_owner(session_id, current_user.user_id)
 
-        if not session_data:
-            raise HTTPException(status_code=404, detail="Session not found")
-
-        if session_data.get("user_id") and session_data["user_id"] != current_user.user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-
-        # Update session status
-        session_data["status"] = "completed"
-        session_data["ended_at"] = datetime.utcnow().isoformat()
-
-        # Calculate interview duration
-        started_at = datetime.fromisoformat(session_data.get("created_at", datetime.utcnow().isoformat()))
-        ended_at = datetime.utcnow()
-        duration = int((ended_at - started_at).total_seconds())
+        ended_at = datetime.now(timezone.utc)
 
         # Generate performance report using Lambda
+        report_url = None
         try:
+            transcript_messages = await db_service.get_transcript(session_id)
+            duration = 0
+            if session_data.get("created_at"):
+                try:
+                    started_at = datetime.fromisoformat(session_data["created_at"])
+                    duration = int((ended_at - started_at.replace(tzinfo=timezone.utc)).total_seconds())
+                except Exception:
+                    pass
+
             report = lambda_service.invoke_performance_evaluator(
                 session_id=session_id,
-                conversation_history=session_data.get("transcript", []),
+                conversation_history=transcript_messages,
                 code_submissions=[],
                 interview_type=session_data.get("interview_type", "Technical Interview"),
                 duration=duration,
                 candidate_name=session_data.get("candidate_name", "Candidate"),
-                save_to_s3=True
+                save_to_s3=True,
             )
 
-            report_url = report.get("reportUrl", f"s3://prepai-user-data/reports/{session_id}/performance_report.json")
-            session_data["performance_report"] = report
-            session_data["report_url"] = report_url
+            report_url = report.get("reportUrl")
+
+            # Save report to PostgreSQL
+            await db_service.save_performance_report(
+                session_id=session_id,
+                user_id=current_user.user_id,
+                report=report,
+            )
 
         except Exception as e:
             logger.error(f"Error generating performance report: {e}")
-            report_url = None
 
-        # Save session with report
-        success = s3_service.save_session(session_data)
-
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to end session")
+        # Update session status
+        await db_service.update_session_status(session_id, "completed", ended_at)
 
         return EndSessionResponse(
             session_id=session_id,
             status="completed",
-            report_url=report_url
+            report_url=report_url,
         )
 
     except HTTPException:
@@ -121,69 +122,69 @@ async def upload_cv(
 ):
     """Upload and analyze candidate CV with PDF/DOCX support"""
     try:
-        session_data = s3_service.get_session(session_id)
+        session_data = await _verify_session_owner(session_id, current_user.user_id)
 
-        if not session_data:
-            raise HTTPException(status_code=404, detail="Session not found")
-
-        if session_data.get("user_id") and session_data["user_id"] != current_user.user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-
-        # Read file content
         content = await file.read()
         file_extension = file.filename.lower().split('.')[-1]
 
-        # Extract text based on file type
         cv_text = ""
-
         if file_extension == 'pdf':
             cv_text = textract_service.extract_text_from_pdf(content)
         elif file_extension in ['doc', 'docx']:
-            cv_text = textract_service.extract_text_from_pdf(content)  # Textract handles both
+            cv_text = textract_service.extract_text_from_pdf(content)
         elif file_extension == 'txt':
             try:
                 cv_text = content.decode('utf-8')
-            except:
+            except Exception:
                 raise HTTPException(status_code=400, detail="Unable to decode text file")
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unsupported file type: {file_extension}. Supported: PDF, DOCX, TXT"
+                detail=f"Unsupported file type: {file_extension}. Supported: PDF, DOCX, TXT",
             )
 
         if not cv_text.strip():
             raise HTTPException(status_code=400, detail="No text extracted from file")
+
+        # Upload binary to S3
+        s3_key = s3_service.upload_cv(session_id, content, file.filename)
+
+        # Save document record to DB
+        await db_service.save_cv_document(
+            session_id=session_id,
+            filename=file.filename,
+            s3_key=s3_key or f"cvs/{session_id}/{file.filename}",
+            file_size_bytes=len(content),
+            mime_type=file.content_type,
+        )
 
         # Analyze CV using Lambda
         analysis = lambda_service.invoke_cv_analyzer(cv_text=cv_text)
 
         # Extract industry-specific skills
         interview_type = session_data.get("interview_type", "")
-        industry = "software_engineering"  # Default
-
+        industry = "software_engineering"
         if "solutions architect" in interview_type.lower() or "aws" in interview_type.lower():
             industry = "cloud_architect"
         elif "data" in interview_type.lower():
             industry = "data_science"
 
         categorized_skills = IndustrySkillExtractor.extract_skills_by_industry(cv_text, industry)
-
-        # Enhance analysis with categorized skills
         analysis['categorized_skills'] = categorized_skills
         analysis['industry'] = industry
         analysis['file_type'] = file_extension
 
-        # Save CV analysis to session
-        session_data["cv_analysis"] = analysis
-        session_data["cv_uploaded"] = True
-        session_data["cv_filename"] = file.filename
-        session_data["cv_file_type"] = file_extension
-        s3_service.save_session(session_data)
+        # Save analysis to DB
+        await db_service.save_cv_analysis(
+            session_id=session_id,
+            skills_json=analysis,
+            raw_text=cv_text[:10000],  # cap raw text at 10k chars
+        )
 
         return JSONResponse(content={
             "success": True,
             "analysis": analysis,
-            "message": f"CV uploaded and analyzed successfully ({file_extension.upper()})"
+            "message": f"CV uploaded and analyzed successfully ({file_extension.upper()})",
         })
 
     except HTTPException:
@@ -200,21 +201,14 @@ async def get_cv_analysis(
 ):
     """Get CV analysis for a session"""
     try:
-        session_data = s3_service.get_session(session_id)
+        await _verify_session_owner(session_id, current_user.user_id)
 
-        if not session_data:
-            raise HTTPException(status_code=404, detail="Session not found")
-
-        if session_data.get("user_id") and session_data["user_id"] != current_user.user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-
-        if not session_data.get("cv_uploaded"):
-            return JSONResponse(content={"success": True, "analysis": None, "filename": ""})
+        analysis = await db_service.get_cv_analysis(session_id)
 
         return JSONResponse(content={
             "success": True,
-            "analysis": session_data.get("cv_analysis", {}),
-            "filename": session_data.get("cv_filename", "")
+            "analysis": analysis,
+            "filename": analysis.get("filename", "") if analysis else "",
         })
 
     except HTTPException:
@@ -230,18 +224,12 @@ async def get_performance_report(
 ):
     """Get performance report for a completed interview"""
     try:
-        session_data = s3_service.get_session(session_id)
-
-        if not session_data:
-            raise HTTPException(status_code=404, detail="Session not found")
-
-        if session_data.get("user_id") and session_data["user_id"] != current_user.user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
+        session_data = await _verify_session_owner(session_id, current_user.user_id)
 
         if session_data.get("status") != "completed":
             raise HTTPException(status_code=400, detail="Interview not completed yet")
 
-        report = session_data.get("performance_report")
+        report = await db_service.get_performance_report(session_id)
 
         if not report:
             raise HTTPException(status_code=404, detail="Performance report not generated")
@@ -249,7 +237,7 @@ async def get_performance_report(
         return JSONResponse(content={
             "success": True,
             "report": report,
-            "report_url": session_data.get("report_url", "")
+            "report_url": report.get("report_s3_key", ""),
         })
 
     except HTTPException:
