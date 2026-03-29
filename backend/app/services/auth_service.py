@@ -61,10 +61,13 @@ def verify_supabase_jwt(token: str) -> dict:
             options={"verify_exp": True},
         )
     except jwt.ExpiredSignatureError:
+        logger.warning("JWT verify failed: token expired")
         raise ValueError("Token has expired")
-    except jwt.InvalidAudienceError:
+    except jwt.InvalidAudienceError as exc:
+        logger.warning("JWT verify failed: invalid audience — %s", exc)
         raise ValueError("Invalid token audience")
     except jwt.InvalidTokenError as exc:
+        logger.warning("JWT verify failed: %s", exc)
         raise ValueError(f"Invalid token: {exc}")
 
     _set_cached(token, payload)
