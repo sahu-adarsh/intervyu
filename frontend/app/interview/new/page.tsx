@@ -3,11 +3,16 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import VoiceInterview from '@/components/VoiceInterview';
+import { useRequireAuth } from '@/lib/supabase/auth';
+import { createSession as apiCreateSession, buildWsUrl } from '@/lib/api';
 
 function InterviewSessionContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { session, loading: authLoading } = useRequireAuth();
+
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [wsUrl, setWsUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -16,6 +21,11 @@ function InterviewSessionContent() {
   const existingSession = searchParams.get('session');
 
   useEffect(() => {
+    // Wait for auth to resolve
+    if (authLoading) return;
+    // useRequireAuth redirects if not authenticated; just gate here
+    if (!session) return;
+
     if (!interviewType || !candidateName) {
       router.push('/');
       return;
@@ -24,31 +34,21 @@ function InterviewSessionContent() {
     // If session was pre-created on the home page (with CV upload), use it directly
     if (existingSession) {
       setSessionId(existingSession);
+      buildWsUrl(existingSession).then(setWsUrl);
       setLoading(false);
       return;
     }
 
-    // Otherwise create a new session
-    const createSession = async () => {
+    // Otherwise create a new session via authenticated API
+    const setupSession = async () => {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-        const response = await fetch(`${apiUrl}/api/sessions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            interview_type: interviewType,
-            candidate_name: candidateName,
-          }),
+        const data = await apiCreateSession({
+          interview_type: interviewType,
+          candidate_name: candidateName,
         });
-
-        if (!response.ok) {
-          throw new Error('Failed to create session');
-        }
-
-        const data = await response.json();
         setSessionId(data.session_id);
+        const url = await buildWsUrl(data.session_id);
+        setWsUrl(url);
         setLoading(false);
       } catch (err) {
         setError((err as Error).message);
@@ -56,10 +56,10 @@ function InterviewSessionContent() {
       }
     };
 
-    createSession();
-  }, [interviewType, candidateName, existingSession, router]);
+    setupSession();
+  }, [interviewType, candidateName, existingSession, router, session, authLoading]);
 
-  if (loading) {
+  if (authLoading || (loading && !error)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950">
         <div className="text-center space-y-4">
@@ -90,7 +90,7 @@ function InterviewSessionContent() {
     );
   }
 
-  if (!sessionId) {
+  if (!sessionId || !wsUrl) {
     return null;
   }
 
@@ -99,6 +99,7 @@ function InterviewSessionContent() {
       sessionId={sessionId}
       interviewType={interviewType || ''}
       candidateName={candidateName || ''}
+      wsUrl={wsUrl}
     />
   );
 }

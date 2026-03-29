@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutGrid, FileText, AlertCircle, Send, X } from 'lucide-react';
+import { LayoutGrid, FileText, AlertCircle, Send, X, LogOut } from 'lucide-react';
+import { useSupabaseSession, signOut, getUserDisplayName, getUserAvatarUrl } from '@/lib/supabase/auth';
 
 interface NavItemProps {
   icon: React.ReactNode;
@@ -107,23 +108,68 @@ function ReportIssueButton() {
 }
 
 function UserAvatar() {
-  const [initials, setInitials] = useState('');
+  const router = useRouter();
+  const { user } = useSupabaseSession();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const name = localStorage.getItem('intervyu_last_name') || '';
-    if (name) {
-      setInitials(name.trim()[0]?.toUpperCase() || '');
-    }
-  }, []);
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    if (menuOpen) document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [menuOpen]);
+
+  const avatarUrl = getUserAvatarUrl(user);
+  const displayName = getUserDisplayName(user);
+  const initials = displayName ? displayName.trim()[0]?.toUpperCase() : '';
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.push('/login');
+  };
 
   return (
-    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center overflow-hidden border-2 border-slate-700">
-      {initials ? (
-        <span className="text-white text-sm font-bold">{initials}</span>
-      ) : (
-        <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 text-slate-300" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-        </svg>
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={() => setMenuOpen(!menuOpen)}
+        className="w-9 h-9 rounded-full overflow-hidden border-2 border-slate-700 hover:border-violet-500 transition-colors"
+        title={displayName || 'Account'}
+      >
+        {avatarUrl ? (
+          <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center">
+            {initials ? (
+              <span className="text-white text-sm font-bold">{initials}</span>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 text-slate-300" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+              </svg>
+            )}
+          </div>
+        )}
+      </button>
+
+      {menuOpen && (
+        <div className="absolute left-12 bottom-0 w-48 bg-slate-800 border border-slate-700 rounded-xl p-2 shadow-2xl z-50">
+          {displayName && (
+            <div className="px-3 py-2 border-b border-slate-700 mb-1">
+              <p className="text-xs font-semibold text-slate-200 truncate">{displayName}</p>
+              {user?.email && <p className="text-xs text-slate-500 truncate">{user.email}</p>}
+            </div>
+          )}
+          <button
+            onClick={handleSignOut}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-slate-300 hover:text-red-400 hover:bg-slate-700/50 rounded-lg transition-colors"
+          >
+            <LogOut size={13} />
+            Sign out
+          </button>
+        </div>
       )}
     </div>
   );

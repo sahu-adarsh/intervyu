@@ -3,6 +3,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { FileText, ChevronDown, ChevronUp, X, Upload } from 'lucide-react';
+import { createSession, uploadCV } from '@/lib/api';
+import { useSupabaseSession, getUserDisplayName } from '@/lib/supabase/auth';
 
 interface InterviewTypeInfo {
   id: string;
@@ -22,6 +24,7 @@ function formatBytes(bytes: number) {
 
 export default function StartInterviewModal({ interviewType, onClose }: StartInterviewModalProps) {
   const router = useRouter();
+  const { user } = useSupabaseSession();
   const [candidateName, setCandidateName] = useState('');
   const [cvFile, setCvFile] = useState<File | null>(null);
   const [cvExpanded, setCvExpanded] = useState(false);
@@ -32,11 +35,13 @@ export default function StartInterviewModal({ interviewType, onClose }: StartInt
 
   const canStart = interviewType && candidateName.trim() && !starting;
 
-  // Restore last name from localStorage
+  // Pre-fill name from Supabase user metadata (Google/GitHub provides full_name)
   useEffect(() => {
-    const last = localStorage.getItem('intervyu_last_name');
-    if (last) setCandidateName(last);
-  }, []);
+    if (user) {
+      const displayName = getUserDisplayName(user);
+      if (displayName) setCandidateName(displayName);
+    }
+  }, [user]);
 
   // Scroll lock
   useEffect(() => {
@@ -79,45 +84,17 @@ export default function StartInterviewModal({ interviewType, onClose }: StartInt
     setStartError(null);
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
-      const sessionRes = await fetch(`${apiUrl}/api/sessions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          interview_type: interviewType.id,
-          candidate_name: candidateName.trim(),
-        }),
+      const { session_id } = await createSession({
+        interview_type: interviewType.id,
+        candidate_name: candidateName.trim(),
       });
-      if (!sessionRes.ok) throw new Error('Failed to create session');
-      const { session_id } = await sessionRes.json();
 
       if (cvFile) {
         try {
-          const fd = new FormData();
-          fd.append('file', cvFile);
-          await fetch(`${apiUrl}/api/interviews/${session_id}/upload-cv`, {
-            method: 'POST',
-            body: fd,
-          });
+          await uploadCV(session_id, cvFile);
         } catch {
           // CV upload failed silently — interview continues without CV context
         }
-      }
-
-      // Persist to localStorage
-      localStorage.setItem('intervyu_last_name', candidateName.trim());
-      try {
-        const stored = JSON.parse(localStorage.getItem('intervyu_sessions') || '[]');
-        stored.unshift({
-          sessionId: session_id,
-          interviewType: interviewType.id,
-          candidateName: candidateName.trim(),
-          date: new Date().toISOString(),
-        });
-        localStorage.setItem('intervyu_sessions', JSON.stringify(stored));
-      } catch {
-        // localStorage write failed — not critical
       }
 
       router.push(`/interview/new?type=${interviewType.id}&name=${encodeURIComponent(candidateName.trim())}&session=${session_id}`);

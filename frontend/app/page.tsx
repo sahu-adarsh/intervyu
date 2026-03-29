@@ -9,6 +9,7 @@ import StartInterviewModal from '@/components/home/StartInterviewModal';
 import PastInterviewsList from '@/components/home/PastInterviewsList';
 import StatsCard from '@/components/home/StatsCard';
 import ScheduleModal, { type ScheduledInterview } from '@/components/home/ScheduleModal';
+import { useRequireAuth, getUserDisplayName } from '@/lib/supabase/auth';
 
 const interviewTypes: InterviewCardConfig[] = [
   {
@@ -186,17 +187,19 @@ function ScheduledSection({
 }
 
 export default function Home() {
+  const { user } = useRequireAuth();
   const [selectedType, setSelectedType] = useState<InterviewCardConfig | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
-  const [lastName, setLastName] = useState('');
   const [sessions, setSessions] = useState<StoredSession[]>([]);
   const [scheduled, setScheduled] = useState<ScheduledInterview[]>([]);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [leftPanelOpen, setLeftPanelOpen] = useState(false); // mobile drawer
 
+  // Derive display name from Supabase user (OAuth provides full_name)
+  const lastName = getUserDisplayName(user).split(' ')[0] || '';
+
   useEffect(() => {
-    setLastName(localStorage.getItem('intervyu_last_name') || '');
     try {
       setSessions(JSON.parse(localStorage.getItem('intervyu_sessions') || '[]'));
     } catch { setSessions([]); }

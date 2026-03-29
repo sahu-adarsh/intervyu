@@ -17,6 +17,7 @@ if (typeof window !== 'undefined') {
 
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { getCVAnalysis, endInterview } from '@/lib/api';
 import dynamic from 'next/dynamic';
 import { useMicVAD } from '@ricky0123/vad-react';
 import {
@@ -38,6 +39,8 @@ type VoiceInterviewProps = {
   sessionId: string;
   interviewType: string;
   candidateName: string;
+  /** Pre-built authenticated WebSocket URL (includes ?token=...). */
+  wsUrl?: string;
 };
 
 function float32ToWav(samples: Float32Array, sampleRate = 16000): Blob {
@@ -60,7 +63,7 @@ function float32ToWav(samples: Float32Array, sampleRate = 16000): Blob {
   return new Blob([buffer], { type: 'audio/wav' });
 }
 
-export default function VoiceInterview({ sessionId, interviewType, candidateName }: VoiceInterviewProps) {
+export default function VoiceInterview({ sessionId, interviewType, candidateName, wsUrl: propWsUrl }: VoiceInterviewProps) {
   const router = useRouter();
   const [isActive, setIsActive] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -143,8 +146,8 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   });
 
   useEffect(() => {
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
-    wsRef.current = new WebSocket(`${wsUrl}/ws/interview/${sessionId}`);
+    const wsUrl = propWsUrl || `${process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000'}/ws/interview/${sessionId}`;
+    wsRef.current = new WebSocket(wsUrl);
 
     wsRef.current.onopen = () => {
       initializeInterview();
@@ -251,9 +254,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   // Pre-load CV analysis if it was uploaded on the home page before the interview
   useEffect(() => {
     if (cvAnalysis) return;
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-    fetch(`${apiUrl}/api/interviews/${sessionId}/cv-analysis`)
-      .then(r => r.ok ? r.json() : null)
+    getCVAnalysis(sessionId)
       .then(data => { if (data?.analysis) setCvAnalysis(data.analysis); })
       .catch(() => {});
   }, [sessionId]);
@@ -345,9 +346,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
 
   const handleEndInterview = async () => {
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/interviews/${sessionId}/end`, {
-        method: 'POST',
-      });
+      await endInterview(sessionId);
       try {
         const stored = JSON.parse(localStorage.getItem('intervyu_sessions') || '[]');
         const entry = { sessionId, interviewType, candidateName, date: new Date().toISOString() };
