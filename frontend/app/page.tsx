@@ -9,7 +9,7 @@ import StartInterviewModal from '@/components/home/StartInterviewModal';
 import PastInterviewsList from '@/components/home/PastInterviewsList';
 import StatsCard from '@/components/home/StatsCard';
 import ScheduleModal, { type ScheduledInterview } from '@/components/home/ScheduleModal';
-import { useRequireAuth, getUserDisplayName, useSupabaseSession } from '@/lib/supabase/auth';
+import { useRequireAuth, getUserDisplayName } from '@/lib/supabase/auth';
 import { getAggregateAnalytics } from '@/lib/api';
 
 const interviewTypes: InterviewCardConfig[] = [
@@ -182,8 +182,7 @@ function ScheduledSection({
 }
 
 export default function Home() {
-  const { user } = useRequireAuth();
-  const { session, loading: authLoading } = useSupabaseSession();
+  const { user, session, loading: authLoading } = useRequireAuth();
   const [selectedType, setSelectedType] = useState<InterviewCardConfig | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
@@ -192,9 +191,12 @@ export default function Home() {
   const [scheduled, setScheduled] = useState<ScheduledInterview[]>([]);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [leftPanelOpen, setLeftPanelOpen] = useState(false); // mobile drawer
+  const [greeting, setGreeting] = useState('');
 
   // Derive display name from Supabase user (OAuth provides full_name)
   const lastName = getUserDisplayName(user).split(' ')[0] || '';
+
+  useEffect(() => { setGreeting(getGreeting()); }, []);
 
   useEffect(() => {
     try {
@@ -243,7 +245,7 @@ export default function Home() {
       <div className="p-5 lg:p-6 space-y-6">
         {/* Greeting */}
         <div>
-          <p className="text-slate-400 text-sm">{getGreeting()}{lastName ? ',' : ''}</p>
+          <p className="text-slate-400 text-sm" suppressHydrationWarning>{greeting}{lastName ? ',' : ''}</p>
           <h2 className="text-2xl font-bold text-white leading-tight">
             {lastName || 'Welcome back'}
           </h2>
