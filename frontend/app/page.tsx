@@ -9,7 +9,8 @@ import StartInterviewModal from '@/components/home/StartInterviewModal';
 import PastInterviewsList from '@/components/home/PastInterviewsList';
 import StatsCard from '@/components/home/StatsCard';
 import ScheduleModal, { type ScheduledInterview } from '@/components/home/ScheduleModal';
-import { useRequireAuth, getUserDisplayName } from '@/lib/supabase/auth';
+import { useRequireAuth, getUserDisplayName, useSupabaseSession } from '@/lib/supabase/auth';
+import { getAggregateAnalytics } from '@/lib/api';
 
 const interviewTypes: InterviewCardConfig[] = [
   {
@@ -88,12 +89,6 @@ const interviewTypes: InterviewCardConfig[] = [
 
 const filters = ['All', 'Engineering', 'Cloud', 'Behavioral', 'Coding'];
 
-interface StoredSession {
-  sessionId: string;
-  interviewType: string;
-  candidateName: string;
-  date: string;
-}
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -188,10 +183,12 @@ function ScheduledSection({
 
 export default function Home() {
   const { user } = useRequireAuth();
+  const { session, loading: authLoading } = useSupabaseSession();
   const [selectedType, setSelectedType] = useState<InterviewCardConfig | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
-  const [sessions, setSessions] = useState<StoredSession[]>([]);
+  const [totalInterviews, setTotalInterviews] = useState(0);
+  const [completedInterviews, setCompletedInterviews] = useState(0);
   const [scheduled, setScheduled] = useState<ScheduledInterview[]>([]);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [leftPanelOpen, setLeftPanelOpen] = useState(false); // mobile drawer
@@ -201,15 +198,22 @@ export default function Home() {
 
   useEffect(() => {
     try {
-      setSessions(JSON.parse(localStorage.getItem('intervyu_sessions') || '[]'));
-    } catch { setSessions([]); }
-    try {
       const all = JSON.parse(localStorage.getItem('intervyu_scheduled') || '[]');
       setScheduled(all.filter((s: ScheduledInterview) =>
         new Date(s.scheduledAt).getTime() > Date.now()
       ));
     } catch { setScheduled([]); }
   }, []);
+
+  useEffect(() => {
+    if (authLoading || !session) return;
+    getAggregateAnalytics()
+      .then((data) => {
+        setTotalInterviews(data?.total_interviews ?? 0);
+        setCompletedInterviews(data?.completed_interviews ?? 0);
+      })
+      .catch(() => { /* silently ignore */ });
+  }, [session, authLoading]);
 
   const filteredTypes = interviewTypes
     .filter((t) => activeFilter === 'All' || t.category === activeFilter)
@@ -233,10 +237,6 @@ export default function Home() {
     } catch { /* ignore */ }
   };
 
-  const thisWeekCount = sessions.filter(s => {
-    const diff = (Date.now() - new Date(s.date).getTime()) / (1000 * 60 * 60 * 24);
-    return diff <= 7;
-  }).length;
 
   const LeftPanel = (
     <div className="flex flex-col overflow-y-auto h-full">
@@ -252,8 +252,8 @@ export default function Home() {
 
         {/* Stats */}
         <div className="grid grid-cols-2 gap-3">
-          <StatsCard label="Total interviews" value={sessions.length} icon={<Video size={16} />} accent="violet" />
-          <StatsCard label="This week" value={thisWeekCount} icon={<BarChart2 size={16} />} accent="emerald" />
+          <StatsCard label="Total interviews" value={totalInterviews} icon={<Video size={16} />} accent="violet" />
+          <StatsCard label="Completed" value={completedInterviews} icon={<BarChart2 size={16} />} accent="emerald" />
         </div>
 
         {/* Scheduled */}
