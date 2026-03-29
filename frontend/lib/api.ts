@@ -7,9 +7,21 @@ import { supabase } from './supabase/client';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+// Single source of truth for the latest access token.
+// Updated immediately by onAuthStateChange (in-memory, no localStorage race).
+let _latestToken: string | null = null;
+
+supabase.auth.onAuthStateChange((_event, session) => {
+  _latestToken = session?.access_token ?? null;
+});
+
+// Seed from storage on module load (covers hard-refresh when session is already stored)
+supabase.auth.getSession().then(({ data }) => {
+  if (data.session && !_latestToken) _latestToken = data.session.access_token;
+});
+
 async function authFetch(path: string, options: RequestInit = {}): Promise<Response> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
+  const token = _latestToken;
 
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
