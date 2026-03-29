@@ -2,34 +2,38 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { getUserHistory } from '@/lib/api';
 
-interface StoredSession {
+interface HistorySession {
   sessionId: string;
   interviewType: string;
   candidateName: string;
+  status: string;
   date: string;
+  score: number | null;
 }
 
+// DB returns underscore-separated types; frontend used hyphens historically
 const typeLabels: Record<string, string> = {
-  'google-sde': 'Google SDE',
-  'amazon-sde': 'Amazon SDE',
-  'microsoft-sde': 'Microsoft SDE',
-  'aws-sa': 'AWS Solutions Architect',
-  'azure-sa': 'Azure Solutions Architect',
-  'gcp-sa': 'GCP Solutions Architect',
-  'behavioral': 'Behavioral',
-  'coding-round': 'Coding Round',
+  'google_sde': 'Google SDE',
+  'amazon_sde': 'Amazon SDE',
+  'microsoft_sde': 'Microsoft SDE',
+  'aws_solutions_architect': 'AWS Solutions Architect',
+  'azure_solutions_architect': 'Azure Solutions Architect',
+  'gcp_solutions_architect': 'GCP Solutions Architect',
+  'cv_grilling': 'Behavioral',
+  'coding_practice': 'Coding Round',
 };
 
 const typeDotColors: Record<string, string> = {
-  'google-sde': 'bg-blue-400',
-  'amazon-sde': 'bg-orange-400',
-  'microsoft-sde': 'bg-blue-500',
-  'aws-sa': 'bg-yellow-500',
-  'azure-sa': 'bg-blue-400',
-  'gcp-sa': 'bg-red-400',
-  'behavioral': 'bg-emerald-400',
-  'coding-round': 'bg-green-400',
+  'google_sde': 'bg-blue-400',
+  'amazon_sde': 'bg-orange-400',
+  'microsoft_sde': 'bg-blue-500',
+  'aws_solutions_architect': 'bg-yellow-500',
+  'azure_solutions_architect': 'bg-blue-400',
+  'gcp_solutions_architect': 'bg-red-400',
+  'cv_grilling': 'bg-emerald-400',
+  'coding_practice': 'bg-green-400',
 };
 
 function formatDate(iso: string) {
@@ -39,16 +43,31 @@ function formatDate(iso: string) {
 
 export default function PastInterviewsList() {
   const router = useRouter();
-  const [sessions, setSessions] = useState<StoredSession[]>([]);
+  const [sessions, setSessions] = useState<HistorySession[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem('intervyu_sessions') || '[]');
-      setSessions(stored.slice(0, 4));
-    } catch {
-      setSessions([]);
-    }
+    getUserHistory()
+      .then((data) => {
+        const raw: any[] = data?.sessions ?? [];
+        setSessions(
+          raw.slice(0, 4).map((s) => ({
+            sessionId: s.session_id,
+            interviewType: s.interview_type,
+            candidateName: s.candidate_name ?? '',
+            status: s.status,
+            date: s.date,
+            score: s.score,
+          }))
+        );
+      })
+      .catch(() => setSessions([]))
+      .finally(() => setLoading(false));
   }, []);
+
+  if (loading) {
+    return <p className="text-xs text-slate-600 py-3 text-center">Loading…</p>;
+  }
 
   if (sessions.length === 0) {
     return (

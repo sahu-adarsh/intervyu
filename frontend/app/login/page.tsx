@@ -3,9 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
-import { signInWithGoogle, signInWithGitHub } from '@/lib/supabase/auth';
+import { signInWithGoogle, signInWithEmail, signUpWithEmail } from '@/lib/supabase/auth';
 
-// Simple SVG icons to avoid adding a dependency just for the login page
 function GoogleIcon() {
   return (
     <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
@@ -17,25 +16,46 @@ function GoogleIcon() {
   );
 }
 
-function GitHubIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-      <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
-    </svg>
-  );
-}
-
 export default function LoginPage() {
   const router = useRouter();
-  const [loading, setLoading] = useState<'google' | 'github' | null>(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState<'login' | 'signup' | 'google' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  // If already logged in, redirect to home
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) router.replace('/');
     });
   }, [router]);
+
+  async function handleLogin() {
+    if (!email || !password) { setError('Enter your email and password.'); return; }
+    setLoading('login');
+    setError(null);
+    try {
+      await signInWithEmail(email, password);
+      router.replace('/');
+    } catch (e: any) {
+      setError(e.message || 'Login failed');
+      setLoading(null);
+    }
+  }
+
+  async function handleSignUp() {
+    if (!email || !password) { setError('Enter your email and password.'); return; }
+    setLoading('signup');
+    setError(null);
+    try {
+      await signUpWithEmail(email, password);
+      setNotice('Check your email to confirm your account, then log in.');
+      setLoading(null);
+    } catch (e: any) {
+      setError(e.message || 'Sign up failed');
+      setLoading(null);
+    }
+  }
 
   async function handleGoogle() {
     setLoading('google');
@@ -48,16 +68,7 @@ export default function LoginPage() {
     }
   }
 
-  async function handleGitHub() {
-    setLoading('github');
-    setError(null);
-    try {
-      await signInWithGitHub();
-    } catch (e: any) {
-      setError(e.message || 'GitHub sign-in failed');
-      setLoading(null);
-    }
-  }
+  const busy = loading !== null;
 
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
@@ -68,7 +79,7 @@ export default function LoginPage() {
       </div>
 
       <div className="relative w-full max-w-sm">
-        {/* Logo / wordmark */}
+        {/* Logo */}
         <div className="text-center mb-10">
           <h1 className="text-3xl font-black tracking-tight">
             <span className="text-white">interv</span>
@@ -80,40 +91,78 @@ export default function LoginPage() {
         {/* Card */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl">
           <h2 className="text-xl font-bold text-white text-center mb-1">Welcome back</h2>
-          <p className="text-slate-400 text-sm text-center mb-8">Sign in to continue your practice</p>
+          <p className="text-slate-400 text-sm text-center mb-6">Sign in to continue your practice</p>
 
-          <div className="space-y-3">
-            {/* Google */}
+          {/* Email + password */}
+          <div className="space-y-3 mb-4">
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={busy}
+              onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+              className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 text-sm focus:outline-none focus:border-violet-500 disabled:opacity-50"
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={busy}
+              onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+              className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 text-sm focus:outline-none focus:border-violet-500 disabled:opacity-50"
+            />
+          </div>
+
+          {/* Login + Sign Up buttons */}
+          <div className="flex gap-2 mb-5">
             <button
-              onClick={handleGoogle}
-              disabled={loading !== null}
-              className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed text-slate-900 font-semibold rounded-xl transition-colors"
+              onClick={handleLogin}
+              disabled={busy}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors text-sm"
             >
-              {loading === 'google' ? (
-                <span className="w-5 h-5 border-2 border-slate-400 border-t-slate-900 rounded-full animate-spin" />
-              ) : (
-                <GoogleIcon />
-              )}
-              Continue with Google
+              {loading === 'login' ? (
+                <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              ) : 'Login'}
             </button>
-
-            {/* GitHub */}
             <button
-              onClick={handleGitHub}
-              disabled={loading !== null}
-              className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors"
+              onClick={handleSignUp}
+              disabled={busy}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors text-sm"
             >
-              {loading === 'github' ? (
-                <span className="w-5 h-5 border-2 border-slate-500 border-t-white rounded-full animate-spin" />
-              ) : (
-                <GitHubIcon />
-              )}
-              Continue with GitHub
+              {loading === 'signup' ? (
+                <span className="w-4 h-4 border-2 border-slate-400 border-t-white rounded-full animate-spin" />
+              ) : 'Sign Up'}
             </button>
           </div>
 
+          {/* Divider */}
+          <div className="flex items-center gap-3 mb-5">
+            <div className="flex-1 h-px bg-slate-800" />
+            <span className="text-xs text-slate-500">Or continue with</span>
+            <div className="flex-1 h-px bg-slate-800" />
+          </div>
+
+          {/* Google */}
+          <button
+            onClick={handleGoogle}
+            disabled={busy}
+            className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed text-slate-900 font-semibold rounded-xl transition-colors text-sm"
+          >
+            {loading === 'google' ? (
+              <span className="w-4 h-4 border-2 border-slate-400 border-t-slate-900 rounded-full animate-spin" />
+            ) : (
+              <GoogleIcon />
+            )}
+            Continue with Google
+          </button>
+
           {error && (
             <p className="mt-4 text-sm text-red-400 text-center">{error}</p>
+          )}
+          {notice && (
+            <p className="mt-4 text-sm text-emerald-400 text-center">{notice}</p>
           )}
 
           <p className="mt-6 text-xs text-slate-500 text-center">
