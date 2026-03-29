@@ -12,6 +12,7 @@
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
     "@ricky0123/vad-react": "^0.0.36",
+    "@supabase/supabase-js": "^2.100.1",
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.3",
     "lucide-react": "^0.546.0",
