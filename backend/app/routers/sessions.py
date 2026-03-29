@@ -6,6 +6,21 @@ from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
+# Map frontend hyphenated IDs → PostgreSQL enum values
+_TYPE_MAP = {
+    "google-sde":    "google_sde",
+    "amazon-sde":    "amazon_sde",
+    "microsoft-sde": "microsoft_sde",
+    "aws-sa":        "aws_solutions_architect",
+    "azure-sa":      "azure_solutions_architect",
+    "gcp-sa":        "gcp_solutions_architect",
+    "behavioral":    "cv_grilling",
+    "coding-round":  "coding_practice",
+}
+
+def _normalize_type(t: str) -> str:
+    return _TYPE_MAP.get(t, t)
+
 @router.post("", response_model=SessionResponse)
 async def create_session(
     request: CreateSessionRequest,
@@ -15,7 +30,7 @@ async def create_session(
     try:
         session_id = await db_service.create_session(
             user_id=current_user.user_id,
-            interview_type=request.interview_type,
+            interview_type=_normalize_type(request.interview_type),
             candidate_name=request.candidate_name,
         )
         created_at = datetime.now(timezone.utc).isoformat()
