@@ -7,6 +7,7 @@ import {
   TrendingUp, Zap, ChevronRight, Circle,
 } from 'lucide-react';
 import DashboardLayout from '@/components/DashboardLayout';
+import { createSession, uploadCV } from '@/lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -211,25 +212,12 @@ function UploadPhase({ onComplete }: {
     setUploading(true);
     setError(null);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      const sessionRes = await fetch(`${apiUrl}/api/sessions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          interview_type: 'cv_grilling',
-          candidate_name: localStorage.getItem('intervyu_last_name') || 'Resume Analysis',
-        }),
+      const { session_id } = await createSession({
+        interview_type: 'cv_grilling',
+        candidate_name: localStorage.getItem('intervyu_last_name') || 'Resume Analysis',
       });
-      if (!sessionRes.ok) throw new Error('Could not start analysis session');
-      const { session_id } = await sessionRes.json();
 
-      const fd = new FormData();
-      fd.append('file', file);
-      const uploadRes = await fetch(`${apiUrl}/api/interviews/${session_id}/upload-cv`, {
-        method: 'POST', body: fd,
-      });
-      if (!uploadRes.ok) throw new Error('CV upload failed');
-      const data = await uploadRes.json();
+      const data = await uploadCV(session_id, file);
       if (!data.success || !data.analysis) throw new Error('Analysis did not return results');
 
       const { score, hardSkills, softSkills, experience, education, matched, missing } =
