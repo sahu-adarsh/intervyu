@@ -18,8 +18,10 @@ _TYPE_MAP = {
     "aws-sa":        "aws_solutions_architect",
     "azure-sa":      "azure_solutions_architect",
     "gcp-sa":        "gcp_solutions_architect",
-    "behavioral":    "cv_grilling",
-    "coding-round":  "coding_practice",
+    "behavioral":    "behavioral",
+    "coding-round":  "coding",
+    "cv_grilling":   "behavioral",
+    "coding_practice": "coding",
 }
 
 def _normalize_type(t: str) -> str:

@@ -213,7 +213,7 @@ function UploadPhase({ onComplete }: {
     setError(null);
     try {
       const { session_id } = await createSession({
-        interview_type: 'cv_grilling',
+        interview_type: 'behavioral',
         candidate_name: localStorage.getItem('intervyu_last_name') || 'Resume Analysis',
       });
 
