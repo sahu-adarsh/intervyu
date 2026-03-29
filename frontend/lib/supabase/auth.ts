@@ -70,6 +70,19 @@ export async function signUpWithEmail(email: string, password: string) {
   if (error) throw error;
 }
 
+export async function signInWithOtp(email: string) {
+  const callbackUrl = typeof window !== 'undefined'
+    ? `${window.location.origin}/auth/callback`
+    : '/auth/callback';
+
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: callbackUrl },
+  });
+
+  if (error) throw error;
+}
+
 export async function signOut() {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getUserHistory } from '@/lib/api';
+import { useSupabaseSession } from '@/lib/supabase/auth';
 
 interface HistorySession {
   sessionId: string;
@@ -43,10 +44,15 @@ function formatDate(iso: string) {
 
 export default function PastInterviewsList() {
   const router = useRouter();
+  const { session, loading: authLoading } = useSupabaseSession();
   const [sessions, setSessions] = useState<HistorySession[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Wait for auth to resolve; skip API call if not authenticated
+    if (authLoading) return;
+    if (!session) { setLoading(false); return; }
+
     getUserHistory()
       .then((data) => {
         const raw: any[] = data?.sessions ?? [];
@@ -63,7 +69,7 @@ export default function PastInterviewsList() {
       })
       .catch(() => setSessions([]))
       .finally(() => setLoading(false));
-  }, []);
+  }, [session, authLoading]);
 
   if (loading) {
     return <p className="text-xs text-slate-600 py-3 text-center">Loading…</p>;
