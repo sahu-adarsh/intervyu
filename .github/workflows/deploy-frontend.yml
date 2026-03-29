@@ -33,6 +33,8 @@ jobs:
         run: |
           echo "NEXT_PUBLIC_API_URL=https://api.intervyu.io" > .env.local
           echo "NEXT_PUBLIC_WS_URL=wss://api.intervyu.io" >> .env.local
+          echo "NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}" >> .env.local
+          echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}" >> .env.local
 
       - name: Copy VAD assets
         working-directory: frontend
