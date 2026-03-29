@@ -1,9 +1,12 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from app.models.session import CreateSessionRequest, SessionResponse, EndSessionResponse
 from app.dependencies.auth import CurrentUser, get_current_user
 from app.services import db_service
 from app.limiter import limiter
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -49,6 +52,7 @@ async def create_session(
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("create_session failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
