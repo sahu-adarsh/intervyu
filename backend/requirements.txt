@@ -21,6 +21,7 @@ pypdf  # PDF text extraction fallback when Textract is unavailable
 
 # Auth & Database
 PyJWT>=2.8.0     # Supabase JWT verification
+cryptography>=3.4  # ES256/RS256 support for PyJWT (Supabase uses ES256)
 asyncpg>=0.29.0  # Async PostgreSQL driver (Supabase)
 
 # Rate limiting
