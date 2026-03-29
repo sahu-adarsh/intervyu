@@ -21,7 +21,12 @@ supabase.auth.getSession().then(({ data }) => {
 });
 
 async function authFetch(path: string, options: RequestInit = {}): Promise<Response> {
-  const token = _latestToken;
+  let token = _latestToken;
+  if (!token) {
+    const { data } = await supabase.auth.getSession();
+    token = data.session?.access_token ?? null;
+    if (token) _latestToken = token;
+  }
 
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),

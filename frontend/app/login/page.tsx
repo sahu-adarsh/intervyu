@@ -85,9 +85,11 @@ export default function LoginPage() {
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-200">
             <Image src="/logo-icon.svg" alt="intervyu" width={32} height={32} className="brightness-0 invert" />
           </div>
-          <h1 className="mt-4 text-[21px] font-bold text-slate-900 tracking-tight">
-            Continue to intervyu
-          </h1>
+          {!sent && (
+            <h1 className="mt-4 text-[21px] font-bold text-slate-900 tracking-tight">
+              Continue to Intervyu
+            </h1>
+          )}
         </div>
 
         {!sent ? (
@@ -144,15 +146,9 @@ export default function LoginPage() {
           </>
         ) : (
           /* OTP entry state */
-          <div className="py-2">
-            <div className="w-12 h-12 rounded-full bg-violet-50 flex items-center justify-center mx-auto mb-4">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                <polyline points="22,6 12,13 2,6"/>
-              </svg>
-            </div>
-            <p className="text-[15px] font-semibold text-slate-900 mb-1 text-center">Check your inbox</p>
-            <p className="text-[13px] text-slate-500 mb-5 text-center">
+          <div>
+            <p className="text-[21px] font-bold text-slate-900 tracking-tight mb-1">Check your inbox</p>
+            <p className="text-[13px] text-slate-500 mb-6">
               We sent a 6-digit code to <span className="font-medium text-slate-700">{email}</span>
             </p>
 
@@ -171,7 +167,7 @@ export default function LoginPage() {
                 onKeyDown={(e) => e.key === 'Enter' && handleVerify()}
                 disabled={loading === 'verify'}
                 autoFocus
-                className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[18px] font-mono text-slate-900 tracking-[0.3em] text-center placeholder-slate-300 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition disabled:opacity-50"
+                className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[22px] font-mono text-slate-900 tracking-[0.15em] text-center placeholder-slate-300 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition disabled:opacity-50"
               />
             </div>
 

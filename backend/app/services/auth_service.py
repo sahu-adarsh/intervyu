@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import time
 import logging
@@ -55,7 +56,7 @@ def verify_supabase_jwt(token: str) -> dict:
     try:
         payload = jwt.decode(
             token,
-            SUPABASE_JWT_SECRET,
+            base64.b64decode(SUPABASE_JWT_SECRET),
             algorithms=["HS256"],
             audience="authenticated",
             options={"verify_exp": True},
