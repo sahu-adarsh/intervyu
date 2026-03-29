@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import PerformanceDashboard from '@/components/performance/PerformanceDashboard';
 import { exportToPDF } from '@/components/common/PDFExport';
 import { Loader2, Home, RefreshCw } from 'lucide-react';
+import { getPerformanceReport } from '@/lib/api';
 
 function ReportContent() {
   const searchParams = useSearchParams();
@@ -24,13 +25,7 @@ function ReportContent() {
     }
     try {
       setError(null);
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/interviews/${sessionId}/performance-report`
-      );
-      if (!res.ok) {
-        throw new Error(res.status === 404 ? 'Report not ready yet.' : 'Failed to load report.');
-      }
-      const data = await res.json();
+      const data = await getPerformanceReport(sessionId);
       setReport(data.report ?? data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load report.');
