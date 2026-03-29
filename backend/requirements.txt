@@ -22,3 +22,6 @@ pypdf  # PDF text extraction fallback when Textract is unavailable
 # Auth & Database
 PyJWT>=2.8.0     # Supabase JWT verification
 asyncpg>=0.29.0  # Async PostgreSQL driver (Supabase)
+
+# Rate limiting
+slowapi>=0.1.9   # FastAPI rate limiting (built on limits)

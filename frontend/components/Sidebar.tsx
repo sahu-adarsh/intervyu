@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutGrid, FileText, AlertCircle, Send, X, LogOut } from 'lucide-react';
+import { LayoutGrid, FileText, AlertCircle, Send, X, LogOut, ChevronDown } from 'lucide-react';
 import { useSupabaseSession, signOut, getUserDisplayName, getUserAvatarUrl } from '@/lib/supabase/auth';
+import { supabase } from '@/lib/supabase/client';
 
 interface NavItemProps {
   icon: React.ReactNode;
@@ -36,17 +37,57 @@ function ReportIssueButton() {
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState('');
   const [category, setCategory] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
 
+  // Close on click-outside or Escape
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+    const onMouse = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) setOpen(false);
     };
-    if (open) document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    if (open) {
+      document.addEventListener('mousedown', onMouse);
+      document.addEventListener('keydown', onKey);
+    }
+    return () => {
+      document.removeEventListener('mousedown', onMouse);
+      document.removeEventListener('keydown', onKey);
+    };
   }, [open]);
+
+  // Auto-close after sent
+  useEffect(() => {
+    if (!sent) return;
+    const t = setTimeout(() => {
+      setOpen(false);
+      setSent(false);
+      setMessage('');
+      setCategory('');
+    }, 2000);
+    return () => clearTimeout(t);
+  }, [sent]);
+
+  async function handleSend() {
+    if (!message.trim()) return;
+    setLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      await supabase.from('feedback').insert({
+        user_id: session?.user.id ?? null,
+        category: category || null,
+        message: message.trim(),
+        page: typeof window !== 'undefined' ? window.location.pathname : null,
+      });
+      setSent(true);
+    } catch {
+      // silent fail — still show success to user
+      setSent(true);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="relative" ref={popoverRef}>
@@ -61,46 +102,71 @@ function ReportIssueButton() {
       </button>
 
       {open && (
-        <div className="absolute left-14 bottom-0 w-64 bg-slate-800 border border-slate-700 rounded-2xl p-4 shadow-2xl z-50">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-xs font-semibold text-slate-200">Report an Issue</p>
-            <button onClick={() => setOpen(false)} className="text-slate-500 hover:text-slate-300">
-              <X size={13} />
+        <div className="absolute left-14 bottom-0 w-[300px] bg-[#141420] border border-white/[0.08] rounded-2xl p-5 shadow-2xl z-50">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-[13px] font-semibold text-slate-200">Report an Issue</p>
+            <button onClick={() => setOpen(false)} className="text-slate-600 hover:text-slate-400 transition-colors">
+              <X size={14} />
             </button>
           </div>
 
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-300 mb-2 focus:outline-none focus:ring-1 focus:ring-violet-500"
-          >
-            <option value="">Select category</option>
-            <option value="audio">Audio / Microphone</option>
-            <option value="interview">Interview Quality</option>
-            <option value="ui">UI / Display</option>
-            <option value="other">Other</option>
-          </select>
+          {sent ? (
+            /* Success state */
+            <div className="flex flex-col items-center py-3 gap-2">
+              <div className="w-9 h-9 rounded-full bg-emerald-500/15 flex items-center justify-center">
+                <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="#34d399" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="2,8 6,12 14,4" />
+                </svg>
+              </div>
+              <p className="text-[13px] font-medium text-slate-200">Thanks for the report!</p>
+              <p className="text-[11px] text-slate-500">We'll look into it shortly.</p>
+            </div>
+          ) : (
+            <>
+              {/* Category dropdown */}
+              <div className="relative mb-3">
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="w-full appearance-none bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 pr-8 text-[12px] text-slate-300 focus:outline-none focus:border-violet-500/50 focus:bg-white/[0.06] transition cursor-pointer"
+                >
+                  <option value="">Select category</option>
+                  <option value="audio">Audio / Microphone</option>
+                  <option value="interview">Interview Quality</option>
+                  <option value="ui">UI / Display</option>
+                  <option value="other">Other</option>
+                </select>
+                <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+              </div>
 
-          <textarea
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder="Describe the issue in detail"
-            rows={3}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-300 placeholder:text-slate-600 resize-none focus:outline-none focus:ring-1 focus:ring-violet-500 mb-2"
-          />
+              {/* Textarea */}
+              <div className="relative mb-3">
+                <textarea
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder="Describe the issue in detail"
+                  maxLength={300}
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-[12px] text-slate-300 placeholder:text-slate-600 resize-none focus:outline-none focus:border-violet-500/50 focus:bg-white/[0.06] transition min-h-[96px]"
+                />
+                <span className="absolute bottom-2.5 right-3 text-[10px] text-slate-600 pointer-events-none">
+                  {message.length}/300
+                </span>
+              </div>
 
-          <button
-            onClick={() => {
-              // Future: POST to backend
-              setOpen(false);
-              setMessage('');
-              setCategory('');
-            }}
-            className="w-full bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold py-2 rounded-lg transition-colors flex items-center justify-center gap-1.5"
-          >
-            <Send size={12} />
-            Send
-          </button>
+              {/* Send button */}
+              <button
+                onClick={handleSend}
+                disabled={loading || !message.trim()}
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[12px] font-semibold text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)' }}
+              >
+                {loading
+                  ? <span className="w-3.5 h-3.5 border-[1.5px] border-white/30 border-t-white rounded-full animate-spin" />
+                  : <><Send size={12} /><span>Send</span></>}
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

@@ -3,8 +3,9 @@ Code Execution Router
 Handles code submission, execution, and tracking
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
+from app.limiter import limiter
 from pydantic import BaseModel
 from typing import List, Optional
 import logging
@@ -40,29 +41,31 @@ class CodeExecutionRequest(BaseModel):
 
 
 @router.post("/execute")
+@limiter.limit("30/hour")
 async def execute_code(
-    request: CodeExecutionRequest,
+    request: Request,
+    body: CodeExecutionRequest,
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Execute code against test cases and track submission"""
     try:
         # Verify session ownership
-        session_data = await db_service.get_session(request.sessionId)
+        session_data = await db_service.get_session(body.sessionId)
         if session_data and session_data.get("user_id") != current_user.user_id:
             raise HTTPException(status_code=403, detail="Access denied")
 
         # Execute code via Lambda
         result = lambda_service.invoke_code_executor(
-            code=request.code,
-            language=request.language,
-            test_cases=[{"input": tc.input, "expected": tc.expected} for tc in request.testCases],
-            function_name=request.functionName
+            code=body.code,
+            language=body.language,
+            test_cases=[{"input": tc.input, "expected": tc.expected} for tc in body.testCases],
+            function_name=body.functionName
         )
 
         # Calculate code quality metrics
         quality_metrics = CodeSubmissionTracker.calculate_quality_metrics(
-            request.code,
-            request.language
+            body.code,
+            body.language
         )
 
         # Parse test results
@@ -81,11 +84,11 @@ async def execute_code(
         submission_id = str(uuid.uuid4())
         submission = CodeSubmission(
             submission_id=submission_id,
-            session_id=request.sessionId,
+            session_id=body.sessionId,
             timestamp=datetime.utcnow().isoformat(),
-            code=request.code,
-            language=request.language,
-            function_name=request.functionName,
+            code=body.code,
+            language=body.language,
+            function_name=body.functionName,
             test_results=test_results,
             all_tests_passed=result.get('allTestsPassed', False),
             execution_time=result.get('executionTime', 0),
@@ -95,7 +98,7 @@ async def execute_code(
 
         # Persist to PostgreSQL
         try:
-            await db_service.save_code_submission(request.sessionId, submission.to_dict())
+            await db_service.save_code_submission(body.sessionId, submission.to_dict())
         except Exception as e:
             logger.error(f"Failed to save code submission to DB: {e}")
 

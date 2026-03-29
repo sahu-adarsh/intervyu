@@ -1,6 +1,7 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from fastapi.responses import JSONResponse
+from app.limiter import limiter
 from app.models.session import TranscriptResponse, TranscriptMessage, EndSessionResponse
 from app.services.s3_service import S3Service
 from app.services.lambda_service import LambdaService
@@ -115,7 +116,9 @@ async def end_interview(
 
 
 @router.post("/{session_id}/upload-cv")
+@limiter.limit("5/hour")
 async def upload_cv(
+    request: Request,
     session_id: str,
     current_user: CurrentUser = Depends(get_current_user),
     file: UploadFile = File(...),

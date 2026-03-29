@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from app.models.session import CreateSessionRequest, SessionResponse, EndSessionResponse
 from app.dependencies.auth import CurrentUser, get_current_user
 from app.services import db_service
+from app.limiter import limiter
 from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -22,23 +23,25 @@ def _normalize_type(t: str) -> str:
     return _TYPE_MAP.get(t, t)
 
 @router.post("", response_model=SessionResponse)
+@limiter.limit("10/hour")
 async def create_session(
-    request: CreateSessionRequest,
+    request: Request,
+    body: CreateSessionRequest,
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """Create a new interview session"""
     try:
         session_id = await db_service.create_session(
             user_id=current_user.user_id,
-            interview_type=_normalize_type(request.interview_type),
-            candidate_name=request.candidate_name,
+            interview_type=_normalize_type(body.interview_type),
+            candidate_name=body.candidate_name,
         )
         created_at = datetime.now(timezone.utc).isoformat()
 
         return SessionResponse(
             session_id=session_id,
-            interview_type=request.interview_type,
-            candidate_name=request.candidate_name,
+            interview_type=body.interview_type,
+            candidate_name=body.candidate_name,
             created_at=created_at,
             status="active",
         )
