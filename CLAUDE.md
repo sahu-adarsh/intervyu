@@ -9,38 +9,56 @@
 intervyu/
 ├── frontend/                    # Next.js 15 (React 19, TypeScript, Tailwind CSS 4)
 │   ├── app/
-│   │   ├── page.tsx             # Home — interview type selection
+│   │   ├── page.tsx             # Home — interview type selection + dashboard
 │   │   ├── layout.tsx           # Root layout (Geist fonts)
+│   │   ├── login/               # OAuth login page (Google + GitHub)
+│   │   ├── auth/callback/       # Supabase OAuth callback handler
 │   │   ├── interview/new/       # Live interview session page
 │   │   └── demo/                # Demo pages (code-editor, cv, performance)
-│   └── components/
-│       ├── VoiceInterview.tsx   # Main voice interview + WebSocket logic
-│       ├── code-editor/CodeEditor.tsx
-│       ├── cv/CVUpload.tsx + CVAnalysisDisplay.tsx
-│       ├── performance/PerformanceDashboard.tsx + InterviewHistory.tsx
-│       └── common/PDFExport.tsx
+│   ├── components/
+│   │   ├── VoiceInterview.tsx   # Main voice interview + WebSocket logic
+│   │   ├── Sidebar.tsx          # Nav sidebar with user avatar + sign-out
+│   │   ├── home/
+│   │   │   ├── InterviewCard.tsx
+│   │   │   ├── StartInterviewModal.tsx
+│   │   │   ├── PastInterviewsList.tsx
+│   │   │   ├── StatsCard.tsx
+│   │   │   └── ScheduleModal.tsx
+│   │   ├── code-editor/CodeEditor.tsx
+│   │   ├── cv/CVUpload.tsx + CVAnalysisDisplay.tsx
+│   │   ├── performance/PerformanceDashboard.tsx + InterviewHistory.tsx
+│   │   └── common/PDFExport.tsx
+│   └── lib/
+│       ├── supabase/client.ts   # Supabase singleton client
+│       ├── supabase/auth.ts     # useSupabaseSession, useRequireAuth, OAuth helpers
+│       └── api.ts               # Centralised authFetch + all API helpers + buildWsUrl
 │
 ├── backend/                     # FastAPI (Python 3.11)
 │   └── app/
-│       ├── main.py              # App init, CORS, router registration
+│       ├── main.py              # App init, CORS, router registration, DB pool lifespan
 │       ├── routers/
 │       │   ├── sessions.py      # POST /api/sessions, GET /api/sessions/{id}
-│       │   ├── websocket.py     # WS /ws/interview/{session_id} (822 lines)
+│       │   ├── websocket.py     # WS /ws/interview/{session_id}?token=<jwt>
 │       │   ├── interviews.py    # CV upload, transcript, end session, report
 │       │   ├── code.py          # Code execution via Lambda
-│       │   └── analytics.py     # Aggregate stats, benchmarks, trends
+│       │   ├── analytics.py     # Aggregate stats, benchmarks, trends (PostgreSQL)
+│       │   └── auth.py          # GET /api/auth/me
 │       ├── services/
-│       │   ├── bedrock_service.py   # Claude Haiku 4.5 via Bedrock Agent
-│       │   ├── s3_service.py        # Session/CV/audio storage
+│       │   ├── bedrock_service.py   # Claude Haiku 4.5 via bedrock-runtime
+│       │   ├── db_service.py        # asyncpg pool + all CRUD (replaces S3 JSON)
+│       │   ├── auth_service.py      # Supabase JWT verification (PyJWT HS256)
+│       │   ├── s3_service.py        # Binary files only: CVs, audio
 │       │   ├── lambda_service.py    # Lambda invocation helper
 │       │   └── textract_service.py  # CV text extraction + skill parsing
+│       ├── dependencies/
+│       │   └── auth.py              # CurrentUser dataclass + get_current_user Depends
 │       ├── models/
 │       │   ├── session.py           # Session Pydantic models
 │       │   └── code_submission.py   # Code metrics & test result models
 │       └── config/
-│           ├── settings.py          # Env-var settings
+│           ├── settings.py          # Env-var settings (incl. Supabase + DATABASE_URL)
 │           ├── interview_types.py   # 8 interview configs + phases
-│           └── agent_instruction.txt # Bedrock Agent system prompt (Neerja persona)
+│           └── agent_instruction.txt # Neerja persona system prompt
 │
 ├── lambda-tools/                # AWS SAM — 3 Lambda functions
 │   ├── code-executor/           # Sandboxed Python/JS execution
@@ -48,15 +66,17 @@ intervyu/
 │   ├── performance-evaluator/   # Score calculation + report generation
 │   └── template.yaml            # SAM CloudFormation template
 │
-├── database/                    # PostgreSQL (planned, schema ready)
-│   ├── schema.sql               # 9 tables, 3 views, triggers
-│   ├── docker-compose.yml       # Postgres 15 + pgAdmin 4
-│   ├── migrations/              # 001_initial, 002_s3_to_postgres
-│   └── scripts/migrate_from_s3.py
+├── database/                    # Supabase PostgreSQL (active)
+│   ├── supabase_schema.sql      # Live schema (run in Supabase SQL Editor)
+│   ├── schema.sql               # Original local schema (reference only)
+│   ├── docker-compose.yml       # Local Postgres dev (optional)
+│   ├── migrations/
+│   │   └── 002_s3_to_postgres_migration.sql  # insert_session_from_json() for backfill
+│   └── scripts/migrate_from_s3.py  # S3 → Supabase migration script
 │
 ├── knowledge-base/              # RAG content for Bedrock Agent
 ├── deployment/                  # AWS deployment guides
-├── scripts/                     # deploy-frontend.sh, deploy-backend.sh, deployment-info.txt
+├── scripts/                     # deploy-frontend.sh, deploy-backend.sh
 └── docs/                        # Architecture, optimization notes
 ```
 
@@ -66,13 +86,16 @@ intervyu/
 - **STT**: Deepgram Nova-2 API (cloud, persistent `httpx.AsyncClient` module-level singleton to `api.deepgram.com/v1/listen`)
 - **TTS**: Azure Cognitive Services Speech SDK (`azure-cognitiveservices-speech`, `en-IN-NeerjaNeural` voice, MP3 output `Audio24Khz48KBitRateMonoMp3`, pool of 3 persistent `SpeechSynthesizer` instances, SSML `<prosody rate="+20%">`, MP3 chunks streamed via asyncio.Queue concurrent sender)
 - **AI**: AWS bedrock-runtime `converse_stream` (Claude Haiku 4.5 — `us.anthropic.claude-haiku-4-5-20251001-v1:0`); conversation history managed manually in `_session_cache`
-- **Storage**: S3 (`prepai-user-data-2026`) — sessions JSON, CVs, audio, reports
+- **Auth**: Supabase JWT verification (`auth_service.py`, PyJWT HS256, `audience="authenticated"`); `get_current_user` FastAPI dependency on all endpoints; WebSocket auth via `?token=` query param
+- **Storage**: Supabase PostgreSQL (structured data) + S3 `prepai-user-data-2026` (binary: CVs at `cvs/{session_id}/`, audio at `recordings/{session_id}/`)
+- **DB Driver**: asyncpg pool (min=5, max=20) in `db_service.py`; transcript writes are asyncio background tasks (off WebSocket critical path)
 - **CV Parsing**: AWS Textract + `prepai-cv-analyzer` Lambda
-- **Real-time**: WebSocket at `/ws/interview/{session_id}`
+- **Real-time**: WebSocket at `/ws/interview/{session_id}?token=<supabase_jwt>`
 
 ### Frontend (Next.js 15)
-- **Pages**: `/` (home), `/interview/new` (live session), `/demo/*` (feature demos)
-- **Key libs**: Monaco Editor, Recharts, react-dropzone, html2canvas, jspdf, lucide-react
+- **Pages**: `/` (home/dashboard), `/login` (Google+GitHub OAuth), `/auth/callback` (OAuth handler), `/interview/new` (live session), `/demo/*` (feature demos)
+- **Auth**: `@supabase/supabase-js` client-side only (static export); `useRequireAuth()` redirects to `/login`; JWT passed to backend via `Authorization: Bearer` header and `?token=` on WebSocket URL
+- **Key libs**: Monaco Editor, Recharts, react-dropzone, html2canvas, jspdf, lucide-react, @supabase/supabase-js
 - **WebSocket messages handled**: `transcript`, `llm_chunk`, `assistant_complete`, `coding_question`, `error`
 - **Audio**: Silero VAD (`@ricky0123/vad-react`, ONNX model in Web Worker) → single WAV blob per utterance to backend; `onnxruntime-web` 1.17.3, `numThreads=1` (no SharedArrayBuffer/COOP/COEP required)
 
@@ -94,12 +117,17 @@ intervyu/
 
 ## Key APIs
 
+All endpoints (except WS) require `Authorization: Bearer <supabase_access_token>`.
+
 ```
+GET  /api/auth/me                         → returns {user_id, email, role}
+
 POST /api/sessions                        → create session (returns session_id)
 GET  /api/sessions/{session_id}           → get session
-WS   /ws/interview/{session_id}           → voice interview (binary audio + JSON messages)
 
-POST /api/interviews/{id}/upload-cv       → upload PDF/DOCX/TXT CV
+WS   /ws/interview/{session_id}?token=<jwt>  → voice interview (binary audio + JSON messages)
+
+POST /api/interviews/{id}/upload-cv       → upload PDF/DOCX/TXT CV (S3 binary + DB analysis)
 GET  /api/interviews/{id}/cv-analysis     → parsed CV data
 GET  /api/interviews/{id}/transcript      → full conversation history
 POST /api/interviews/{id}/end             → end session + generate performance report
@@ -109,10 +137,10 @@ POST /api/code/execute                    → run code via Lambda
 GET  /api/code/{session_id}/submissions   → all submissions
 GET  /api/code/{session_id}/quality-summary
 
-GET  /api/analytics/aggregate             → totals + completion rate + avg score
+GET  /api/analytics/aggregate             → totals + completion rate + avg score (scoped to user)
 GET  /api/analytics/benchmarks/{type}     → p25/p50/p75/p90 by interview type
-GET  /api/analytics/trends?days=30        → daily score trends
-GET  /api/analytics/candidate/{name}/history
+GET  /api/analytics/trends?days=30        → daily score trends (scoped to user)
+GET  /api/analytics/history               → full session history (scoped to user)
 ```
 
 ## WebSocket Protocol
@@ -159,12 +187,19 @@ HOST=0.0.0.0
 PORT=8000
 LOG_LEVEL=INFO
 ENVIRONMENT=production
+# Supabase
+SUPABASE_URL=https://<ref>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_JWT_SECRET=...
+DATABASE_URL=postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres
 ```
 
 **Frontend `frontend/.env.local`:**
 ```
 NEXT_PUBLIC_API_URL=http://localhost:8000
 NEXT_PUBLIC_WS_URL=ws://localhost:8000
+NEXT_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 ```
 
 ## Running Locally
@@ -183,19 +218,23 @@ cd database && docker-compose up -d
 cd lambda-tools && sam build && sam deploy
 ```
 
-## Database Schema (PostgreSQL — not yet active)
+## Database Schema (Supabase PostgreSQL — active)
 
-9 tables: `candidates`, `sessions`, `transcript_messages`, `cv_documents`, `cv_analysis`, `code_submissions`, `test_case_results`, `performance_reports`, `audio_recordings`
+Schema: `database/supabase_schema.sql` (run in Supabase SQL Editor)
 
-3 views: `complete_sessions`, `candidate_performance_history`, `session_analytics` (materialized)
+Key tables: `interview_sessions`, `session_transcripts`, `code_submissions`, `performance_reports`, `cv_documents`, `cv_analysis`, `user_profiles`, `user_statistics`, `scheduled_interviews`, `interview_analytics`
 
-Current storage: S3 JSON. Migration script at `database/scripts/migrate_from_s3.py`.
+All tables have RLS enabled. User data scoped via `auth.uid()`. `auth.users` managed by Supabase.
+
+Storage split:
+- **PostgreSQL**: all structured data (sessions, transcripts, code, reports, CV analysis)
+- **S3**: binary files only — CVs at `cvs/{session_id}/`, audio at `recordings/{session_id}/`
 
 ## Current Phase
 
 Phase 5 (Production) — live at `https://intervyu.io`:
-- [ ] Auth (JWT/OAuth)
-- [ ] Migrate storage from S3 JSON → PostgreSQL (`database/schema.sql`)
+- [x] Auth (Supabase JWT + Google/GitHub OAuth)
+- [x] Migrate storage from S3 JSON → Supabase PostgreSQL
 - [ ] Redis caching (replace in-memory Bedrock session state cache)
 - [ ] Rate limiting
 

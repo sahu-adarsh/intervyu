@@ -47,14 +47,15 @@ Browser
                                 │
                       ┌─────────┼──────────────┐
                       │         │              │
-              bedrock-runtime  S3 Bucket   Lambda (×3)
-              converse_stream  (sessions,  ├── code-executor
-              (Claude Haiku    CVs,        ├── cv-analyzer
-               4.5, streaming) reports)    └── performance-evaluator
-                      │
-                 Textract (CV parsing)
-                 Deepgram Nova-2 (STT, persistent httpx client, ~300–800ms)
-                 Azure Speech SDK (TTS, NeerjaNeural, MP3, pool of 3 synthesizers)
+              bedrock-runtime  Supabase     Lambda (×3)
+              converse_stream  PostgreSQL   ├── code-executor
+              (Claude Haiku    (sessions,   ├── cv-analyzer
+               4.5, streaming) transcripts, └── performance-evaluator
+                      │        reports)
+                 Textract (CV parsing)      S3 (binary only:
+                 Deepgram Nova-2 (STT)       CVs, audio)
+                 Azure Speech SDK (TTS)
+                 Supabase Auth (JWT)
 ```
 
 **Voice pipeline**: Silero VAD → Deepgram STT (~300–800ms) + session fetch in parallel → Claude Haiku 4.5 stream → per-clause TTS (splits at `,`/`;` for long chunks) → browser plays MP3 immediately. Typical latency: ~1.7s speech_end → first audio; ~2.9–4.0s last audio.
@@ -63,7 +64,9 @@ Browser
 
 **Backend**: FastAPI (Python 3.11), Deepgram Nova-2 (STT), Azure Speech SDK (TTS), WebSockets
 
-**AWS**: bedrock-runtime (Claude Haiku 4.5), S3, Lambda (SAM), Textract, CloudFront, ACM, EC2
+**AWS**: bedrock-runtime (Claude Haiku 4.5), S3 (binary files), Lambda (SAM), Textract, CloudFront, ACM, EC2
+
+**Auth**: Supabase (Google + GitHub OAuth, JWT, PostgreSQL with RLS)
 
 ---
 
@@ -95,8 +98,12 @@ cd frontend
 npm install
 npm run copy-vad-assets   # copies Silero VAD ONNX models from node_modules
 
-echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
-echo "NEXT_PUBLIC_WS_URL=ws://localhost:8000" >> .env.local
+cat > .env.local << EOF
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_WS_URL=ws://localhost:8000
+NEXT_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon_key>
+EOF
 
 npm run dev
 # → http://localhost:3000
@@ -160,6 +167,12 @@ CORS_ORIGINS=http://localhost:3000,https://intervyu.io
 HOST=0.0.0.0
 PORT=8000
 ENVIRONMENT=development
+
+# Supabase
+SUPABASE_URL=https://<ref>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_JWT_SECRET=
+DATABASE_URL=postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres
 ```
 
 **`frontend/.env.local`**
@@ -167,6 +180,8 @@ ENVIRONMENT=development
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:8000
 NEXT_PUBLIC_WS_URL=ws://localhost:8000
+NEXT_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
 ```
 
 ---
@@ -203,9 +218,8 @@ GitHub Actions workflows auto-deploy on push to `main`:
 
 ## Backlog
 
-- Auth (JWT/OAuth)
-- PostgreSQL migration (schema ready in `database/schema.sql`)
-- Redis caching
+- Redis caching (replace in-memory EC2 Bedrock session cache)
 - Rate limiting
+- PastInterviewsList: pull from Supabase API instead of localStorage
 
 ---
