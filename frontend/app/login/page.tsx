@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { supabase } from '@/lib/supabase/client';
-import { signInWithGoogle, signInWithOtp } from '@/lib/supabase/auth';
+import { signInWithGoogle, signInWithOtp, verifyEmailOtp } from '@/lib/supabase/auth';
 
 function GoogleIcon() {
   return (
@@ -20,8 +20,9 @@ function GoogleIcon() {
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
-  const [loading, setLoading] = useState<'otp' | 'google' | null>(null);
+  const [loading, setLoading] = useState<'otp' | 'google' | 'verify' | null>(null);
   const [sent, setSent] = useState(false);
+  const [otp, setOtp] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -38,7 +39,21 @@ export default function LoginPage() {
       await signInWithOtp(email);
       setSent(true);
     } catch (e: any) {
-      setError(e.message || 'Failed to send link');
+      setError(e.message || 'Failed to send code');
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function handleVerify() {
+    if (otp.length !== 6) { setError('Enter the 6-digit code from your email.'); return; }
+    setLoading('verify');
+    setError(null);
+    try {
+      await verifyEmailOtp(email, otp);
+      router.replace('/');
+    } catch (e: any) {
+      setError(e.message || 'Invalid or expired code');
     } finally {
       setLoading(null);
     }
@@ -128,23 +143,58 @@ export default function LoginPage() {
             )}
           </>
         ) : (
-          /* Sent state */
-          <div className="text-center py-2">
+          /* OTP entry state */
+          <div className="py-2">
             <div className="w-12 h-12 rounded-full bg-violet-50 flex items-center justify-center mx-auto mb-4">
               <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
                 <polyline points="22,6 12,13 2,6"/>
               </svg>
             </div>
-            <p className="text-[15px] font-semibold text-slate-900 mb-1">Check your inbox</p>
-            <p className="text-[13px] text-slate-500 mb-5">
-              We sent a magic link to <span className="font-medium text-slate-700">{email}</span>
+            <p className="text-[15px] font-semibold text-slate-900 mb-1 text-center">Check your inbox</p>
+            <p className="text-[13px] text-slate-500 mb-5 text-center">
+              We sent a 6-digit code to <span className="font-medium text-slate-700">{email}</span>
             </p>
+
+            <div className="mb-4">
+              <label className="block text-[13px] font-medium text-slate-600 mb-1.5">
+                Verification code
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                placeholder="000000"
+                value={otp}
+                onChange={(e) => { setOtp(e.target.value.replace(/\D/g, '')); setError(null); }}
+                onKeyDown={(e) => e.key === 'Enter' && handleVerify()}
+                disabled={loading === 'verify'}
+                autoFocus
+                className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-[18px] font-mono text-slate-900 tracking-[0.3em] text-center placeholder-slate-300 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition disabled:opacity-50"
+              />
+            </div>
+
             <button
-              onClick={() => { setSent(false); setEmail(''); }}
-              className="text-[13px] text-violet-600 hover:text-violet-700 font-medium transition"
+              onClick={handleVerify}
+              disabled={loading === 'verify' || otp.length !== 6}
+              className="w-full flex items-center justify-center h-11 rounded-xl text-[14px] font-semibold text-white mb-3 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)' }}
             >
-              Use a different email
+              {loading === 'verify'
+                ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                : 'Verify code'}
+            </button>
+
+            {error && (
+              <p className="mb-3 text-[12px] text-red-500 text-center">{error}</p>
+            )}
+
+            <button
+              onClick={() => { setSent(false); setOtp(''); setError(null); }}
+              className="w-full text-[13px] text-slate-500 hover:text-violet-600 font-medium transition text-center"
+            >
+              ← Use a different email
             </button>
           </div>
         )}
