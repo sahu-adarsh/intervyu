@@ -66,7 +66,7 @@ Browser
 
 **AWS**: bedrock-runtime (Claude Haiku 4.5), S3 (binary files), Lambda (SAM), Textract, CloudFront, ACM, EC2
 
-**Auth**: Supabase (Google + GitHub OAuth, JWT, PostgreSQL with RLS)
+**Auth**: Supabase (Google OAuth + Email OTP, JWT, PostgreSQL with RLS)
 
 ---
 
@@ -218,8 +218,6 @@ GitHub Actions workflows auto-deploy on push to `main`:
 
 ## Backlog
 
-- Redis caching (replace in-memory EC2 Bedrock session cache)
-- Rate limiting
-- PastInterviewsList: pull from Supabase API instead of localStorage
+- Redis caching (replace in-memory EC2 Bedrock session cache — deferred; see Architecture Guide §5.8)
 
 ---

@@ -93,7 +93,7 @@ intervyu/
 - **Real-time**: WebSocket at `/ws/interview/{session_id}?token=<supabase_jwt>`
 
 ### Frontend (Next.js 15)
-- **Pages**: `/` (home/dashboard), `/login` (Google+GitHub OAuth), `/auth/callback` (OAuth handler), `/interview/new` (live session), `/demo/*` (feature demos)
+- **Pages**: `/` (home/dashboard), `/login` (Google OAuth + email OTP), `/auth/callback` (OAuth handler), `/interview/new` (live session), `/demo/*` (feature demos)
 - **Auth**: `@supabase/supabase-js` client-side only (static export); `useRequireAuth()` redirects to `/login`; JWT passed to backend via `Authorization: Bearer` header and `?token=` on WebSocket URL
 - **Key libs**: Monaco Editor, Recharts, react-dropzone, html2canvas, jspdf, lucide-react, @supabase/supabase-js
 - **WebSocket messages handled**: `transcript`, `llm_chunk`, `assistant_complete`, `coding_question`, `error`
@@ -233,10 +233,11 @@ Storage split:
 ## Current Phase
 
 Phase 5 (Production) — live at `https://intervyu.io`:
-- [x] Auth (Supabase JWT + Google/GitHub OAuth)
+- [x] Auth (Supabase JWT + Google OAuth + Email OTP)
 - [x] Migrate storage from S3 JSON → Supabase PostgreSQL
-- [ ] Redis caching (replace in-memory Bedrock session state cache)
-- [ ] Rate limiting
+- [x] Rate limiting (slowapi: 10/hr sessions, 5/hr CV upload, 30/hr code execution, 200/min global)
+- [x] Report an Issue (Supabase `feedback` table, polished popover with success state)
+- [ ] Redis caching (replace in-memory Bedrock session state cache — deferred; see Architecture Guide §5.8)
 
 ## Interview Types (8)
 
