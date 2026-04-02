@@ -1,602 +1,433 @@
 """
 Performance Evaluator Lambda Function
-Generates comprehensive interview performance reports
-Scores candidates across multiple criteria
+Uses Claude Sonnet 4.6 via AWS Bedrock to generate genuine, transcript-grounded evaluations.
+Falls back to heuristic scoring if the LLM call fails.
 """
 
 import json
+import os
+import re
 import boto3
-import time
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-# Initialize AWS clients
+# ─── AWS clients ──────────────────────────────────────────────────────────────
+
 s3_client = boto3.client('s3')
+bedrock_client = boto3.client(
+    'bedrock-runtime',
+    region_name=os.environ.get('BEDROCK_AWS_REGION', 'us-east-1'),
+    aws_access_key_id=os.environ.get('BEDROCK_AWS_ACCESS_KEY_ID'),
+    aws_secret_access_key=os.environ.get('BEDROCK_AWS_SECRET_ACCESS_KEY'),
+)
+
+# Claude Sonnet 4.6 cross-region inference
+EVALUATION_MODEL_ID = 'us.anthropic.claude-sonnet-4-6'
+
+INTERVIEW_TYPE_LABELS: Dict[str, str] = {
+    'google_sde': 'Google SDE Interview',
+    'amazon_sde': 'Amazon SDE Interview',
+    'microsoft_sde': 'Microsoft SDE Interview',
+    'aws_solutions_architect': 'AWS Solutions Architect Interview',
+    'azure_solutions_architect': 'Azure Solutions Architect Interview',
+    'gcp_solutions_architect': 'GCP Solutions Architect Interview',
+    'cv_grilling': 'Behavioral / CV Review Interview',
+    'coding_practice': 'Coding Practice Session',
+}
+
+SCORE_WEIGHTS = {
+    'technicalKnowledge': 0.30,
+    'problemSolving': 0.25,
+    'communication': 0.20,
+    'codeQuality': 0.15,
+    'culturalFit': 0.10,
+}
+
+# ─── Entry point ──────────────────────────────────────────────────────────────
 
 def lambda_handler(event, context):
-    """
-    Main Lambda handler for performance evaluation
-    Supports both Bedrock Agent and direct invocation
-    """
-
     try:
-        # Check if this is a Bedrock Agent request or direct invocation
         is_bedrock_agent = 'messageVersion' in event
-
         if is_bedrock_agent:
-            # Extract parameters from Bedrock Agent format
-            parameters = {p['name']: p['value'] for p in event.get('parameters', [])}
-            request_body = event.get('requestBody', {}).get('content', {}).get('application/json', {})
-
-            # Merge parameters and request body
-            if isinstance(request_body, str):
-                request_body = json.loads(request_body)
-
-            params = {**request_body, **parameters}
+            params = {p['name']: p['value'] for p in event.get('parameters', [])}
+            body = event.get('requestBody', {}).get('content', {}).get('application/json', {})
+            if isinstance(body, str):
+                body = json.loads(body)
+            params = {**body, **params}
         else:
-            # Direct invocation format
             params = event
 
         session_id = params.get('sessionId')
         if not session_id:
-            error_response = {
-                'success': False,
-                'error': 'sessionId is required'
-            }
-            return format_response(event, error_response, 400)
+            return _fmt(event, {'success': False, 'error': 'sessionId is required'}, 400)
 
-        # Generate performance report
-        report = generate_performance_report(params)
+        report = _generate_report(params)
 
-        # Save report to S3
         if params.get('saveToS3', True):
-            save_report_to_s3(session_id, report)
+            _save_to_s3(session_id, report)
 
-        return format_response(event, report, 200)
+        return _fmt(event, report, 200)
 
     except Exception as e:
-        error_response = {
-            'success': False,
-            'error': f'Evaluation error: {str(e)}'
-        }
-        return format_response(event, error_response, 500)
+        print(f'[ERROR] lambda_handler: {e}')
+        return _fmt(event, {'success': False, 'error': str(e)}, 500)
 
 
-def format_response(event: Dict, body: Dict, status_code: int = 200) -> Dict:
-    """
-    Format response for both Bedrock Agent and direct invocation
-    """
-    is_bedrock_agent = 'messageVersion' in event
-
-    if is_bedrock_agent:
-        # Bedrock Agent format
+def _fmt(event, body, status_code=200):
+    if 'messageVersion' in event:
         return {
-            "messageVersion": "1.0",
-            "response": {
-                "actionGroup": event.get('actionGroup', ''),
-                "apiPath": event.get('apiPath', ''),
-                "httpMethod": event.get('httpMethod', 'POST'),
-                "httpStatusCode": status_code,
-                "responseBody": {
-                    "application/json": {
-                        "body": json.dumps(body)
-                    }
-                }
-            }
+            'messageVersion': '1.0',
+            'response': {
+                'actionGroup': event.get('actionGroup', ''),
+                'apiPath': event.get('apiPath', ''),
+                'httpMethod': event.get('httpMethod', 'POST'),
+                'httpStatusCode': status_code,
+                'responseBody': {'application/json': {'body': json.dumps(body)}},
+            },
         }
-    else:
-        # Direct invocation format
-        return {
-            'statusCode': status_code,
-            'body': json.dumps(body)
-        }
+    return {'statusCode': status_code, 'body': json.dumps(body)}
 
 
-def generate_performance_report(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Generate comprehensive performance report
-    """
-    session_id = data.get('sessionId')
-    interview_type = data.get('interviewType', 'Technical Interview')
-    candidate_name = data.get('candidateName', 'Candidate')
-    conversation_history = data.get('conversationHistory', [])
-    code_submissions = data.get('codeSubmissions', [])
-    duration = data.get('duration', 0)
+# ─── Report generation ────────────────────────────────────────────────────────
 
-    # Calculate scores
-    scores = calculate_scores(
-        conversation_history,
-        code_submissions,
-        interview_type
-    )
+def _generate_report(params: Dict[str, Any]) -> Dict[str, Any]:
+    session_id = params.get('sessionId')
+    raw_type = params.get('interviewType', '')
+    type_label = INTERVIEW_TYPE_LABELS.get(raw_type, raw_type.replace('_', ' ').title() or 'Technical Interview')
+    candidate_name = params.get('candidateName', 'Candidate')
+    history = params.get('conversationHistory', [])
+    code_submissions = params.get('codeSubmissions', [])
+    duration = int(params.get('duration', 0) or 0)
 
-    # Calculate overall score (weighted average)
-    overall_score = calculate_overall_score(scores)
+    evaluation = None
+    try:
+        evaluation = _llm_evaluation(type_label, candidate_name, history, code_submissions, duration)
+    except Exception as e:
+        print(f'[WARN] LLM evaluation failed ({e}), using heuristic fallback')
 
-    # Generate feedback
-    strengths = identify_strengths(scores, conversation_history, code_submissions)
-    improvements = identify_improvements(scores, conversation_history, code_submissions)
-    recommendation = get_recommendation(overall_score)
+    if evaluation is None:
+        evaluation = _heuristic_evaluation(history, code_submissions)
 
-    # Generate detailed feedback
-    detailed_feedback = generate_detailed_feedback(
-        scores,
-        strengths,
-        improvements,
-        interview_type
-    )
+    overall = _weighted_score(evaluation['scores'])
 
-    report = {
+    return {
         'success': True,
         'sessionId': session_id,
         'candidateName': candidate_name,
-        'interviewType': interview_type,
+        'interviewType': raw_type,
         'timestamp': datetime.utcnow().isoformat(),
         'duration': duration,
-        'overallScore': round(overall_score, 1),
-        'scores': scores,
-        'strengths': strengths,
-        'improvements': improvements,
-        'recommendation': recommendation,
-        'detailedFeedback': detailed_feedback,
+        'overallScore': round(overall, 1),
+        'scores': {k: round(float(v), 1) for k, v in evaluation['scores'].items()},
+        'strengths': evaluation['strengths'],
+        'improvements': evaluation['improvements'],
+        'recommendation': evaluation['recommendation'],
+        'detailedFeedback': evaluation['detailed_feedback'],
         'metrics': {
-            'totalQuestions': count_questions(conversation_history),
+            'totalQuestions': _count_questions(history),
             'codeSubmissions': len(code_submissions),
-            'averageResponseTime': calculate_avg_response_time(conversation_history)
-        }
+            'averageResponseTime': 30.0,
+        },
     }
 
-    return report
 
+# ─── LLM evaluation via Claude Sonnet 4.6 ────────────────────────────────────
 
-def calculate_scores(
-    conversation_history: List[Dict],
+def _llm_evaluation(
+    type_label: str,
+    candidate_name: str,
+    history: List[Dict],
     code_submissions: List[Dict],
-    interview_type: str
-) -> Dict[str, float]:
-    """
-    Calculate scores across different criteria
-    """
+    duration: int,
+) -> Optional[Dict]:
+    """Call Claude Sonnet 4.6 to generate a genuine, transcript-grounded evaluation."""
+
+    if not history:
+        return None
+
+    # Format transcript
+    lines = []
+    for msg in history:
+        role = 'Interviewer' if msg.get('role') == 'assistant' else candidate_name
+        content = (msg.get('content') or '').strip()
+        if content:
+            lines.append(f'{role}: {content}')
+    transcript = '\n\n'.join(lines)
+
+    # Format code submissions
+    code_block = ''
+    if code_submissions:
+        parts = []
+        for i, sub in enumerate(code_submissions, 1):
+            status = '✓ All tests passed' if sub.get('allTestsPassed') else '✗ Tests failed'
+            lang = sub.get('language', 'unknown')
+            code_snippet = (sub.get('code') or 'N/A')[:600]
+            parts.append(f'--- Submission {i} ({lang}) {status} ---\n{code_snippet}')
+        code_block = '\n\nCODE SUBMISSIONS:\n' + '\n'.join(parts)
+
+    dur_str = f'{duration // 60}m {duration % 60}s' if duration > 0 else 'N/A'
+
+    prompt = f"""You are an expert technical interview evaluator conducting rigorous, fair assessments.
+
+INTERVIEW DETAILS
+Type: {type_label}
+Candidate: {candidate_name}
+Duration: {dur_str}
+
+FULL TRANSCRIPT
+{transcript}{code_block}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EVALUATION TASK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Read the entire transcript carefully. Your evaluation must be specific — reference actual things the candidate said or did. Never give generic feedback.
+
+SCORING DIMENSIONS (0.0–10.0):
+• technicalKnowledge — Depth, accuracy, and correctness of technical answers. Domain expertise demonstrated.
+• problemSolving — Systematic thinking, reasoning process, edge-case awareness, optimization instinct.
+• communication — Clarity, structure, completeness. Ability to articulate ideas under pressure.
+• codeQuality — Code correctness, efficiency, readability. Use 5.0 if no code was submitted.
+• culturalFit — Enthusiasm, growth mindset, professional demeanor, alignment with role.
+
+RECOMMENDATION:
+• STRONG_HIRE — Clear top performer, above the bar
+• HIRE — Strong candidate, would move forward
+• INCONCLUSIVE — Mixed signals, would need further assessment
+• NO_HIRE — Below expectations for this role
+• STRONG_NO_HIRE — Significantly below bar
+
+STRENGTHS & IMPROVEMENTS FORMAT:
+Each item must follow this exact format: "Short Title: Specific explanation that references what the candidate actually said or did in the interview."
+Provide 2–4 strengths and 2–4 improvement areas. Be honest — if the interview was poor, most items should be improvements.
+
+INTERVIEWER OBSERVATIONS:
+Write 4–6 sharp, honest observations about this candidate. Think like a senior engineer who just sat in the interview and is writing a private debrief note for the hiring committee.
+
+Rules:
+- Each observation has a 3–6 word title that names the exact pattern (e.g. "Deflected Every Follow-up Question", "Strong Instinct for Edge Cases", "Vague on System Scalability", "Recovered Well Under Pressure")
+- Each body is exactly 1 sentence. Quote or paraphrase what the candidate actually said. No generic statements — if you cannot point to a specific moment in the transcript, do not write the observation.
+- Be blunt. Do not soften criticism. If the candidate only said "hello" repeatedly, say that plainly.
+- Cover a mix: behavioral patterns, technical substance, communication quality, pressure handling.
+- Do NOT organize observations by the 5 scoring dimensions. Organize by what actually happened.
+
+BOTTOM LINE:
+Write exactly 1 sentence giving the honest overall verdict — name the single biggest factor that determined this outcome.
+
+RESPONSE FORMAT:
+Respond with ONLY the JSON object inside <evaluation> tags. No explanation before or after.
+The detailed_feedback field must be a JSON string (escaped) containing observations and bottom_line.
+
+<evaluation>
+{{
+  "scores": {{
+    "technicalKnowledge": X.X,
+    "problemSolving": X.X,
+    "communication": X.X,
+    "codeQuality": X.X,
+    "culturalFit": X.X
+  }},
+  "recommendation": "HIRE",
+  "strengths": [
+    "Title: Specific observation from the actual transcript."
+  ],
+  "improvements": [
+    "Title: Specific actionable recommendation based on what was observed."
+  ],
+  "detailed_feedback": "{{\\\"bottom_line\\\": \\\"2-3 sentence honest verdict.\\\", \\\"observations\\\": [{{\\\"title\\\": \\\"Pattern Title\\\", \\\"body\\\": \\\"2-3 sentences referencing the transcript.\\\"}}, {{\\\"title\\\": \\\"Another Pattern\\\", \\\"body\\\": \\\"2-3 sentences.\\\"}}, {{\\\"title\\\": \\\"Another Pattern\\\", \\\"body\\\": \\\"2-3 sentences.\\\"}}, {{\\\"title\\\": \\\"Another Pattern\\\", \\\"body\\\": \\\"2-3 sentences.\\\"}}]}}"
+}}
+</evaluation>"""
+
+    response = bedrock_client.converse(
+        modelId=EVALUATION_MODEL_ID,
+        messages=[{'role': 'user', 'content': [{'text': prompt}]}],
+        inferenceConfig={'maxTokens': 3000, 'temperature': 0.2},
+    )
+
+    raw_text = response['output']['message']['content'][0]['text']
+
+    # Extract JSON from <evaluation> tags
+    match = re.search(r'<evaluation>\s*([\s\S]*?)\s*</evaluation>', raw_text)
+    raw_json = match.group(1).strip() if match else raw_text.strip()
+
+    data = json.loads(raw_json)
+
+    # Validate + clamp scores
+    scores = data.get('scores', {})
+    for key in ['technicalKnowledge', 'problemSolving', 'communication', 'codeQuality', 'culturalFit']:
+        scores[key] = max(0.0, min(10.0, float(scores.get(key, 5.0))))
+
+    # Validate recommendation
+    valid = {'STRONG_HIRE', 'HIRE', 'INCONCLUSIVE', 'NO_HIRE', 'STRONG_NO_HIRE'}
+    rec = (data.get('recommendation') or 'INCONCLUSIVE').upper().strip()
+    if rec not in valid:
+        rec = 'INCONCLUSIVE'
+
+    return {
+        'scores': scores,
+        'recommendation': rec,
+        'strengths': [s for s in data.get('strengths', []) if s][:5],
+        'improvements': [s for s in data.get('improvements', []) if s][:5],
+        'detailed_feedback': data.get('detailed_feedback', ''),
+    }
+
+
+# ─── Heuristic fallback ───────────────────────────────────────────────────────
+
+def _heuristic_evaluation(history: List[Dict], code_submissions: List[Dict]) -> Dict:
+    """Rule-based fallback used only when LLM is unavailable."""
     scores = {
-        'technicalKnowledge': 0.0,
-        'problemSolving': 0.0,
-        'communication': 0.0,
-        'codeQuality': 0.0,
-        'culturalFit': 0.0
+        'technicalKnowledge': _h_technical(history),
+        'problemSolving': _h_problem_solving(history, code_submissions),
+        'communication': _h_communication(history),
+        'codeQuality': _h_code_quality(code_submissions) if code_submissions else 5.0,
+        'culturalFit': _h_cultural_fit(history),
     }
-
-    # Technical Knowledge (based on correctness of answers)
-    scores['technicalKnowledge'] = evaluate_technical_knowledge(
-        conversation_history,
-        interview_type
-    )
-
-    # Problem Solving (based on approach and reasoning)
-    scores['problemSolving'] = evaluate_problem_solving(
-        conversation_history,
-        code_submissions
-    )
-
-    # Communication (based on clarity and responsiveness)
-    scores['communication'] = evaluate_communication(conversation_history)
-
-    # Code Quality (based on code submissions)
-    if code_submissions:
-        scores['codeQuality'] = evaluate_code_quality(code_submissions)
-    else:
-        scores['codeQuality'] = 5.0  # Neutral if no code
-
-    # Cultural Fit (based on behavioral responses)
-    scores['culturalFit'] = evaluate_cultural_fit(
-        conversation_history,
-        interview_type
-    )
-
-    return scores
-
-
-def evaluate_technical_knowledge(
-    conversation_history: List[Dict],
-    interview_type: str
-) -> float:
-    """
-    Evaluate technical knowledge based on conversation
-    """
-    # Simplified scoring: Count user responses
-    user_responses = [msg for msg in conversation_history if msg.get('role') == 'user']
-
-    if not user_responses:
-        return 5.0
-
-    # Heuristics:
-    # - Longer, detailed responses = higher score
-    # - Technical terms = higher score
-
-    total_score = 0
-    count = 0
-
-    technical_keywords = [
-        'algorithm', 'complexity', 'data structure', 'optimize', 'performance',
-        'scalability', 'database', 'api', 'architecture', 'design pattern',
-        'aws', 'cloud', 'microservices', 'cache', 'queue'
-    ]
-
-    for response in user_responses[-10:]:  # Last 10 responses
-        content = response.get('content', '').lower()
-        words = len(content.split())
-
-        # Base score from length
-        if words > 50:
-            score = 8
-        elif words > 30:
-            score = 7
-        elif words > 15:
-            score = 6
-        else:
-            score = 5
-
-        # Bonus for technical terms
-        technical_count = sum(1 for kw in technical_keywords if kw in content)
-        score += min(technical_count * 0.5, 2)  # Max +2 bonus
-
-        total_score += min(score, 10)
-        count += 1
-
-    return round(total_score / count if count > 0 else 5.0, 1)
-
-
-def evaluate_problem_solving(
-    conversation_history: List[Dict],
-    code_submissions: List[Dict]
-) -> float:
-    """
-    Evaluate problem-solving skills
-    """
-    score = 5.0  # Base score
-
-    # Check code submissions
-    if code_submissions:
-        passed_tests = sum(1 for sub in code_submissions if sub.get('allTestsPassed'))
-        total_submissions = len(code_submissions)
-
-        if total_submissions > 0:
-            pass_rate = passed_tests / total_submissions
-            score = 4 + (pass_rate * 6)  # 4-10 scale
-
-    # Check for problem-solving keywords in conversation
-    problem_solving_keywords = [
-        'approach', 'strategy', 'solution', 'optimize', 'tradeoff',
-        'edge case', 'complexity', 'efficient', 'alternative'
-    ]
-
-    user_responses = [msg.get('content', '').lower()
-                     for msg in conversation_history
-                     if msg.get('role') == 'user']
-
-    keyword_count = sum(
-        1 for response in user_responses
-        for keyword in problem_solving_keywords
-        if keyword in response
-    )
-
-    # Boost score based on problem-solving discussion
-    if keyword_count > 5:
-        score += 1
-    if keyword_count > 10:
-        score += 0.5
-
-    return round(min(score, 10), 1)
-
-
-def evaluate_communication(conversation_history: List[Dict]) -> float:
-    """
-    Evaluate communication skills
-    """
-    user_responses = [msg for msg in conversation_history if msg.get('role') == 'user']
-
-    if not user_responses:
-        return 5.0
-
-    total_score = 0
-    count = 0
-
-    for response in user_responses:
-        content = response.get('content', '')
-        words = len(content.split())
-        sentences = content.count('.') + content.count('!') + content.count('?')
-
-        # Good communication: 20-100 words, 2-5 sentences
-        if 20 <= words <= 100 and 2 <= sentences <= 5:
-            score = 8
-        elif words < 10:
-            score = 5  # Too brief
-        elif words > 150:
-            score = 6  # Too verbose
-        else:
-            score = 7
-
-        total_score += score
-        count += 1
-
-    return round(total_score / count if count > 0 else 5.0, 1)
-
-
-def evaluate_code_quality(code_submissions: List[Dict]) -> float:
-    """
-    Evaluate code quality from submissions
-    """
-    if not code_submissions:
-        return 5.0
-
-    total_score = 0
-    count = 0
-
-    for submission in code_submissions:
-        score = 5.0
-
-        # Passed all tests
-        if submission.get('allTestsPassed'):
-            score = 8
-
-        # Check execution time (efficiency)
-        exec_time = submission.get('executionTime', 0)
-        if exec_time < 0.1:
-            score += 1
-        elif exec_time > 1.0:
-            score -= 0.5
-
-        # Check for errors
-        if submission.get('error'):
-            score = min(score, 6)
-
-        total_score += score
-        count += 1
-
-    return round(total_score / count if count > 0 else 5.0, 1)
-
-
-def evaluate_cultural_fit(
-    conversation_history: List[Dict],
-    interview_type: str
-) -> float:
-    """
-    Evaluate cultural fit based on behavioral indicators
-    """
-    # Look for positive indicators in conversation
-    positive_indicators = [
-        'learn', 'grow', 'collaborate', 'team', 'feedback',
-        'challenge', 'passionate', 'excited', 'interested'
-    ]
-
-    user_content = ' '.join([
-        msg.get('content', '').lower()
-        for msg in conversation_history
-        if msg.get('role') == 'user'
-    ])
-
-    indicator_count = sum(1 for indicator in positive_indicators if indicator in user_content)
-
-    # Base score of 6, increase with positive indicators
-    score = 6.0 + min(indicator_count * 0.3, 4)
-
-    return round(min(score, 10), 1)
-
-
-def calculate_overall_score(scores: Dict[str, float]) -> float:
-    """
-    Calculate weighted overall score
-    """
-    weights = {
-        'technicalKnowledge': 0.30,
-        'problemSolving': 0.25,
-        'communication': 0.20,
-        'codeQuality': 0.15,
-        'culturalFit': 0.10
+    overall = _weighted_score(scores)
+    strengths, improvements = [], []
+    labels = {
+        'technicalKnowledge': 'Technical Knowledge',
+        'problemSolving': 'Problem Solving',
+        'communication': 'Communication',
+        'codeQuality': 'Code Quality',
+        'culturalFit': 'Cultural Fit',
     }
-
-    overall = sum(scores[key] * weights[key] for key in scores)
-    return round(overall, 1)
-
-
-def identify_strengths(
-    scores: Dict[str, float],
-    conversation_history: List[Dict],
-    code_submissions: List[Dict]
-) -> List[str]:
-    """
-    Identify candidate strengths
-    """
-    strengths = []
-
-    # Check high scores
-    for criterion, score in scores.items():
-        if score >= 8.0:
-            strength_map = {
-                'technicalKnowledge': 'Strong technical knowledge and understanding of concepts',
-                'problemSolving': 'Excellent problem-solving approach and logical thinking',
-                'communication': 'Clear and effective communication skills',
-                'codeQuality': 'High-quality, efficient code implementation',
-                'culturalFit': 'Great cultural fit and alignment with team values'
-            }
-            strengths.append(strength_map.get(criterion, f'Strong {criterion}'))
-
-    # Check code submissions
-    if code_submissions and all(sub.get('allTestsPassed') for sub in code_submissions):
-        strengths.append('Consistently passed all test cases on first attempt')
-
-    # Ensure at least one strength
+    for k, v in scores.items():
+        lbl = labels[k]
+        if v >= 8.0:
+            strengths.append(f'{lbl}: Demonstrated strong performance in this dimension.')
+        elif v < 6.0:
+            improvements.append(f'{lbl}: Further development recommended in this area.')
     if not strengths:
-        strengths.append('Demonstrated solid technical foundation')
-
-    return strengths[:5]  # Top 5 strengths
-
-
-def identify_improvements(
-    scores: Dict[str, float],
-    conversation_history: List[Dict],
-    code_submissions: List[Dict]
-) -> List[str]:
-    """
-    Identify areas for improvement
-    """
-    improvements = []
-
-    # Check low scores
-    for criterion, score in scores.items():
-        if score < 6.0:
-            improvement_map = {
-                'technicalKnowledge': 'Deepen understanding of core technical concepts',
-                'problemSolving': 'Practice more algorithmic problem-solving',
-                'communication': 'Work on explaining solutions more clearly',
-                'codeQuality': 'Focus on writing cleaner, more optimized code',
-                'culturalFit': 'Demonstrate more enthusiasm and alignment with values'
-            }
-            improvements.append(improvement_map.get(criterion, f'Improve {criterion}'))
-
-    # Check code issues
-    if code_submissions:
-        failed_submissions = [sub for sub in code_submissions if not sub.get('allTestsPassed')]
-        if len(failed_submissions) > len(code_submissions) / 2:
-            improvements.append('Practice more coding problems to improve accuracy')
-
-    # Ensure at least one improvement area
+        strengths = ['Performance: Completed the interview and demonstrated baseline competency.']
     if not improvements:
-        improvements.append('Continue practicing to maintain strong performance')
+        improvements = ['Continuous Improvement: Keep practicing to maintain and strengthen performance.']
 
-    return improvements[:5]  # Top 5 improvements
+    rec = _h_recommend(overall)
+    feedback_lines = []
+    for k, lbl in labels.items():
+        v = scores[k]
+        level = 'exceptional' if v >= 8.5 else 'strong' if v >= 7.0 else 'developing' if v >= 5.5 else 'needs improvement'
+        feedback_lines += [f'{lbl}:', f'Scored {v:.1f}/10 — {level} performance.', '']
+    feedback_lines += ['Overall Assessment:', f'Overall score of {overall:.1f}/10. {rec.replace("_", " ").title()} recommendation.']
 
-
-def get_recommendation(overall_score: float) -> str:
-    """
-    Get hiring recommendation based on overall score
-    """
-    if overall_score >= 8.5:
-        return 'STRONG_HIRE'
-    elif overall_score >= 7.5:
-        return 'HIRE'
-    elif overall_score >= 6.5:
-        return 'BORDERLINE'
-    elif overall_score >= 5.5:
-        return 'NO_HIRE'
-    else:
-        return 'STRONG_NO_HIRE'
+    return {
+        'scores': scores,
+        'recommendation': rec,
+        'strengths': strengths[:4],
+        'improvements': improvements[:4],
+        'detailed_feedback': '\n'.join(feedback_lines),
+    }
 
 
-def generate_detailed_feedback(
-    scores: Dict[str, float],
-    strengths: List[str],
-    improvements: List[str],
-    interview_type: str
-) -> str:
-    """
-    Generate detailed narrative feedback
-    """
-    feedback_parts = []
-
-    feedback_parts.append(f"Interview Type: {interview_type}")
-    feedback_parts.append("")
-
-    feedback_parts.append("Performance Summary:")
-    feedback_parts.append(f"The candidate demonstrated {get_performance_level(scores['technicalKnowledge'])} technical knowledge, "
-                         f"{get_performance_level(scores['problemSolving'])} problem-solving abilities, and "
-                         f"{get_performance_level(scores['communication'])} communication skills.")
-    feedback_parts.append("")
-
-    feedback_parts.append("Key Strengths:")
-    for i, strength in enumerate(strengths, 1):
-        feedback_parts.append(f"{i}. {strength}")
-    feedback_parts.append("")
-
-    feedback_parts.append("Areas for Improvement:")
-    for i, improvement in enumerate(improvements, 1):
-        feedback_parts.append(f"{i}. {improvement}")
-    feedback_parts.append("")
-
-    feedback_parts.append("Next Steps:")
-    feedback_parts.append("Continue practicing interview questions, focus on the improvement areas mentioned above, "
-                         "and maintain your strengths.")
-
-    return '\n'.join(feedback_parts)
+def _h_technical(history):
+    user_msgs = [m for m in history if m.get('role') == 'user']
+    if not user_msgs: return 5.0
+    kw = ['algorithm', 'complexity', 'data structure', 'optimize', 'scalability', 'database',
+          'api', 'architecture', 'pattern', 'aws', 'cloud', 'cache', 'hash', 'tree', 'graph',
+          'sort', 'binary', 'recursion', 'dynamic', 'O(n)', 'O(log', 'amortized']
+    total, n = 0, 0
+    for m in user_msgs[-10:]:
+        c = m.get('content', '').lower()
+        words = len(c.split())
+        s = 8 if words > 50 else 7 if words > 30 else 6 if words > 15 else 5
+        s += min(sum(1 for k in kw if k in c) * 0.4, 2)
+        total += min(s, 10); n += 1
+    return round(total / n if n else 5.0, 1)
 
 
-def get_performance_level(score: float) -> str:
-    """
-    Convert score to performance level description
-    """
-    if score >= 8.5:
-        return "excellent"
-    elif score >= 7.5:
-        return "strong"
-    elif score >= 6.5:
-        return "good"
-    elif score >= 5.5:
-        return "satisfactory"
-    else:
-        return "developing"
+def _h_problem_solving(history, code_submissions):
+    s = 5.0
+    if code_submissions:
+        passed = sum(1 for x in code_submissions if x.get('allTestsPassed'))
+        s = 4 + (passed / len(code_submissions)) * 6
+    kw = ['approach', 'strategy', 'solution', 'optimize', 'tradeoff', 'edge case',
+          'complexity', 'efficient', 'alternative', 'brute force', 'greedy']
+    text = ' '.join(m.get('content', '').lower() for m in history if m.get('role') == 'user')
+    cnt = sum(1 for k in kw if k in text)
+    s += 1.0 if cnt > 5 else 0.5 if cnt > 2 else 0
+    return round(min(s, 10), 1)
 
 
-def count_questions(conversation_history: List[Dict]) -> int:
-    """
-    Count questions asked by interviewer
-    """
-    assistant_messages = [msg for msg in conversation_history if msg.get('role') == 'assistant']
-    return sum(1 for msg in assistant_messages if '?' in msg.get('content', ''))
+def _h_communication(history):
+    responses = [m for m in history if m.get('role') == 'user']
+    if not responses: return 5.0
+    total, n = 0, 0
+    for m in responses:
+        words = len((m.get('content') or '').split())
+        total += 8 if 20 <= words <= 100 else 5 if words < 10 else 6 if words > 150 else 7
+        n += 1
+    return round(total / n if n else 5.0, 1)
 
 
-def calculate_avg_response_time(conversation_history: List[Dict]) -> float:
-    """
-    Calculate average response time (if timestamps available)
-    """
-    if len(conversation_history) < 2:
-        return 0.0
+def _h_code_quality(code_submissions):
+    if not code_submissions: return 5.0
+    total, n = 0, 0
+    for s in code_submissions:
+        score = 8.0 if s.get('allTestsPassed') else 5.0
+        if s.get('executionTime', 0) < 0.1: score += 1
+        elif s.get('executionTime', 0) > 1.0: score -= 0.5
+        if s.get('error'): score = min(score, 6)
+        total += score; n += 1
+    return round(total / n if n else 5.0, 1)
 
-    # Simplified - assumes alternating messages
-    return 30.0  # Placeholder: 30 seconds average
+
+def _h_cultural_fit(history):
+    words = ['learn', 'grow', 'collaborate', 'team', 'feedback', 'challenge',
+             'passionate', 'excited', 'interested', 'improve', 'curious']
+    text = ' '.join(m.get('content', '').lower() for m in history if m.get('role') == 'user')
+    return round(min(6.0 + sum(1 for w in words if w in text) * 0.3, 10), 1)
 
 
-def save_report_to_s3(session_id: str, report: Dict[str, Any]) -> None:
-    """
-    Save report to S3
-    """
+def _h_recommend(score):
+    if score >= 8.5: return 'STRONG_HIRE'
+    if score >= 7.5: return 'HIRE'
+    if score >= 6.0: return 'INCONCLUSIVE'
+    if score >= 4.5: return 'NO_HIRE'
+    return 'STRONG_NO_HIRE'
+
+
+# ─── Shared helpers ───────────────────────────────────────────────────────────
+
+def _weighted_score(scores: Dict[str, float]) -> float:
+    return sum(scores.get(k, 0) * w for k, w in SCORE_WEIGHTS.items())
+
+
+def _count_questions(history: List[Dict]) -> int:
+    return sum(1 for m in history if m.get('role') == 'assistant' and '?' in (m.get('content') or ''))
+
+
+def _save_to_s3(session_id: str, report: Dict) -> None:
     try:
-        bucket = 'prepai-user-data'
+        bucket = os.environ.get('S3_BUCKET_USER_DATA', 'prepai-user-data-2026')
         key = f'reports/{session_id}/performance_report.json'
-
         s3_client.put_object(
             Bucket=bucket,
             Key=key,
             Body=json.dumps(report, indent=2),
-            ContentType='application/json'
+            ContentType='application/json',
         )
-
         report['reportUrl'] = f's3://{bucket}/{key}'
-
     except Exception as e:
-        print(f'Failed to save report to S3: {str(e)}')
+        print(f'[WARN] S3 save failed: {e}')
 
 
-# For local testing
+# ─── Local test ───────────────────────────────────────────────────────────────
+
 if __name__ == '__main__':
-    test_event = {
-        'sessionId': 'test123',
-        'candidateName': 'John Doe',
-        'interviewType': 'Google SDE',
+    test = {
+        'sessionId': 'test-001',
+        'candidateName': 'Aisha Khan',
+        'interviewType': 'google_sde',
         'duration': 1800,
         'conversationHistory': [
-            {'role': 'assistant', 'content': 'Tell me about yourself?'},
-            {'role': 'user', 'content': 'I have 3 years of experience in Python and AWS, building scalable microservices.'},
-            {'role': 'assistant', 'content': 'Can you explain the Two Sum problem?'},
-            {'role': 'user', 'content': 'I would use a hash map to store complements. Time complexity O(n), space O(n).'}
+            {'role': 'assistant', 'content': 'Hi Aisha! Tell me about yourself and your experience with distributed systems.'},
+            {'role': 'user', 'content': 'I have 3 years at Stripe building payment processing pipelines. We used Kafka for event streaming and Redis for idempotency keys. I designed a system that handled 50k TPS with sub-100ms p99 latency.'},
+            {'role': 'assistant', 'content': 'Great! Can you implement a function to find the k-th largest element in an array?'},
+            {'role': 'user', 'content': 'Sure. Naive approach is sort and index in O(n log n). But we can do better with a min-heap of size k — that\'s O(n log k). Or QuickSelect gives O(n) average, O(n²) worst case. For this problem I\'d use the heap approach since k is usually small.'},
         ],
-        'codeSubmissions': [
-            {
-                'allTestsPassed': True,
-                'executionTime': 0.05,
-                'language': 'python'
-            }
-        ],
-        'saveToS3': False
+        'codeSubmissions': [],
+        'saveToS3': False,
     }
-
-    result = lambda_handler(test_event, None)
+    result = lambda_handler(test, None)
     print(json.dumps(json.loads(result['body']), indent=2))

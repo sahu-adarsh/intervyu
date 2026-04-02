@@ -24,6 +24,16 @@ const typeLabels: Record<string, string> = {
   'gcp_solutions_architect': 'GCP Solutions Architect',
   'cv_grilling': 'Behavioral',
   'coding_practice': 'Coding Round',
+  // aliases for legacy / alternate DB values
+  'behavioral': 'Behavioral',
+  'coding': 'Coding Round',
+  'coding_round': 'Coding Round',
+  'google-sde': 'Google SDE',
+  'amazon-sde': 'Amazon SDE',
+  'microsoft-sde': 'Microsoft SDE',
+  'aws-sa': 'AWS Solutions Architect',
+  'azure-sa': 'Azure Solutions Architect',
+  'gcp-sa': 'GCP Solutions Architect',
 };
 
 const typeDotColors: Record<string, string> = {
@@ -48,20 +58,17 @@ export default function PastInterviewsList() {
   const [sessions, setSessions] = useState<HistorySession[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // Wait for auth to resolve; skip API call if not authenticated
-    if (authLoading) return;
-    if (!session) { setLoading(false); return; }
-
+  const fetchHistory = () => {
+    if (authLoading || !session) return;
     getUserHistory()
       .then((data) => {
         const raw: any[] = data?.sessions ?? [];
         setSessions(
-          raw.slice(0, 4).map((s) => ({
+          raw.slice(0, 5).map((s) => ({
             sessionId: s.session_id,
             interviewType: s.interview_type,
             candidateName: s.candidate_name ?? '',
-            status: s.status,
+            status: s.status ?? 'active',
             date: s.date,
             score: s.score,
           }))
@@ -69,6 +76,21 @@ export default function PastInterviewsList() {
       })
       .catch(() => setSessions([]))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!session) { setLoading(false); return; }
+    fetchHistory();
+  }, [session, authLoading]);
+
+  // Re-fetch when user returns to this page (e.g. after ending an interview)
+  useEffect(() => {
+    const handleFocus = () => {
+      if (session && !authLoading) fetchHistory();
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
   }, [session, authLoading]);
 
   if (loading) {
@@ -86,7 +108,13 @@ export default function PastInterviewsList() {
       {sessions.map((s) => (
         <button
           key={s.sessionId}
-          onClick={() => router.push('/history')}
+          onClick={() => {
+            if (s.status === 'completed') {
+              router.push(`/report?session=${s.sessionId}`);
+            } else {
+              router.push('/history');
+            }
+          }}
           className="w-full flex items-center gap-3 py-2.5 px-2 rounded-lg hover:bg-slate-800/60 transition-colors text-left"
         >
           <div className={`w-2 h-2 rounded-full flex-shrink-0 ${typeDotColors[s.interviewType] || 'bg-slate-500'}`} />
@@ -96,7 +124,9 @@ export default function PastInterviewsList() {
             </p>
             <p className="text-xs text-slate-500">{formatDate(s.date)}</p>
           </div>
-          <span className="text-xs text-violet-400 flex-shrink-0 whitespace-nowrap">View Analytics →</span>
+          <span className="text-xs text-violet-400 flex-shrink-0 whitespace-nowrap">
+            {s.status === 'completed' ? 'View Report →' : 'View History →'}
+          </span>
         </button>
       ))}
     </div>

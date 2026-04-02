@@ -138,6 +138,12 @@ export async function getTrends(days = 30) {
   return res.json();
 }
 
+export async function getBenchmarks(interviewType: string) {
+  const res = await authFetch(`/api/analytics/benchmarks/${encodeURIComponent(interviewType)}`);
+  if (!res.ok) throw new Error(`Failed to get benchmarks: ${res.status}`);
+  return res.json();
+}
+
 // ─── Auth endpoint ────────────────────────────────────────────────────────────
 
 export async function getMe() {

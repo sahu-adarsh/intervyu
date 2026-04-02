@@ -18,6 +18,16 @@ Parameters:
     Type: String
     Description: ARN of the Bedrock Agent role that will invoke these Lambda functions
     Default: ""
+  BedrockAccessKeyId:
+    Type: String
+    Description: AWS Access Key ID for Bedrock (performance evaluator)
+    NoEcho: true
+    Default: ""
+  BedrockSecretAccessKey:
+    Type: String
+    Description: AWS Secret Access Key for Bedrock (performance evaluator)
+    NoEcho: true
+    Default: ""
 
 Resources:
   # IAM Role for Lambda Functions
@@ -46,6 +56,15 @@ Resources:
                 Resource:
                   - arn:aws:s3:::prepai-user-data-2026/*
                   - arn:aws:s3:::prepai-user-data-2026
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: "*"
 
   # Lambda Function: Code Executor
   CodeExecutorFunction:
@@ -82,12 +101,17 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: prepai-performance-evaluator
-      Description: Generate interview performance reports
+      Description: Generate AI-powered interview performance reports using Claude Sonnet
       CodeUri: performance-evaluator/
       Handler: lambda_function.lambda_handler
       Role: !GetAtt PrepAILambdaRole.Arn
-      Timeout: 30
+      Timeout: 120
       MemorySize: 512
+      Environment:
+        Variables:
+          BEDROCK_AWS_REGION: us-east-1
+          BEDROCK_AWS_ACCESS_KEY_ID: !Ref BedrockAccessKeyId
+          BEDROCK_AWS_SECRET_ACCESS_KEY: !Ref BedrockSecretAccessKey
 
   # Lambda Permissions for Bedrock Agent
   CodeExecutorInvokePermission:
