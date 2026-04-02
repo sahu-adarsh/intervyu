@@ -215,9 +215,3 @@ GitHub Actions workflows auto-deploy on push to `main`:
 - **`deploy-backend.yml`** — SSHes to EC2, pulls latest, restarts systemd service
 
 ---
-
-## Backlog
-
-- Redis caching (replace in-memory EC2 Bedrock session cache — deferred; see Architecture Guide §5.8)
-
----
