@@ -1,8 +1,5 @@
 'use client';
 
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
-
 export interface PDFExportOptions {
   filename?: string;
   quality?: number;
@@ -11,71 +8,47 @@ export interface PDFExportOptions {
 
 export const exportToPDF = async (
   elementId: string,
-  options: PDFExportOptions = {}
+  _options: PDFExportOptions = {}
 ): Promise<void> => {
-  const {
-    filename = 'report.pdf',
-    quality = 0.95,
-    format = 'a4'
-  } = options;
+  const element = document.getElementById(elementId);
+  if (!element) throw new Error(`Element with id "${elementId}" not found`);
 
-  try {
-    const element = document.getElementById(elementId);
+  // Clone and strip hidden classes so all tab panels appear in the export
+  const clone = element.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll('.hidden').forEach(el => el.classList.remove('hidden'));
 
-    if (!element) {
-      throw new Error(`Element with id "${elementId}" not found`);
+  // Collect all external stylesheets so the print window renders correctly
+  const styleLinks = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+    .map(l => `<link rel="stylesheet" href="${(l as HTMLLinkElement).href}">`)
+    .join('\n');
+
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) throw new Error('Popup blocked — allow popups and try again');
+
+  printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  ${styleLinks}
+  <style>
+    @media print {
+      @page { margin: 10mm; }
+      body { background: #0d1117 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     }
+    body { background: #0d1117; margin: 0; padding: 24px; }
+  </style>
+</head>
+<body>${clone.outerHTML}</body>
+</html>`);
 
-    // Show loading state
-    const originalContent = element.innerHTML;
-    element.style.opacity = '0.7';
+  printWindow.document.close();
 
-    // Capture element as canvas
-    const canvas = await html2canvas(element, {
-      scale: 2, // Higher resolution
-      logging: false,
-      useCORS: true,
-      allowTaint: true
-    });
-
-    // Restore original state
-    element.style.opacity = '1';
-
-    // Calculate PDF dimensions
-    const imgWidth = format === 'a4' ? 210 : 216; // mm
-    const pageHeight = format === 'a4' ? 297 : 279; // mm
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
-    let heightLeft = imgHeight;
-
-    // Create PDF
-    const pdf = new jsPDF({
-      orientation: imgHeight > imgWidth ? 'portrait' : 'landscape',
-      unit: 'mm',
-      format: format
-    });
-
-    // Add image to PDF
-    const imgData = canvas.toDataURL('image/jpeg', quality);
-    let position = 0;
-
-    pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
-    heightLeft -= pageHeight;
-
-    // Add new pages if content is too long
-    while (heightLeft > 0) {
-      position = heightLeft - imgHeight;
-      pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-    }
-
-    // Save PDF
-    pdf.save(filename);
-
-    return Promise.resolve();
-  } catch (error) {
-    throw error;
-  }
+  // Wait for styles to load before printing
+  printWindow.onload = () => {
+    printWindow.focus();
+    printWindow.print();
+    printWindow.close();
+  };
 };
 
 // Component wrapper for easy use
