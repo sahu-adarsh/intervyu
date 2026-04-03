@@ -322,7 +322,7 @@ export default function Home() {
                   </span>
                 </h1>
                 <p className="text-xs text-slate-500 mt-1 hidden sm:block">
-                  Practice with AI · Get real-time feedback · Land your dream job
+                  Practice with Intervyu AI · Get real-time feedback · Land your dream job
                 </p>
               </div>
             </div>

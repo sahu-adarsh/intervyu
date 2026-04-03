@@ -1,6 +1,7 @@
 'use client';
 
-import { Users, Terminal } from 'lucide-react';
+import Image from 'next/image';
+import { FileSearch } from 'lucide-react';
 
 export interface InterviewCardConfig {
   id: string;
@@ -16,114 +17,40 @@ interface InterviewCardProps extends InterviewCardConfig {
   onStart: (id: string) => void;
 }
 
-// ─── Inline brand logos — zero external deps, ad-blocker proof ──────────────
-
-function GoogleLogo() {
-  return (
-    <svg viewBox="0 0 48 48" className="h-10 w-10">
-      <path fill="#4285F4" d="M44.5 20H24v8.5h11.8C34.3 33.3 30 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.1 8 2.9l6.1-6.1C34.4 5.2 29.5 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21c10.5 0 20-7.5 20-21 0-1.4-.1-2.7-.5-4z" />
-      <path fill="#34A853" d="M6.3 14.7l7 5.1C15.1 16.2 19.2 13 24 13c3.1 0 5.9 1.1 8 2.9l6.1-6.1C34.4 5.2 29.5 3 24 3 16.2 3 9.5 7.9 6.3 14.7z" />
-      <path fill="#FBBC05" d="M24 45c5.4 0 10.3-1.9 14.1-5l-6.5-5.5C29.6 36 26.9 37 24 37c-5.9 0-10.9-3.9-12.7-9.3l-7 5.4C7.9 40.5 15.4 45 24 45z" />
-      <path fill="#EA4335" d="M44.5 20H24v8.5h11.8c-.8 2.4-2.4 4.4-4.4 5.8l6.5 5.5C41.5 36.5 44.5 31 44.5 24c0-1.3-.2-2.7-.5-4z" />
-    </svg>
-  );
-}
-
-function AmazonLogo() {
-  return (
-    <div className="flex flex-col items-center gap-0.5">
-      <span className="text-white font-bold text-xl tracking-tight leading-none" style={{ fontFamily: 'Arial, sans-serif' }}>amazon</span>
-      {/* Amazon smile */}
-      <svg viewBox="0 0 100 20" className="w-16 h-3">
-        <path d="M10 5 Q50 20 90 5" stroke="#FF9900" strokeWidth="5" fill="none" strokeLinecap="round" />
-        <path d="M82 3 L90 5 L85 11" stroke="#FF9900" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </div>
-  );
-}
-
-function MicrosoftLogo() {
-  return (
-    <div className="flex items-center gap-2.5">
-      <div className="grid grid-cols-2 gap-[3px]">
-        <div className="w-[18px] h-[18px] bg-[#F25022]" />
-        <div className="w-[18px] h-[18px] bg-[#7FBA00]" />
-        <div className="w-[18px] h-[18px] bg-[#00A4EF]" />
-        <div className="w-[18px] h-[18px] bg-[#FFB900]" />
-      </div>
-      <span className="text-white font-semibold text-sm tracking-tight">Microsoft</span>
-    </div>
-  );
-}
-
-function AWSLogo() {
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <span className="text-[#FF9900] font-black text-2xl tracking-widest leading-none">aws</span>
-      <div className="flex gap-0.5">
-        {[...Array(5)].map((_, i) => (
-          <div key={i} className="w-1 h-1 rounded-full bg-[#FF9900] opacity-60" />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function AzureLogo() {
-  return (
-    <div className="flex items-center gap-2">
-      {/* Azure icon - simplified delta/triangle */}
-      <svg viewBox="0 0 96 96" className="h-9 w-9">
-        <defs>
-          <linearGradient id="az1" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#114A8B" />
-            <stop offset="100%" stopColor="#0078D4" />
-          </linearGradient>
-          <linearGradient id="az2" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#0078D4" />
-            <stop offset="100%" stopColor="#5EA0EF" />
-          </linearGradient>
-        </defs>
-        <path fill="url(#az1)" d="M33.7 6h28.1L36.6 90H8.5z" />
-        <path fill="url(#az2)" d="M60.5 6h26.6L52.4 55.3 87.5 90H52.4L36.6 55.3z" />
-      </svg>
-      <span className="text-white font-bold text-base">Azure</span>
-    </div>
-  );
-}
-
-function GCPLogo() {
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <svg viewBox="0 0 64 64" className="h-9 w-9">
-        <path fill="#4285F4" d="M32 8C18.7 8 8 18.7 8 32s10.7 24 24 24 24-10.7 24-24S45.3 8 32 8zm0 4c11 0 20 9 20 20s-9 20-20 20S12 43 12 32s9-20 20-20z" />
-        <path fill="#EA4335" d="M32 20a12 12 0 1 0 0 24 12 12 0 0 0 0-24zm0 4a8 8 0 1 1 0 16 8 8 0 0 1 0-16z" />
-        <circle fill="#FBBC05" cx="32" cy="14" r="4" />
-        <circle fill="#34A853" cx="32" cy="50" r="4" />
-        <circle fill="#4285F4" cx="14" cy="32" r="4" />
-        <circle fill="#EA4335" cx="50" cy="32" r="4" />
-      </svg>
-      <span className="text-[#4285F4] text-[10px] font-semibold tracking-wide">Google Cloud</span>
-    </div>
-  );
-}
-
 // ─── Brand strip config ──────────────────────────────────────────────────────
 
 const BRAND_MAP: Record<string, { bg: string; logo: React.ReactNode }> = {
-  'google-sde':    { bg: 'bg-white',        logo: <GoogleLogo /> },
-  'amazon-sde':    { bg: 'bg-[#232F3E]',    logo: <AmazonLogo /> },
-  'microsoft-sde': { bg: 'bg-[#1E1E1E]',    logo: <MicrosoftLogo /> },
-  'aws-sa':        { bg: 'bg-[#232F3E]',    logo: <AWSLogo /> },
-  'azure-sa':      { bg: 'bg-[#0078D4]',    logo: <AzureLogo /> },
-  'gcp-sa':        { bg: 'bg-white',        logo: <GCPLogo /> },
+  'google-sde':    {
+    bg: 'bg-white',
+    logo: <Image src="/Google Logo.png" alt="Google" width={80} height={40} className="object-contain" />,
+  },
+  'amazon-sde':    {
+    bg: 'bg-[#232F3E]',
+    logo: <Image src="/Amazon S3 NRF 2019.png" alt="Amazon" width={80} height={40} className="object-contain" />,
+  },
+  'microsoft-sde': {
+    bg: 'bg-[#1E1E1E]',
+    logo: <Image src="/Microsoft Logo.png" alt="Microsoft" width={80} height={40} className="object-contain" />,
+  },
+  'aws-sa':        {
+    bg: 'bg-[#232F3E]',
+    logo: <Image src="/Amazon AWS Logo.png" alt="AWS" width={80} height={40} className="object-contain" />,
+  },
+  'azure-sa':      {
+    bg: 'bg-[#1a1a2e]',
+    logo: <Image src="/Microsoft Azure Logo.png" alt="Azure" width={80} height={40} className="object-contain" />,
+  },
+  'gcp-sa':        {
+    bg: 'bg-white',
+    logo: <Image src="/Google Cloud Platform Wallpaper.png" alt="Google Cloud" width={80} height={40} className="object-contain" />,
+  },
   'behavioral':    {
-    bg: 'bg-gradient-to-br from-emerald-900 to-slate-800',
-    logo: <Users className="h-10 w-10 text-emerald-400" />,
+    bg: 'bg-gradient-to-br from-emerald-950 to-teal-900',
+    logo: <FileSearch className="h-10 w-10 text-emerald-300" />,
   },
   'coding-round':  {
-    bg: 'bg-gradient-to-br from-slate-900 to-[#0d1117]',
-    logo: <Terminal className="h-10 w-10 text-green-400" />,
+    bg: 'bg-gradient-to-br from-violet-950 to-[#0d1117]',
+    logo: <Image src="/Computer Icons Code Symbol.png" alt="Coding" width={60} height={60} className="object-contain" />,
   },
 };
 
