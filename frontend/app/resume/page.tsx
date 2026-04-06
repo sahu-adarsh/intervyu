@@ -7,7 +7,7 @@ import {
   Target, Zap, ArrowLeft, ExternalLink, Trash2,
 } from 'lucide-react';
 import DashboardLayout from '@/components/DashboardLayout';
-import { createSession, uploadCV, getCVPresignedUrl } from '@/lib/api';
+import { createSession, uploadCV, getCVPresignedUrl, getUserResumes, saveCVMetadata } from '@/lib/api';
 import type { CVCorrections } from '@/components/cv-reviewer/types';
 
 const CVReviewer = dynamic(() => import('@/components/cv-reviewer/CVReviewer'), { ssr: false });
@@ -260,11 +260,14 @@ function UploadPhase({ onComplete, onBack, compact }: {
         missingKeywords: missing,
       };
 
-      try {
-        const stored = JSON.parse(localStorage.getItem('intervyu_resumes') || '[]');
-        stored.unshift(newResume);
-        localStorage.setItem('intervyu_resumes', JSON.stringify(stored));
-      } catch { /* ignore */ }
+      // Persist job metadata to DB (fire-and-forget)
+      saveCVMetadata(session_id, {
+        job_title: jobTitle.trim() || undefined,
+        job_description: jobDescription.trim() || undefined,
+        ats_score: score,
+        matched_keywords: matched,
+        missing_keywords: missing,
+      }).catch(() => {});
 
       onComplete(newResume, file);
     } catch (err) {
@@ -299,9 +302,9 @@ function UploadPhase({ onComplete, onBack, compact }: {
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-6 md:items-stretch">
           {/* CV Upload */}
-          <div>
+          <div className="flex flex-col">
             <div className="flex items-center gap-2 mb-3">
               <div className="w-6 h-6 rounded-md bg-violet-500/20 flex items-center justify-center">
                 <FileText size={13} className="text-violet-400" />
@@ -315,7 +318,7 @@ function UploadPhase({ onComplete, onBack, compact }: {
               onDragLeave={() => setIsDragOver(false)}
               onDrop={handleDrop}
               onClick={() => !file && fileInputRef.current?.click()}
-              className={`relative rounded-2xl transition-all duration-200 flex flex-col items-center justify-center text-center min-h-[180px] ${
+              className={`relative rounded-2xl transition-all duration-200 flex flex-col items-center justify-center text-center flex-1 ${
                 file
                   ? 'bg-emerald-500/5 border border-emerald-500/30 cursor-default p-5'
                   : isDragOver
@@ -353,7 +356,7 @@ function UploadPhase({ onComplete, onBack, compact }: {
           </div>
 
           {/* Job Description */}
-          <div>
+          <div className="flex flex-col">
             <div className="flex items-center gap-2 mb-3">
               <div className="w-6 h-6 rounded-md bg-emerald-500/20 flex items-center justify-center">
                 <Target size={13} className="text-emerald-400" />
@@ -374,8 +377,7 @@ function UploadPhase({ onComplete, onBack, compact }: {
               value={jobDescription}
               onChange={(e) => setJobDescription(e.target.value)}
               placeholder="Paste the job description here to see which keywords are present or missing..."
-              rows={5}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none transition-colors leading-relaxed"
+              className="w-full flex-1 min-h-[120px] bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none transition-colors leading-relaxed"
             />
 
             {jobDescription.trim().length > 0 && (
@@ -431,10 +433,29 @@ export default function ResumePage() {
   const [showUploadModal, setShowUploadModal] = useState(false);
 
   useEffect(() => {
-    try {
-      const stored: StoredResume[] = JSON.parse(localStorage.getItem('intervyu_resumes') || '[]');
-      setResumes(stored);
-    } catch { /* ignore */ }
+    getUserResumes()
+      .then(({ resumes: data }) => {
+        setResumes(data.map(r => ({
+          id: r.session_id,
+          sessionId: r.session_id,
+          filename: r.filename,
+          uploadedAt: r.uploaded_at,
+          analysis: r.analysis as CVAnalysis,
+          corrections: r.corrections as unknown as CVCorrections,
+          jobTitle: r.job_title,
+          jobDescription: r.job_description,
+          atsScore: r.ats_score,
+          matchedKeywords: r.matched_keywords,
+          missingKeywords: r.missing_keywords,
+        })));
+      })
+      .catch(() => {
+        // fallback to localStorage if API fails
+        try {
+          const stored: StoredResume[] = JSON.parse(localStorage.getItem('intervyu_resumes') || '[]');
+          setResumes(stored);
+        } catch { /* ignore */ }
+      });
   }, []);
 
   const handleComplete = (resume: StoredResume, file: File) => {
@@ -458,11 +479,7 @@ export default function ResumePage() {
   };
 
   const handleDelete = (id: string) => {
-    setResumes(prev => {
-      const next = prev.filter(r => r.id !== id);
-      try { localStorage.setItem('intervyu_resumes', JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
+    setResumes(prev => prev.filter(r => r.id !== id));
   };
 
   return (

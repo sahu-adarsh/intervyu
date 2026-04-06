@@ -95,6 +95,38 @@ export async function getCVAnalysis(sessionId: string) {
   return res.json();
 }
 
+export async function getUserResumes(): Promise<{ resumes: Array<{
+  session_id: string;
+  filename: string;
+  uploaded_at: string;
+  analysis: Record<string, unknown>;
+  corrections: Record<string, unknown>;
+  job_title?: string;
+  job_description?: string;
+  ats_score?: number;
+  matched_keywords?: string[];
+  missing_keywords?: string[];
+}> }> {
+  const res = await authFetch('/api/interviews/resumes');
+  if (!res.ok) throw new Error(`Failed to get resumes: ${res.status}`);
+  return res.json();
+}
+
+export async function saveCVMetadata(sessionId: string, metadata: {
+  job_title?: string;
+  job_description?: string;
+  ats_score?: number;
+  matched_keywords?: string[];
+  missing_keywords?: string[];
+}) {
+  const res = await authFetch(`/api/interviews/${sessionId}/cv-metadata`, {
+    method: 'PATCH',
+    body: JSON.stringify(metadata),
+  });
+  if (!res.ok) throw new Error(`Failed to save CV metadata: ${res.status}`);
+  return res.json();
+}
+
 export async function getCVPresignedUrl(sessionId: string): Promise<{ url: string; filename: string }> {
   const res = await authFetch(`/api/interviews/${sessionId}/cv-url`);
   if (!res.ok) throw new Error(`Failed to get CV URL: ${res.status}`);

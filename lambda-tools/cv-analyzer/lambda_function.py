@@ -18,7 +18,7 @@ s3_client = boto3.client('s3')
 
 
 def get_bedrock_client():
-    """Create Bedrock Runtime client using HCL/Textract account credentials."""
+    """Create Bedrock Runtime client using Textract account credentials."""
     key_id = os.environ.get('BEDROCK_AWS_ACCESS_KEY_ID', '')
     secret = os.environ.get('BEDROCK_AWS_SECRET_ACCESS_KEY', '')
     region = os.environ.get('BEDROCK_AWS_REGION', 'us-east-1')

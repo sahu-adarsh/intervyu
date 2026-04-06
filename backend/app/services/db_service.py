@@ -486,6 +486,79 @@ async def get_cv_analysis(session_id: str) -> Optional[dict]:
     }
 
 
+async def get_user_cv_analyses(user_id: str) -> list:
+    """List all CV analyses for a user, newest first."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                ca.session_id::text,
+                ca.skills,
+                ca.structured_data,
+                cd.filename,
+                COALESCE(cd.created_at, ca.created_at) AS uploaded_at
+            FROM cv_analysis ca
+            JOIN interview_sessions s ON s.id = ca.session_id
+            LEFT JOIN cv_documents cd ON cd.session_id = ca.session_id
+            WHERE s.user_id = $1::uuid
+            ORDER BY COALESCE(cd.created_at, ca.created_at) DESC
+            """,
+            user_id,
+        )
+    result = []
+    for row in rows:
+        skills = json.loads(row["skills"]) if row.get("skills") else {}
+        structured = json.loads(row["structured_data"]) if row.get("structured_data") else {}
+        # Extract job metadata stored under _job* keys, leave rest as analysis
+        job_metadata = {
+            "job_title": skills.pop("_jobTitle", None),
+            "job_description": skills.pop("_jobDescription", None),
+            "ats_score": skills.pop("_atsScore", None),
+            "matched_keywords": skills.pop("_matchedKeywords", None),
+            "missing_keywords": skills.pop("_missingKeywords", None),
+        }
+        result.append({
+            "session_id": row["session_id"],
+            "filename": row.get("filename") or "",
+            "uploaded_at": row["uploaded_at"].isoformat() if row.get("uploaded_at") else None,
+            "analysis": skills,
+            "corrections": structured,
+            **job_metadata,
+        })
+    return result
+
+
+async def update_cv_job_metadata(
+    session_id: str,
+    job_title: Optional[str],
+    job_description: Optional[str],
+    ats_score: Optional[int],
+    matched_keywords: Optional[list],
+    missing_keywords: Optional[list],
+) -> None:
+    """Merge job metadata into the cv_analysis skills JSONB column."""
+    pool = await get_pool()
+    metadata = {
+        "_jobTitle": job_title,
+        "_jobDescription": job_description,
+        "_atsScore": ats_score,
+        "_matchedKeywords": matched_keywords or [],
+        "_missingKeywords": missing_keywords or [],
+    }
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE cv_analysis
+            SET skills = skills || $2::jsonb,
+                updated_at = NOW()
+            WHERE session_id = $1::uuid
+            """,
+            session_id,
+            json.dumps(metadata),
+        )
+
+
 # ---------------------------------------------------------------------------
 # ANALYTICS OPERATIONS  (replace S3 full-scan with targeted SQL)
 # ---------------------------------------------------------------------------

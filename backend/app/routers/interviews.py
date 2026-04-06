@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile, File, Request
 from fastapi.responses import JSONResponse
 from app.limiter import limiter
 from app.models.session import TranscriptResponse, TranscriptMessage, EndSessionResponse
@@ -273,6 +273,44 @@ async def get_cv_presigned_url(
         raise
     except Exception as e:
         logger.error(f"CV presigned URL error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/resumes", include_in_schema=True)
+async def list_user_resumes(
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """List all CV analyses for the authenticated user."""
+    try:
+        resumes = await db_service.get_user_cv_analyses(current_user.user_id)
+        return JSONResponse(content={"success": True, "resumes": resumes})
+    except Exception as e:
+        logger.error(f"List resumes error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/{session_id}/cv-metadata")
+async def save_cv_metadata(
+    session_id: str,
+    body: dict = Body(...),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Persist job metadata (title, description, ATS score, keywords) for a CV analysis."""
+    try:
+        await _verify_session_owner(session_id, current_user.user_id)
+        await db_service.update_cv_job_metadata(
+            session_id=session_id,
+            job_title=body.get("job_title"),
+            job_description=body.get("job_description"),
+            ats_score=body.get("ats_score"),
+            matched_keywords=body.get("matched_keywords"),
+            missing_keywords=body.get("missing_keywords"),
+        )
+        return JSONResponse(content={"success": True})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"CV metadata save error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
