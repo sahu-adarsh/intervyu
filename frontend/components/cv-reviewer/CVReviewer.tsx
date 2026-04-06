@@ -6,7 +6,7 @@ import { getCVPresignedUrl } from '@/lib/api';
 import { CVAnalysis, CVCorrections, CheckerID, CheckerResult } from './types';
 import AtsScorePanel from './AtsScorePanel';
 import CheckerSidebar from './CheckerSidebar';
-import { FileText, BarChart2 } from 'lucide-react';
+import { FileText, BarChart2, ZoomIn, ZoomOut } from 'lucide-react';
 
 const PDFViewer = dynamic(() => import('./PDFViewer'), { ssr: false });
 
@@ -17,7 +17,6 @@ interface CVReviewerProps {
   atsScore: number;
   matchedKeywords?: string[];
   missingKeywords?: string[];
-  /** If provided (fresh upload), used directly instead of fetching from backend */
   localPdfFile?: File | null;
 }
 
@@ -34,25 +33,29 @@ export default function CVReviewer({
   const [mimeType, setMimeType] = useState<string | undefined>(undefined);
   const [activeChecker, setActiveChecker] = useState<CheckerID | null>(null);
   const [highlightTexts, setHighlightTexts] = useState<string[]>([]);
-  // Mobile tab state
+  const [pdfScale, setPdfScale] = useState(1);
   const [mobileTab, setMobileTab] = useState<'cv' | 'analysis'>('analysis');
 
-  // If a local File was passed (fresh upload), create an object URL
+  // Unified PDF loading: localPdfFile takes priority, else fetch presigned URL
   useEffect(() => {
+    setActiveChecker(null);
+    setHighlightTexts([]);
+    setPdfUrl(null);
+    setMimeType(undefined);
+
     if (localPdfFile) {
       const url = URL.createObjectURL(localPdfFile);
       setPdfUrl(url);
       setMimeType(localPdfFile.type);
       return () => URL.revokeObjectURL(url);
     }
-  }, [localPdfFile]);
 
-  // Otherwise fetch a pre-signed URL from the backend
-  useEffect(() => {
-    if (localPdfFile || !sessionId) return;
+    if (!sessionId) return;
+    let cancelled = false;
     getCVPresignedUrl(sessionId)
-      .then(({ url }) => setPdfUrl(url))
-      .catch(() => {/* PDF unavailable for old entries — graceful degradation */});
+      .then(({ url }) => { if (!cancelled) setPdfUrl(url); })
+      .catch(() => { /* PDF unavailable — graceful degradation */ });
+    return () => { cancelled = true; };
   }, [sessionId, localPdfFile]);
 
   const handleCheckerSelect = useCallback(
@@ -60,6 +63,7 @@ export default function CVReviewer({
       setActiveChecker(id);
       const checker: CheckerResult | undefined = corrections?.checkers?.find((c) => c.id === id);
       setHighlightTexts(checker?.needsFix.map((i) => i.text) ?? []);
+      setMobileTab('cv'); // switch to PDF view to see highlights on mobile
     },
     [corrections]
   );
@@ -69,51 +73,114 @@ export default function CVReviewer({
     setHighlightTexts([]);
   }, []);
 
+  const totalIssues = corrections?.checkers?.reduce((s, c) => s + c.needsFix.length, 0) ?? 0;
+  const scoreColor = atsScore >= 80 ? 'text-emerald-400' : atsScore >= 60 ? 'text-violet-400' : 'text-amber-400';
+  const scoreDot = atsScore >= 80 ? 'bg-emerald-400' : atsScore >= 60 ? 'bg-violet-400' : 'bg-amber-400';
+
   return (
-    <div className="flex h-full w-full bg-slate-900 overflow-hidden">
+    <div className="flex h-full w-full flex-col bg-slate-950 overflow-hidden">
+      {/* ── Top info strip ── */}
+      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-800 bg-slate-900/80 flex-shrink-0">
+        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${scoreDot} shadow-sm`}
+          style={{ boxShadow: `0 0 6px currentColor` }} />
+        <div className="flex-1 min-w-0">
+          {analysis.candidateName && (
+            <p className="text-xs font-semibold text-slate-200 truncate">{analysis.candidateName}</p>
+          )}
+          {analysis.totalYearsExperience != null && (
+            <p className="text-[10px] text-slate-500">{analysis.totalYearsExperience} yrs experience · {analysis.industry ?? 'Software Engineering'}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <span className={`text-xs font-bold ${scoreColor}`}>{atsScore}/100 ATS</span>
+          {corrections?.checkers?.length > 0 && (
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+              totalIssues === 0
+                ? 'bg-emerald-500/15 text-emerald-400'
+                : 'bg-amber-500/15 text-amber-400'
+            }`}>
+              {totalIssues === 0 ? 'No issues' : `${totalIssues} issue${totalIssues !== 1 ? 's' : ''}`}
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* ── Mobile tab bar ── */}
-      <div className="sm:hidden fixed bottom-0 left-0 right-0 z-10 flex border-t border-slate-700 bg-slate-900">
+      <div className="sm:hidden flex border-b border-slate-800 bg-slate-900 flex-shrink-0">
         <button
-          className={`flex-1 py-3 flex flex-col items-center gap-0.5 text-xs transition-colors ${mobileTab === 'cv' ? 'text-violet-400' : 'text-slate-500'}`}
+          className={`flex-1 py-2.5 flex items-center justify-center gap-1.5 text-xs font-medium transition-colors border-b-2 ${
+            mobileTab === 'cv'
+              ? 'text-violet-400 border-violet-400'
+              : 'text-slate-500 border-transparent'
+          }`}
           onClick={() => setMobileTab('cv')}
         >
-          <FileText size={16} />
-          <span>CV</span>
+          <FileText size={14} /> CV Preview
         </button>
         <button
-          className={`flex-1 py-3 flex flex-col items-center gap-0.5 text-xs transition-colors ${mobileTab === 'analysis' ? 'text-violet-400' : 'text-slate-500'}`}
+          className={`flex-1 py-2.5 flex items-center justify-center gap-1.5 text-xs font-medium transition-colors border-b-2 ${
+            mobileTab === 'analysis'
+              ? 'text-violet-400 border-violet-400'
+              : 'text-slate-500 border-transparent'
+          }`}
           onClick={() => setMobileTab('analysis')}
         >
-          <BarChart2 size={16} />
-          <span>Analysis</span>
+          <BarChart2 size={14} /> Analysis
         </button>
       </div>
 
-      {/* ── Left: PDF Viewer ── */}
-      <div className={`${mobileTab === 'cv' ? 'flex' : 'hidden'} sm:flex flex-col w-full sm:w-[55%] border-r border-slate-700/50 overflow-hidden`}>
-        <PDFViewer
-          pdfUrl={pdfUrl}
-          highlightTexts={highlightTexts}
-          mimeType={mimeType ?? analysis.file_type}
-          rawText={undefined}
-        />
-      </div>
+      {/* ── Main body ── */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left: PDF Panel */}
+        <div className={`${mobileTab === 'cv' ? 'flex' : 'hidden'} sm:flex flex-col w-full sm:w-[52%] border-r border-slate-800 bg-slate-950 overflow-hidden`}>
+          {/* PDF toolbar */}
+          <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800 bg-slate-900/50 flex-shrink-0">
+            <div className="flex items-center gap-1.5">
+              <FileText size={12} className="text-slate-500" />
+              <span className="text-[10px] text-slate-500">
+                {activeChecker ? (
+                  <span className="text-amber-400">Highlighting: {activeChecker.replace(/_/g, ' ')}</span>
+                ) : (
+                  'Click a checker to highlight issues'
+                )}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPdfScale(s => Math.max(0.6, s - 0.1))}
+                className="p-1 rounded hover:bg-slate-700 text-slate-500 hover:text-slate-300 transition-colors"
+              ><ZoomOut size={12} /></button>
+              <span className="text-[10px] text-slate-600 w-8 text-center">{Math.round(pdfScale * 100)}%</span>
+              <button
+                onClick={() => setPdfScale(s => Math.min(1.5, s + 0.1))}
+                className="p-1 rounded hover:bg-slate-700 text-slate-500 hover:text-slate-300 transition-colors"
+              ><ZoomIn size={12} /></button>
+            </div>
+          </div>
+          <PDFViewer
+            pdfUrl={pdfUrl}
+            highlightTexts={highlightTexts}
+            mimeType={mimeType ?? analysis.file_type}
+            scale={pdfScale}
+          />
+        </div>
 
-      {/* ── Right: Analysis Panel ── */}
-      <div className={`${mobileTab === 'analysis' ? 'flex' : 'hidden'} sm:flex flex-col w-full sm:w-[45%] overflow-hidden`}>
-        <div className="flex-1 overflow-auto p-4 space-y-4 pb-16 sm:pb-4">
-          <AtsScorePanel
-            atsScore={atsScore}
-            analysis={analysis}
-            matchedKeywords={matchedKeywords}
-            missingKeywords={missingKeywords}
-          />
-          <CheckerSidebar
-            corrections={corrections}
-            activeChecker={activeChecker}
-            onSelect={handleCheckerSelect}
-            onDeselect={handleCheckerDeselect}
-          />
+        {/* Right: Analysis Panel */}
+        <div className={`${mobileTab === 'analysis' ? 'flex' : 'hidden'} sm:flex flex-col w-full sm:w-[48%] bg-slate-900/30 overflow-hidden`}>
+          <div className="flex-1 overflow-auto p-4 space-y-4">
+            <AtsScorePanel
+              atsScore={atsScore}
+              analysis={analysis}
+              matchedKeywords={matchedKeywords}
+              missingKeywords={missingKeywords}
+            />
+            <CheckerSidebar
+              corrections={corrections}
+              activeChecker={activeChecker}
+              onSelect={handleCheckerSelect}
+              onDeselect={handleCheckerDeselect}
+            />
+          </div>
         </div>
       </div>
     </div>
