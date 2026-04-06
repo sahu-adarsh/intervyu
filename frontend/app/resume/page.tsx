@@ -4,13 +4,14 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import {
   FileText, Upload, X, Sparkles, AlertCircle, CheckCircle2,
-  Target, Zap, TrendingUp,
+  Target, Zap, TrendingUp, ArrowLeft, ExternalLink,
 } from 'lucide-react';
 import DashboardLayout from '@/components/DashboardLayout';
-import { createSession, uploadCV } from '@/lib/api';
+import { createSession, uploadCV, getCVPresignedUrl } from '@/lib/api';
 import type { CVCorrections } from '@/components/cv-reviewer/types';
 
 const CVReviewer = dynamic(() => import('@/components/cv-reviewer/CVReviewer'), { ssr: false });
+const PDFThumbnail = dynamic(() => import('@/components/cv-reviewer/PDFThumbnail'), { ssr: false });
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -58,7 +59,6 @@ function computeAtsScore(analysis: CVAnalysis, jdText?: string): {
 } {
   let score = 0;
   const allSkills = [...(analysis.skills ?? []), ...(analysis.technologies ?? [])];
-
   const expLen = analysis.experience?.length ?? 0;
   score += Math.min(30, expLen * 8 + ((analysis.totalYearsExperience ?? 0) > 3 ? 6 : 0));
   score += analysis.education?.length ? 20 : 0;
@@ -67,7 +67,6 @@ function computeAtsScore(analysis: CVAnalysis, jdText?: string): {
 
   let matched: string[] = [];
   let missing: string[] = [];
-
   if (jdText && jdText.trim().length > 20) {
     const stopWords = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'are', 'you', 'will', 'have', 'from', 'our', 'your', 'their', 'into', 'must', 'able', 'also', 'been', 'more', 'new', 'can', 'not', 'its', 'any', 'all', 'who', 'was', 'had']);
     const jdKeywords = Array.from(new Set(
@@ -78,14 +77,134 @@ function computeAtsScore(analysis: CVAnalysis, jdText?: string): {
     missing = jdKeywords.filter(kw => !cvLower.some(s => s.includes(kw) || kw.includes(s))).slice(0, 10);
     score = Math.min(100, score + Math.round((matched.length / Math.min(jdKeywords.length, 20)) * 15));
   }
-
   return { score: Math.min(100, Math.round(score)), matched, missing };
+}
+
+// ─── Resume Card (for grid view) ─────────────────────────────────────────────
+
+function ResumeCard({ resume, onView }: { resume: StoredResume; onView: () => void }) {
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const score = resume.atsScore ?? 0;
+  const scoreColor = score >= 80 ? '#10b981' : score >= 60 ? '#8b5cf6' : '#f59e0b';
+  const scoreBg = score >= 80 ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+    : score >= 60 ? 'bg-violet-500/15 text-violet-400 border-violet-500/30'
+    : 'bg-amber-500/15 text-amber-400 border-amber-500/30';
+
+  useEffect(() => {
+    if (!resume.sessionId) return;
+    getCVPresignedUrl(resume.sessionId)
+      .then(({ url }) => setPdfUrl(url))
+      .catch(() => {});
+  }, [resume.sessionId]);
+
+  return (
+    <div className="group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-slate-100 hover:-translate-y-1 flex flex-col">
+      {/* Card header */}
+      <div className="px-4 pt-4 pb-3 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-slate-800 truncate" title={resume.filename}>
+            {resume.filename}
+          </p>
+          <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
+            <span>📅</span> {formatDate(resume.uploadedAt)}
+            {resume.jobTitle && <span className="text-slate-300 mx-1">·</span>}
+            {resume.jobTitle && <span className="truncate max-w-[120px]">{resume.jobTitle}</span>}
+          </p>
+        </div>
+        <span className={`shrink-0 text-xs font-bold px-2.5 py-1 rounded-full border ${scoreBg}`}>
+          {score}%
+        </span>
+      </div>
+
+      {/* PDF Thumbnail */}
+      <div className="mx-4 mb-3 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 flex items-start justify-center"
+        style={{ minHeight: 180 }}>
+        {pdfUrl ? (
+          <PDFThumbnail url={pdfUrl} width={220} />
+        ) : (
+          <div className="flex flex-col items-center justify-center h-[180px] w-full gap-2">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+              style={{ background: `linear-gradient(135deg, ${scoreColor}22, ${scoreColor}11)` }}>
+              <FileText size={18} style={{ color: scoreColor }} />
+            </div>
+            <p className="text-xs text-slate-400">
+              {resume.sessionId ? 'Loading preview...' : 'No preview available'}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Metrics row */}
+      <div className="px-4 pb-3 flex items-center gap-3">
+        {[
+          { label: 'Skills', value: Math.min(100, (resume.analysis.skills?.length ?? 0) * 4) },
+          { label: 'Exp', value: Math.min(100, (resume.analysis.experience?.length ?? 0) * 25) },
+          { label: 'Edu', value: resume.analysis.education?.length ? 100 : 0 },
+        ].map(m => (
+          <div key={m.label} className="flex-1">
+            <p className="text-[9px] text-slate-400 mb-1">{m.label}</p>
+            <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
+              <div className="h-full rounded-full" style={{ width: `${m.value}%`, backgroundColor: scoreColor }} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* View Analysis button */}
+      <div className="px-4 pb-4 mt-auto">
+        <button
+          onClick={onView}
+          className="w-full py-2.5 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2 transition-all duration-150 hover:opacity-90 active:scale-95"
+          style={{ background: 'linear-gradient(135deg, #7c3aed, #4f46e5)' }}
+        >
+          <ExternalLink size={14} />
+          View Analysis
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Past Resumes Grid ────────────────────────────────────────────────────────
+
+function PastResumesGrid({ resumes, onView, onNew }: {
+  resumes: StoredResume[];
+  onView: (r: StoredResume) => void;
+  onNew: () => void;
+}) {
+  return (
+    <div className="flex-1 overflow-auto bg-white">
+      <div className="max-w-5xl mx-auto px-6 py-8">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">Your Past Resumes</h2>
+            <p className="text-sm text-slate-400 mt-0.5">Track and review your analyzed resumes</p>
+          </div>
+          <button
+            onClick={onNew}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-md shadow-violet-500/20 hover:opacity-90 transition-opacity"
+            style={{ background: 'linear-gradient(135deg, #7c3aed, #4f46e5)' }}
+          >
+            <FileText size={14} />
+            Analyze New CV
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {resumes.map((r) => (
+            <ResumeCard key={r.id} resume={r} onView={() => onView(r)} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── Upload Phase ─────────────────────────────────────────────────────────────
 
-function UploadPhase({ onComplete }: {
+function UploadPhase({ onComplete, onBack }: {
   onComplete: (resume: StoredResume, file: File) => void;
+  onBack?: () => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -120,9 +239,7 @@ function UploadPhase({ onComplete }: {
         candidate_name: localStorage.getItem('intervyu_last_name') || 'Resume Analysis',
       });
 
-      // Simulate stage progress — Lambda takes ~20s with both Claude calls
       const stageTimer = setTimeout(() => setUploadStage('corrections'), 8000);
-
       const data = await uploadCV(session_id, file);
       clearTimeout(stageTimer);
 
@@ -158,14 +275,12 @@ function UploadPhase({ onComplete }: {
     }
   };
 
-  const uploadLabel = uploadStage === 'corrections'
-    ? 'Analysing corrections...'
-    : uploadStage === 'parsing'
-      ? 'Parsing your resume...'
-      : 'Analysing your resume...';
+  const uploadLabel = uploadStage === 'corrections' ? 'Analysing corrections...'
+    : uploadStage === 'parsing' ? 'Parsing your resume...'
+    : 'Analysing your resume...';
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="flex-1 overflow-y-auto bg-slate-950">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
         <div className="text-center mb-8 sm:mb-10">
           <div className="inline-flex items-center gap-2 bg-violet-500/10 border border-violet-500/20 rounded-full px-4 py-1.5 mb-4">
@@ -185,7 +300,7 @@ function UploadPhase({ onComplete }: {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-6">
           {/* CV Upload */}
-          <div className="space-y-2">
+          <div>
             <div className="flex items-center gap-2 mb-3">
               <div className="w-6 h-6 rounded-md bg-violet-500/20 flex items-center justify-center">
                 <FileText size={13} className="text-violet-400" />
@@ -199,12 +314,12 @@ function UploadPhase({ onComplete }: {
               onDragLeave={() => setIsDragOver(false)}
               onDrop={handleDrop}
               onClick={() => !file && fileInputRef.current?.click()}
-              className={`relative border-2 border-dashed rounded-2xl transition-all duration-200 flex flex-col items-center justify-center text-center min-h-[180px] ${
+              className={`relative rounded-2xl transition-all duration-200 flex flex-col items-center justify-center text-center min-h-[180px] ${
                 file
-                  ? 'border-emerald-500/40 bg-emerald-500/5 cursor-default p-5'
+                  ? 'bg-emerald-500/5 border border-emerald-500/30 cursor-default p-5'
                   : isDragOver
-                    ? 'border-violet-500 bg-violet-500/10 cursor-copy p-8'
-                    : 'border-slate-700 hover:border-violet-500/50 hover:bg-slate-800/20 cursor-pointer p-8'
+                    ? 'bg-violet-500/10 border-2 border-violet-500 cursor-copy p-8'
+                    : 'bg-slate-800/50 border-2 border-slate-700/60 hover:border-violet-500/40 hover:bg-slate-800/70 cursor-pointer p-8'
               }`}
             >
               <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx,.txt" className="hidden"
@@ -237,13 +352,13 @@ function UploadPhase({ onComplete }: {
           </div>
 
           {/* Job Description */}
-          <div className="space-y-2">
+          <div>
             <div className="flex items-center gap-2 mb-3">
               <div className="w-6 h-6 rounded-md bg-emerald-500/20 flex items-center justify-center">
                 <Target size={13} className="text-emerald-400" />
               </div>
               <span className="text-sm font-semibold text-white">Target Job</span>
-              <span className="text-xs text-slate-500">(optional — unlocks keyword match)</span>
+              <span className="text-xs text-slate-500">(optional)</span>
             </div>
 
             <input
@@ -257,15 +372,15 @@ function UploadPhase({ onComplete }: {
             <textarea
               value={jobDescription}
               onChange={(e) => setJobDescription(e.target.value)}
-              placeholder="Paste the job description here to see which keywords are present or missing in your resume..."
+              placeholder="Paste the job description here to see which keywords are present or missing..."
               rows={5}
               className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none transition-colors leading-relaxed"
             />
 
             {jobDescription.trim().length > 0 && (
-              <p className="text-xs text-emerald-400 flex items-center gap-1.5">
+              <p className="text-xs text-emerald-400 flex items-center gap-1.5 mt-1.5">
                 <Zap size={11} />
-                Keyword matching enabled — {jobDescription.trim().split(/\s+/).length} words detected
+                Keyword matching enabled
               </p>
             )}
           </div>
@@ -281,7 +396,8 @@ function UploadPhase({ onComplete }: {
         <button
           onClick={handleAnalyse}
           disabled={!file || uploading}
-          className="w-full py-3.5 rounded-2xl text-sm font-bold transition-all duration-150 flex items-center justify-center gap-2.5 disabled:opacity-40 disabled:cursor-not-allowed bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white shadow-xl shadow-violet-500/25"
+          className="w-full py-3.5 rounded-2xl text-sm font-bold transition-all duration-150 flex items-center justify-center gap-2.5 disabled:opacity-40 disabled:cursor-not-allowed text-white shadow-xl shadow-violet-500/25"
+          style={{ background: 'linear-gradient(135deg, #7c3aed, #4f46e5)' }}
         >
           {uploading ? (
             <>
@@ -298,7 +414,7 @@ function UploadPhase({ onComplete }: {
         </button>
 
         <p className="text-xs text-slate-600 text-center mt-3">
-          Powered by AWS Textract + Claude AI · Analysis takes ~20s
+          Powered by AWS Textract + Claude AI · ~20s
         </p>
       </div>
     </div>
@@ -307,20 +423,21 @@ function UploadPhase({ onComplete }: {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+type View = 'grid' | 'upload' | 'review';
+
 export default function ResumePage() {
   const [resumes, setResumes] = useState<StoredResume[]>([]);
   const [activeResume, setActiveResume] = useState<StoredResume | null>(null);
   const [activeFile, setActiveFile] = useState<File | null>(null);
-  const [showUpload, setShowUpload] = useState(false);
+  const [view, setView] = useState<View>('grid');
 
   useEffect(() => {
     try {
       const stored: StoredResume[] = JSON.parse(localStorage.getItem('intervyu_resumes') || '[]');
       setResumes(stored);
-      if (stored.length > 0) setActiveResume(stored[0]);
-      else setShowUpload(true);
+      setView(stored.length > 0 ? 'grid' : 'upload');
     } catch {
-      setShowUpload(true);
+      setView('upload');
     }
   }, []);
 
@@ -328,33 +445,56 @@ export default function ResumePage() {
     setResumes(prev => [resume, ...prev]);
     setActiveResume(resume);
     setActiveFile(file);
-    setShowUpload(false);
+    setView('review');
   };
 
-  const handleSelectResume = (r: StoredResume) => {
+  const handleViewResume = (r: StoredResume) => {
     setActiveResume(r);
-    setActiveFile(null); // past resumes load PDF from backend
-    setShowUpload(false);
+    setActiveFile(null);
+    setView('review');
   };
 
-  const isListView = resumes.length > 0 && !showUpload;
+  const handleBack = () => {
+    setView(resumes.length > 0 ? 'grid' : 'upload');
+    setActiveResume(null);
+    setActiveFile(null);
+  };
 
   return (
     <DashboardLayout>
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Header */}
-        <div className="px-4 sm:px-6 pt-5 sm:pt-6 pb-4 border-b border-slate-800 flex items-center justify-between flex-shrink-0">
-          <div>
-            <h1 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
-              <TrendingUp size={18} className="text-violet-400" />
-              Resume Analyser
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-400 mt-0.5">ATS scoring, keyword matching &amp; AI feedback</p>
+        <div className={`px-4 sm:px-6 pt-5 sm:pt-6 pb-4 border-b flex items-center justify-between flex-shrink-0 ${
+          view === 'grid' ? 'border-slate-200 bg-white' : 'border-slate-800 bg-slate-950'
+        }`}>
+          <div className="flex items-center gap-3">
+            {view === 'review' && (
+              <button
+                onClick={handleBack}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors -ml-1"
+              >
+                <ArrowLeft size={18} />
+              </button>
+            )}
+            <div>
+              <h1 className={`text-lg sm:text-xl font-bold flex items-center gap-2 ${view === 'grid' ? 'text-slate-900' : 'text-white'}`}>
+                <TrendingUp size={18} className="text-violet-500" />
+                Resume Analyser
+              </h1>
+              <p className={`text-xs sm:text-sm mt-0.5 ${view === 'grid' ? 'text-slate-400' : 'text-slate-400'}`}>
+                {view === 'review' && activeResume
+                  ? activeResume.filename
+                  : 'ATS scoring, keyword matching & AI feedback'
+                }
+              </p>
+            </div>
           </div>
-          {isListView && (
+
+          {view !== 'review' && (
             <button
-              onClick={() => { setShowUpload(true); setActiveFile(null); }}
-              className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white text-xs sm:text-sm font-semibold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl transition-colors shadow-lg shadow-violet-500/20"
+              onClick={() => setView('upload')}
+              className="flex items-center gap-2 text-white text-xs sm:text-sm font-semibold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl transition-opacity hover:opacity-90 shadow-md shadow-violet-500/20"
+              style={{ background: 'linear-gradient(135deg, #7c3aed, #4f46e5)' }}
             >
               <FileText size={14} />
               <span className="hidden sm:inline">Analyse New CV</span>
@@ -364,69 +504,32 @@ export default function ResumePage() {
         </div>
 
         {/* Body */}
-        {!isListView ? (
-          <UploadPhase onComplete={handleComplete} />
-        ) : (
-          <div className="flex flex-1 overflow-hidden">
-            {/* Left sidebar — past resumes */}
-            <div className="w-56 sm:w-64 flex-shrink-0 border-r border-slate-800 overflow-y-auto p-3 sm:p-4">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest px-2 mb-3">
-                {resumes.length} {resumes.length === 1 ? 'Analysis' : 'Analyses'}
-              </p>
-              <div className="space-y-1.5">
-                {resumes.map((r) => (
-                  <button
-                    key={r.id}
-                    onClick={() => handleSelectResume(r)}
-                    className={`w-full text-left p-3 rounded-xl transition-all border ${
-                      activeResume?.id === r.id && !showUpload
-                        ? 'bg-violet-600/10 border-violet-500/30'
-                        : 'border-transparent hover:bg-slate-800/60'
-                    }`}
-                  >
-                    <div className="flex items-start gap-2.5">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${
-                        activeResume?.id === r.id && !showUpload ? 'bg-violet-500/20' : 'bg-slate-800'
-                      }`}>
-                        <FileText size={13} className={activeResume?.id === r.id && !showUpload ? 'text-violet-400' : 'text-slate-500'} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium text-slate-200 truncate">{r.filename}</p>
-                        <p className="text-xs text-slate-500">{formatDate(r.uploadedAt)}</p>
-                        {r.atsScore !== undefined && (
-                          <div className="flex items-center gap-1 mt-1">
-                            <div className="h-1 rounded-full flex-1 bg-slate-700 overflow-hidden">
-                              <div
-                                className={`h-full rounded-full ${r.atsScore >= 80 ? 'bg-emerald-500' : r.atsScore >= 60 ? 'bg-violet-500' : 'bg-amber-500'}`}
-                                style={{ width: `${r.atsScore}%` }}
-                              />
-                            </div>
-                            <span className={`text-[10px] font-bold ${r.atsScore >= 80 ? 'text-emerald-400' : r.atsScore >= 60 ? 'text-violet-400' : 'text-amber-400'}`}>
-                              {r.atsScore}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
+        {view === 'grid' && (
+          <PastResumesGrid
+            resumes={resumes}
+            onView={handleViewResume}
+            onNew={() => setView('upload')}
+          />
+        )}
 
-            {/* Right — split-panel CV reviewer */}
-            <div className="flex-1 overflow-hidden">
-              {activeResume && (
-                <CVReviewer
-                  sessionId={activeResume.sessionId ?? ''}
-                  analysis={activeResume.analysis}
-                  corrections={activeResume.corrections ?? null}
-                  atsScore={activeResume.atsScore ?? 0}
-                  matchedKeywords={activeResume.matchedKeywords}
-                  missingKeywords={activeResume.missingKeywords}
-                  localPdfFile={activeFile}
-                />
-              )}
-            </div>
+        {view === 'upload' && (
+          <UploadPhase
+            onComplete={handleComplete}
+            onBack={resumes.length > 0 ? handleBack : undefined}
+          />
+        )}
+
+        {view === 'review' && activeResume && (
+          <div className="flex-1 overflow-hidden">
+            <CVReviewer
+              sessionId={activeResume.sessionId ?? ''}
+              analysis={activeResume.analysis}
+              corrections={activeResume.corrections ?? null}
+              atsScore={activeResume.atsScore ?? 0}
+              matchedKeywords={activeResume.matchedKeywords}
+              missingKeywords={activeResume.missingKeywords}
+              localPdfFile={activeFile}
+            />
           </div>
         )}
       </div>

@@ -44,9 +44,9 @@ function CheckerCard({ checker, onClick, index }: { checker: CheckerResult; onCl
   return (
     <button
       onClick={onClick}
-      className="group relative flex flex-col items-center gap-2.5 p-3 rounded-2xl border transition-all duration-200 text-center
-        border-slate-700/60 bg-slate-800/30 hover:bg-slate-800/70 hover:border-violet-500/40
-        hover:shadow-lg hover:shadow-violet-500/5 hover:-translate-y-0.5"
+      className="group relative flex flex-col items-center gap-2.5 p-3 rounded-2xl transition-all duration-200 text-center
+        bg-slate-800/40 hover:bg-slate-700/50
+        hover:shadow-md hover:shadow-black/30 hover:-translate-y-0.5"
       style={{ animationDelay: `${index * 40}ms` }}
     >
       {/* Icon */}
@@ -123,11 +123,9 @@ export default function CheckerSidebar({ corrections, activeChecker, onSelect, o
       </div>
 
       {!hasData && (
-        <div className="mb-3 px-3 py-2.5 rounded-xl bg-slate-800/40 border border-dashed border-slate-700/60">
-          <p className="text-xs text-slate-500 text-center">
-            Upload a new CV to generate detailed corrections
-          </p>
-        </div>
+        <p className="text-xs text-slate-600 mb-3 italic text-center">
+          Upload a new CV to generate detailed corrections
+        </p>
       )}
 
       <div className="grid grid-cols-3 gap-2">
