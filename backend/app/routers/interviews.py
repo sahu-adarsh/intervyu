@@ -109,17 +109,15 @@ async def end_interview(
         session_data = await _verify_session_owner(session_id, current_user.user_id)
         ended_at = datetime.now(timezone.utc)
 
-        # Mark as processing immediately so the frontend can start polling
-        await db_service.update_session_status(session_id, "processing", ended_at)
-
         # Fire and forget — Lambda call runs in a thread, doesn't block the response
+        # Session stays "active" while generating; background task sets it to "completed" when done
         asyncio.create_task(
             _generate_report_background(session_id, current_user.user_id, session_data, ended_at)
         )
 
         return EndSessionResponse(
             session_id=session_id,
-            status="processing",
+            status="active",
             report_url=None,
         )
 
@@ -244,11 +242,8 @@ async def get_performance_report(
         session_data = await _verify_session_owner(session_id, current_user.user_id)
 
         status = session_data.get("status")
-        if status == "processing":
-            return JSONResponse(status_code=202, content={"status": "processing"})
-
         if status != "completed":
-            raise HTTPException(status_code=400, detail="Interview not completed yet")
+            return JSONResponse(status_code=202, content={"status": "processing"})
 
         report = await db_service.get_performance_report(session_id)
 

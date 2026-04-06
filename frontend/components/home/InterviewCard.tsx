@@ -22,15 +22,15 @@ interface InterviewCardProps extends InterviewCardConfig {
 const BRAND_MAP: Record<string, { bg: string; logo: React.ReactNode }> = {
   'google-sde':    {
     bg: 'bg-white',
-    logo: <Image src="/Google Logo.png" alt="Google" width={80} height={40} className="object-contain" />,
+    logo: <Image src="/Google_Logo_1.png" alt="Google" width={80} height={40} className="object-contain" />,
   },
   'amazon-sde':    {
     bg: 'bg-[#232F3E]',
-    logo: <Image src="/Amazon S3 NRF 2019.png" alt="Amazon" width={80} height={40} className="object-contain" />,
+    logo: <Image src="/Amazon_Logo_1.png" alt="Amazon" width={80} height={40} className="object-contain" />,
   },
   'microsoft-sde': {
     bg: 'bg-[#1E1E1E]',
-    logo: <Image src="/Microsoft Logo.png" alt="Microsoft" width={80} height={40} className="object-contain" />,
+    logo: <Image src="/Microsoft_Logo_1.png" alt="Microsoft" width={80} height={40} className="object-contain" />,
   },
   'aws-sa':        {
     bg: 'bg-[#232F3E]',
