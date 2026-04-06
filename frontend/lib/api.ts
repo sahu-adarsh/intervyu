@@ -95,6 +95,12 @@ export async function getCVAnalysis(sessionId: string) {
   return res.json();
 }
 
+export async function getCVPresignedUrl(sessionId: string): Promise<{ url: string; filename: string }> {
+  const res = await authFetch(`/api/interviews/${sessionId}/cv-url`);
+  if (!res.ok) throw new Error(`Failed to get CV URL: ${res.status}`);
+  return res.json();
+}
+
 export async function getPerformanceReport(sessionId: string) {
   const res = await authFetch(`/api/interviews/${sessionId}/performance-report`);
   if (!res.ok) throw new Error(`Failed to get performance report: ${res.status}`);

@@ -7,7 +7,9 @@
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",
-    "copy-vad-assets": "cp node_modules/@ricky0123/vad-web/dist/vad.worklet.bundle.min.js public/ && cp node_modules/@ricky0123/vad-web/dist/silero_vad_v5.onnx public/ && cp node_modules/@ricky0123/vad-web/dist/silero_vad_legacy.onnx public/ && cp node_modules/onnxruntime-web/dist/ort-wasm-simd.wasm public/ && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm public/"
+    "copy-vad-assets": "cp node_modules/@ricky0123/vad-web/dist/vad.worklet.bundle.min.js public/ && cp node_modules/@ricky0123/vad-web/dist/silero_vad_v5.onnx public/ && cp node_modules/@ricky0123/vad-web/dist/silero_vad_legacy.onnx public/ && cp node_modules/onnxruntime-web/dist/ort-wasm-simd.wasm public/ && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm public/",
+    "copy-pdf-worker": "cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs public/pdf.worker.min.js",
+    "postinstall": "npm run copy-pdf-worker"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -21,6 +23,7 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-dropzone": "^14.3.8",
+    "react-pdf": "^10.4.1",
     "recharts": "^3.2.1"
   },
   "devDependencies": {

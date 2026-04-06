@@ -1,33 +1,39 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import {
   FileText, Upload, X, Sparkles, AlertCircle, CheckCircle2,
-  Briefcase, GraduationCap, Code2, User, RotateCcw, Target,
-  TrendingUp, Zap, ChevronRight, Circle,
+  Target, Zap, TrendingUp,
 } from 'lucide-react';
 import DashboardLayout from '@/components/DashboardLayout';
 import { createSession, uploadCV } from '@/lib/api';
+import type { CVCorrections } from '@/components/cv-reviewer/types';
+
+const CVReviewer = dynamic(() => import('@/components/cv-reviewer/CVReviewer'), { ssr: false });
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface CVAnalysis {
-  candidateName: string;
-  email: string;
-  phone: string;
-  skills: string[];
-  technologies: string[];
-  experience: Array<{ duration: string; context: string }>;
-  education: Array<{ degree: string; context: string }>;
-  totalYearsExperience: number;
-  summary: string;
+  candidateName?: string;
+  email?: string;
+  phone?: string;
+  skills?: string[];
+  technologies?: string[];
+  experience?: Array<{ duration: string; company?: string; role?: string; context: string }>;
+  education?: Array<{ degree: string; institution?: string; year?: string; context: string }>;
+  totalYearsExperience?: number;
+  summary?: string;
+  file_type?: string;
 }
 
 interface StoredResume {
   id: string;
+  sessionId?: string;
   filename: string;
   uploadedAt: string;
   analysis: CVAnalysis;
+  corrections?: CVCorrections;
   jobTitle?: string;
   jobDescription?: string;
   atsScore?: number;
@@ -47,144 +53,46 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-/** Compute a completeness-based ATS score from the analysis */
 function computeAtsScore(analysis: CVAnalysis, jdText?: string): {
-  score: number;
-  hardSkills: number;
-  softSkills: number;
-  experience: number;
-  education: number;
-  matched: string[];
-  missing: string[];
+  score: number; matched: string[]; missing: string[];
 } {
   let score = 0;
-  const allSkills = [...(analysis.skills || []), ...(analysis.technologies || [])];
+  const allSkills = [...(analysis.skills ?? []), ...(analysis.technologies ?? [])];
 
-  // Experience (30 pts)
-  const expLen = analysis.experience?.length || 0;
-  const expScore = Math.min(30, expLen * 8 + (analysis.totalYearsExperience > 3 ? 6 : 0));
-  score += expScore;
+  const expLen = analysis.experience?.length ?? 0;
+  score += Math.min(30, expLen * 8 + ((analysis.totalYearsExperience ?? 0) > 3 ? 6 : 0));
+  score += analysis.education?.length ? 20 : 0;
+  score += Math.min(30, allSkills.length * 2);
+  score += (analysis.candidateName ? 5 : 0) + (analysis.email ? 5 : 0) + (analysis.summary ? 10 : 0);
 
-  // Education (20 pts)
-  const eduScore = analysis.education?.length > 0 ? 20 : 0;
-  score += eduScore;
-
-  // Skills / hard (30 pts)
-  const skillScore = Math.min(30, allSkills.length * 2);
-  score += skillScore;
-
-  // Profile completeness (20 pts)
-  const profileScore =
-    (analysis.candidateName ? 5 : 0) +
-    (analysis.email ? 5 : 0) +
-    (analysis.summary ? 10 : 0);
-  score += profileScore;
-
-  // JD keyword matching — adjusts score up or down
   let matched: string[] = [];
   let missing: string[] = [];
 
   if (jdText && jdText.trim().length > 20) {
     const stopWords = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'are', 'you', 'will', 'have', 'from', 'our', 'your', 'their', 'into', 'must', 'able', 'also', 'been', 'more', 'new', 'can', 'not', 'its', 'any', 'all', 'who', 'was', 'had']);
     const jdKeywords = Array.from(new Set(
-      jdText.toLowerCase().match(/\b[a-z][a-z0-9+#.]{2,}\b/g) || []
+      jdText.toLowerCase().match(/\b[a-z][a-z0-9+#.]{2,}\b/g) ?? []
     )).filter(w => !stopWords.has(w) && w.length > 3);
-
     const cvLower = allSkills.map(s => s.toLowerCase());
-    matched = jdKeywords.filter(kw =>
-      cvLower.some(skill => skill.includes(kw) || kw.includes(skill))
-    ).slice(0, 12);
-    missing = jdKeywords.filter(kw =>
-      !cvLower.some(skill => skill.includes(kw) || kw.includes(skill))
-    ).slice(0, 10);
-
-    // Boost score by keyword match rate (up to +15)
-    const matchRate = jdKeywords.length > 0 ? matched.length / Math.min(jdKeywords.length, 20) : 0;
-    score = Math.min(100, score + Math.round(matchRate * 15));
+    matched = jdKeywords.filter(kw => cvLower.some(s => s.includes(kw) || kw.includes(s))).slice(0, 12);
+    missing = jdKeywords.filter(kw => !cvLower.some(s => s.includes(kw) || kw.includes(s))).slice(0, 10);
+    score = Math.min(100, score + Math.round((matched.length / Math.min(jdKeywords.length, 20)) * 15));
   }
 
-  return {
-    score: Math.min(100, Math.round(score)),
-    hardSkills: Math.min(100, Math.round((skillScore / 30) * 100)),
-    softSkills: Math.min(100, Math.round((profileScore / 20) * 100)),
-    experience: Math.min(100, Math.round((expScore / 30) * 100)),
-    education: Math.min(100, Math.round((eduScore / 20) * 100)),
-    matched,
-    missing,
-  };
-}
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-function ScoreRing({ score }: { score: number }) {
-  const r = 52;
-  const circ = 2 * Math.PI * r;
-  const offset = circ - (score / 100) * circ;
-  const color = score >= 80 ? '#22c55e' : score >= 60 ? '#a78bfa' : '#f59e0b';
-
-  return (
-    <div className="relative w-32 h-32 flex-shrink-0">
-      <svg className="w-full h-full -rotate-90" viewBox="0 0 120 120">
-        <circle cx="60" cy="60" r={r} fill="none" stroke="#1e293b" strokeWidth="10" />
-        <circle
-          cx="60" cy="60" r={r}
-          fill="none"
-          stroke={color}
-          strokeWidth="10"
-          strokeDasharray={circ}
-          strokeDashoffset={offset}
-          strokeLinecap="round"
-          style={{ transition: 'stroke-dashoffset 1s ease' }}
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-3xl font-black text-white leading-none">{score}</span>
-        <span className="text-xs text-slate-500 mt-0.5">/ 100</span>
-      </div>
-    </div>
-  );
-}
-
-function MetricBar({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-slate-400">{label}</span>
-        <span className="text-xs font-semibold text-white">{value}%</span>
-      </div>
-      <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all duration-700 ${color}`}
-          style={{ width: `${value}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function SkillChip({ label, variant }: { label: string; variant: 'matched' | 'missing' | 'neutral' }) {
-  const styles = {
-    matched: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-    missing: 'bg-red-500/10 text-red-400 border-red-500/20',
-    neutral: 'bg-violet-500/10 text-violet-300 border-violet-500/20',
-  };
-  return (
-    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${styles[variant]}`}>
-      {label}
-    </span>
-  );
+  return { score: Math.min(100, Math.round(score)), matched, missing };
 }
 
 // ─── Upload Phase ─────────────────────────────────────────────────────────────
 
 function UploadPhase({ onComplete }: {
-  onComplete: (resume: StoredResume) => void;
+  onComplete: (resume: StoredResume, file: File) => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [jobTitle, setJobTitle] = useState('');
   const [jobDescription, setJobDescription] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [uploadStage, setUploadStage] = useState<'parsing' | 'corrections' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -192,42 +100,43 @@ function UploadPhase({ onComplete }: {
     const ok = ['application/pdf', 'application/msword',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'];
     if (!ok.includes(f.type) && !f.name.match(/\.(pdf|doc|docx|txt)$/i)) {
-      setError('Please upload a PDF, DOCX, or TXT file.');
-      return;
+      setError('Please upload a PDF, DOCX, or TXT file.'); return;
     }
     if (f.size > 10 * 1024 * 1024) { setError('Max file size is 10 MB.'); return; }
-    setFile(f);
-    setError(null);
+    setFile(f); setError(null);
   }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    const f = e.dataTransfer.files[0];
-    if (f) handleFileSelect(f);
+    e.preventDefault(); setIsDragOver(false);
+    const f = e.dataTransfer.files[0]; if (f) handleFileSelect(f);
   }, [handleFileSelect]);
 
   const handleAnalyse = async () => {
     if (!file) return;
-    setUploading(true);
-    setError(null);
+    setUploading(true); setError(null); setUploadStage('parsing');
     try {
       const { session_id } = await createSession({
         interview_type: 'behavioral',
         candidate_name: localStorage.getItem('intervyu_last_name') || 'Resume Analysis',
       });
 
+      // Simulate stage progress — Lambda takes ~20s with both Claude calls
+      const stageTimer = setTimeout(() => setUploadStage('corrections'), 8000);
+
       const data = await uploadCV(session_id, file);
+      clearTimeout(stageTimer);
+
       if (!data.success || !data.analysis) throw new Error('Analysis did not return results');
 
-      const { score, hardSkills, softSkills, experience, education, matched, missing } =
-        computeAtsScore(data.analysis, jobDescription);
+      const { score, matched, missing } = computeAtsScore(data.analysis, jobDescription);
 
       const newResume: StoredResume = {
         id: Date.now().toString(),
+        sessionId: session_id,
         filename: file.name,
         uploadedAt: new Date().toISOString(),
         analysis: data.analysis,
+        corrections: data.corrections ?? null,
         jobTitle: jobTitle.trim() || undefined,
         jobDescription: jobDescription.trim() || undefined,
         atsScore: score,
@@ -235,25 +144,29 @@ function UploadPhase({ onComplete }: {
         missingKeywords: missing,
       };
 
-      // Persist
       try {
         const stored = JSON.parse(localStorage.getItem('intervyu_resumes') || '[]');
         stored.unshift(newResume);
         localStorage.setItem('intervyu_resumes', JSON.stringify(stored));
       } catch { /* ignore */ }
 
-      onComplete(newResume);
+      onComplete(newResume, file);
     } catch (err) {
       setError((err as Error).message || 'Something went wrong. Please try again.');
     } finally {
-      setUploading(false);
+      setUploading(false); setUploadStage(null);
     }
   };
+
+  const uploadLabel = uploadStage === 'corrections'
+    ? 'Analysing corrections...'
+    : uploadStage === 'parsing'
+      ? 'Parsing your resume...'
+      : 'Analysing your resume...';
 
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-        {/* Hero text */}
         <div className="text-center mb-8 sm:mb-10">
           <div className="inline-flex items-center gap-2 bg-violet-500/10 border border-violet-500/20 rounded-full px-4 py-1.5 mb-4">
             <Sparkles size={13} className="text-violet-400" />
@@ -266,11 +179,10 @@ function UploadPhase({ onComplete }: {
             </span>
           </h1>
           <p className="text-sm text-slate-400 mt-3 max-w-md mx-auto leading-relaxed">
-            Upload your resume and optionally paste a job description to get keyword-match analysis and personalised improvement suggestions.
+            Upload your resume to get an ATS score, keyword-match analysis, and 9 detailed correction checks with PDF highlighting.
           </p>
         </div>
 
-        {/* Two-column upload form */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-6">
           {/* CV Upload */}
           <div className="space-y-2">
@@ -345,7 +257,7 @@ function UploadPhase({ onComplete }: {
             <textarea
               value={jobDescription}
               onChange={(e) => setJobDescription(e.target.value)}
-              placeholder="Paste the job description here to see which required keywords are present or missing in your resume..."
+              placeholder="Paste the job description here to see which keywords are present or missing in your resume..."
               rows={5}
               className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none transition-colors leading-relaxed"
             />
@@ -374,7 +286,7 @@ function UploadPhase({ onComplete }: {
           {uploading ? (
             <>
               <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              Analysing your resume...
+              {uploadLabel}
             </>
           ) : (
             <>
@@ -386,198 +298,9 @@ function UploadPhase({ onComplete }: {
         </button>
 
         <p className="text-xs text-slate-600 text-center mt-3">
-          Powered by AWS Textract + Claude AI · Analysis takes ~10s
+          Powered by AWS Textract + Claude AI · Analysis takes ~20s
         </p>
       </div>
-    </div>
-  );
-}
-
-// ─── Results Phase ────────────────────────────────────────────────────────────
-
-function ResultsView({ resume, onReplace }: { resume: StoredResume; onReplace: () => void }) {
-  const { analysis, atsScore = 0, matchedKeywords = [], missingKeywords = [] } = resume;
-  const hasJD = (resume.jobDescription?.trim().length || 0) > 0;
-
-  // Recompute metric breakdowns
-  const allSkills = [...(analysis.skills || []), ...(analysis.technologies || [])];
-  const expScore = Math.min(100, ((analysis.experience?.length || 0) * 8 + (analysis.totalYearsExperience > 3 ? 6 : 0)) / 30 * 100);
-  const eduScore = analysis.education?.length > 0 ? 100 : 0;
-  const skillScore = Math.min(100, allSkills.length * 2 / 30 * 100);
-  const profileScore = ((analysis.candidateName ? 5 : 0) + (analysis.email ? 5 : 0) + (analysis.summary ? 10 : 0)) / 20 * 100;
-
-  const scoreColor = atsScore >= 80 ? 'text-emerald-400' : atsScore >= 60 ? 'text-violet-400' : 'text-amber-400';
-  const scoreLabel = atsScore >= 80 ? 'Strong' : atsScore >= 60 ? 'Good' : 'Needs Work';
-
-  return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-base font-bold text-white">{resume.filename}</h2>
-          <p className="text-xs text-slate-500">Analysed {formatDate(resume.uploadedAt)}{resume.jobTitle ? ` · ${resume.jobTitle}` : ''}</p>
-        </div>
-        <button
-          onClick={onReplace}
-          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors"
-        >
-          <RotateCcw size={12} />
-          New Analysis
-        </button>
-      </div>
-
-      {/* ATS Score card */}
-      <div className="bg-slate-800/40 border border-slate-700/50 rounded-2xl p-5">
-        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5">
-          <ScoreRing score={atsScore} />
-          <div className="flex-1 w-full">
-            <div className="flex items-center gap-2 mb-1">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">ATS Score</p>
-              <span className={`text-xs font-bold ${scoreColor}`}>{scoreLabel}</span>
-            </div>
-            <p className="text-sm text-slate-300 mb-4 leading-relaxed">
-              {atsScore >= 80
-                ? 'Your resume is well-optimised. Focus on tailoring keywords for each specific role.'
-                : atsScore >= 60
-                  ? 'Good foundation. Adding more quantified achievements and skills can push this higher.'
-                  : 'Your resume needs more detail. Add specific skills, quantified impact, and complete experience.'}
-            </p>
-            <div className="space-y-2.5">
-              <MetricBar label="Hard Skills" value={Math.round(skillScore)} color="bg-blue-500" />
-              <MetricBar label="Experience" value={Math.round(expScore)} color="bg-violet-500" />
-              <MetricBar label="Education" value={Math.round(eduScore)} color="bg-emerald-500" />
-              <MetricBar label="Profile Completeness" value={Math.round(profileScore)} color="bg-amber-500" />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* JD Keyword match */}
-      {hasJD && (
-        <div className="bg-slate-800/40 border border-slate-700/50 rounded-2xl p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Target size={15} className="text-emerald-400" />
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Keyword Match</p>
-            <span className="ml-auto text-xs font-bold text-emerald-400">
-              {matchedKeywords.length} matched
-            </span>
-          </div>
-
-          {matchedKeywords.length > 0 && (
-            <div className="mb-3">
-              <p className="text-xs text-slate-500 mb-2 flex items-center gap-1.5">
-                <CheckCircle2 size={11} className="text-emerald-400" />
-                Present in your resume
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {matchedKeywords.map(k => <SkillChip key={k} label={k} variant="matched" />)}
-              </div>
-            </div>
-          )}
-
-          {missingKeywords.length > 0 && (
-            <div>
-              <p className="text-xs text-slate-500 mb-2 flex items-center gap-1.5">
-                <Circle size={11} className="text-red-400" />
-                Missing — consider adding if relevant
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {missingKeywords.map(k => <SkillChip key={k} label={k} variant="missing" />)}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* AI Summary */}
-      {analysis.summary && (
-        <div className="bg-gradient-to-br from-violet-600/10 to-indigo-600/5 border border-violet-500/20 rounded-2xl p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Sparkles size={14} className="text-violet-400" />
-            <p className="text-xs font-semibold text-violet-400 uppercase tracking-widest">AI Summary</p>
-          </div>
-          <p className="text-sm text-slate-300 leading-relaxed">{analysis.summary}</p>
-        </div>
-      )}
-
-      {/* Experience */}
-      {analysis.experience?.length > 0 && (
-        <div className="bg-slate-800/40 border border-slate-700/50 rounded-2xl p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Briefcase size={14} className="text-slate-500" />
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Experience</p>
-            <span className="ml-auto text-xs text-slate-600">{analysis.totalYearsExperience} yrs total</span>
-          </div>
-          <div className="space-y-3">
-            {analysis.experience.map((exp, i) => (
-              <div key={i} className="flex gap-3">
-                <ChevronRight size={14} className="text-violet-500 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-xs font-semibold text-slate-200">{exp.duration}</p>
-                  <p className="text-xs text-slate-500 leading-relaxed mt-0.5">{exp.context}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Education */}
-      {analysis.education?.length > 0 && (
-        <div className="bg-slate-800/40 border border-slate-700/50 rounded-2xl p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <GraduationCap size={14} className="text-slate-500" />
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Education</p>
-          </div>
-          <div className="space-y-3">
-            {analysis.education.map((edu, i) => (
-              <div key={i} className="flex gap-3">
-                <ChevronRight size={14} className="text-blue-500 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-xs font-semibold text-slate-200">{edu.degree}</p>
-                  <p className="text-xs text-slate-500 leading-relaxed mt-0.5">{edu.context}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Skills */}
-      {allSkills.length > 0 && (
-        <div className="bg-slate-800/40 border border-slate-700/50 rounded-2xl p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Code2 size={14} className="text-slate-500" />
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Skills & Technologies</p>
-            <span className="ml-auto text-xs text-slate-600">{allSkills.length} extracted</span>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {allSkills.slice(0, 30).map((s, i) => <SkillChip key={i} label={s} variant="neutral" />)}
-          </div>
-        </div>
-      )}
-
-      {/* Profile */}
-      {(analysis.candidateName || analysis.email) && (
-        <div className="bg-slate-800/40 border border-slate-700/50 rounded-2xl p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <User size={14} className="text-slate-500" />
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Extracted Profile</p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {[
-              { label: 'Name', value: analysis.candidateName },
-              { label: 'Email', value: analysis.email },
-              { label: 'Phone', value: analysis.phone },
-            ].filter(r => r.value).map(r => (
-              <div key={r.label} className="flex items-center justify-between py-1.5 border-b border-slate-700/40 last:border-0">
-                <span className="text-xs text-slate-500">{r.label}</span>
-                <span className="text-xs font-medium text-slate-200 truncate max-w-[60%] text-right">{r.value}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -587,6 +310,7 @@ function ResultsView({ resume, onReplace }: { resume: StoredResume; onReplace: (
 export default function ResumePage() {
   const [resumes, setResumes] = useState<StoredResume[]>([]);
   const [activeResume, setActiveResume] = useState<StoredResume | null>(null);
+  const [activeFile, setActiveFile] = useState<File | null>(null);
   const [showUpload, setShowUpload] = useState(false);
 
   useEffect(() => {
@@ -600,9 +324,16 @@ export default function ResumePage() {
     }
   }, []);
 
-  const handleComplete = (resume: StoredResume) => {
+  const handleComplete = (resume: StoredResume, file: File) => {
     setResumes(prev => [resume, ...prev]);
     setActiveResume(resume);
+    setActiveFile(file);
+    setShowUpload(false);
+  };
+
+  const handleSelectResume = (r: StoredResume) => {
+    setActiveResume(r);
+    setActiveFile(null); // past resumes load PDF from backend
     setShowUpload(false);
   };
 
@@ -622,7 +353,7 @@ export default function ResumePage() {
           </div>
           {isListView && (
             <button
-              onClick={() => setShowUpload(true)}
+              onClick={() => { setShowUpload(true); setActiveFile(null); }}
               className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white text-xs sm:text-sm font-semibold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl transition-colors shadow-lg shadow-violet-500/20"
             >
               <FileText size={14} />
@@ -646,7 +377,7 @@ export default function ResumePage() {
                 {resumes.map((r) => (
                   <button
                     key={r.id}
-                    onClick={() => { setActiveResume(r); setShowUpload(false); }}
+                    onClick={() => handleSelectResume(r)}
                     className={`w-full text-left p-3 rounded-xl transition-all border ${
                       activeResume?.id === r.id && !showUpload
                         ? 'bg-violet-600/10 border-violet-500/30'
@@ -664,7 +395,7 @@ export default function ResumePage() {
                         <p className="text-xs text-slate-500">{formatDate(r.uploadedAt)}</p>
                         {r.atsScore !== undefined && (
                           <div className="flex items-center gap-1 mt-1">
-                            <div className={`h-1 rounded-full flex-1 bg-slate-700 overflow-hidden`}>
+                            <div className="h-1 rounded-full flex-1 bg-slate-700 overflow-hidden">
                               <div
                                 className={`h-full rounded-full ${r.atsScore >= 80 ? 'bg-emerald-500' : r.atsScore >= 60 ? 'bg-violet-500' : 'bg-amber-500'}`}
                                 style={{ width: `${r.atsScore}%` }}
@@ -682,16 +413,19 @@ export default function ResumePage() {
               </div>
             </div>
 
-            {/* Right — analysis detail */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-              <div className="max-w-2xl">
-                {activeResume && (
-                  <ResultsView
-                    resume={activeResume}
-                    onReplace={() => setShowUpload(true)}
-                  />
-                )}
-              </div>
+            {/* Right — split-panel CV reviewer */}
+            <div className="flex-1 overflow-hidden">
+              {activeResume && (
+                <CVReviewer
+                  sessionId={activeResume.sessionId ?? ''}
+                  analysis={activeResume.analysis}
+                  corrections={activeResume.corrections ?? null}
+                  atsScore={activeResume.atsScore ?? 0}
+                  matchedKeywords={activeResume.matchedKeywords}
+                  missingKeywords={activeResume.missingKeywords}
+                  localPdfFile={activeFile}
+                />
+              )}
             </div>
           </div>
         )}

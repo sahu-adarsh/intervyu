@@ -19,39 +19,21 @@ interface InterviewCardProps extends InterviewCardConfig {
 
 // ─── Brand strip config ──────────────────────────────────────────────────────
 
+const LogoBox = ({ src, alt }: { src: string; alt: string }) => (
+  <div className="relative w-20 h-10">
+    <Image src={src} alt={alt} fill className="object-contain" />
+  </div>
+);
+
 const BRAND_MAP: Record<string, { bg: string; logo: React.ReactNode }> = {
-  'google-sde':    {
-    bg: 'bg-white',
-    logo: <Image src="/Google_Logo_1.png" alt="Google" width={80} height={40} className="object-contain" />,
-  },
-  'amazon-sde':    {
-    bg: 'bg-[#232F3E]',
-    logo: <Image src="/Amazon_Logo_1.png" alt="Amazon" width={80} height={40} className="object-contain" />,
-  },
-  'microsoft-sde': {
-    bg: 'bg-[#1E1E1E]',
-    logo: <Image src="/Microsoft_Logo_1.png" alt="Microsoft" width={80} height={40} className="object-contain" />,
-  },
-  'aws-sa':        {
-    bg: 'bg-[#232F3E]',
-    logo: <Image src="/Amazon AWS Logo.png" alt="AWS" width={80} height={40} className="object-contain" />,
-  },
-  'azure-sa':      {
-    bg: 'bg-[#1a1a2e]',
-    logo: <Image src="/Microsoft Azure Logo.png" alt="Azure" width={80} height={40} className="object-contain" />,
-  },
-  'gcp-sa':        {
-    bg: 'bg-white',
-    logo: <Image src="/Google Cloud Platform Wallpaper.png" alt="Google Cloud" width={80} height={40} className="object-contain" />,
-  },
-  'behavioral':    {
-    bg: 'bg-gradient-to-br from-emerald-950 to-teal-900',
-    logo: <FileSearch className="h-10 w-10 text-emerald-300" />,
-  },
-  'coding-round':  {
-    bg: 'bg-gradient-to-br from-violet-950 to-[#0d1117]',
-    logo: <Image src="/Computer Icons Code Symbol.png" alt="Coding" width={60} height={60} className="object-contain" />,
-  },
+  'google-sde':    { bg: 'bg-white',                                      logo: <LogoBox src="/Google_Logo_1.png"                    alt="Google" /> },
+  'amazon-sde':    { bg: 'bg-[#232F3E]',                                  logo: <LogoBox src="/Amazon_Logo_1.png"                    alt="Amazon" /> },
+  'microsoft-sde': { bg: 'bg-[#1E1E1E]',                                  logo: <LogoBox src="/Microsoft_Logo_1.png"                 alt="Microsoft" /> },
+  'aws-sa':        { bg: 'bg-[#232F3E]',                                  logo: <LogoBox src="/Amazon AWS Logo.png"                  alt="AWS" /> },
+  'azure-sa':      { bg: 'bg-[#1a1a2e]',                                  logo: <LogoBox src="/Microsoft Azure Logo.png"             alt="Azure" /> },
+  'gcp-sa':        { bg: 'bg-white',                                      logo: <LogoBox src="/Google Cloud Platform Wallpaper.png"  alt="Google Cloud" /> },
+  'behavioral':    { bg: 'bg-gradient-to-br from-emerald-950 to-teal-900', logo: <FileSearch className="h-10 w-10 text-emerald-300" /> },
+  'coding-round':  { bg: 'bg-gradient-to-br from-violet-950 to-[#0d1117]', logo: <LogoBox src="/Computer Icons Code Symbol.png"      alt="Coding" /> },
 };
 
 const categoryColors: Record<string, string> = {

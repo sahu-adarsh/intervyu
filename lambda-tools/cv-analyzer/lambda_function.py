@@ -57,6 +57,8 @@ def lambda_handler(event, context):
             cv_text = download_cv_from_s3(s3_bucket, s3_key)
 
         analysis = analyze_cv_with_claude(cv_text)
+        corrections = generate_corrections_with_claude(cv_text)
+        analysis['corrections'] = corrections
         return format_response(event, analysis, 200)
 
     except Exception as e:
@@ -135,6 +137,131 @@ Rules:
     except Exception as e:
         logger.error(f"Claude parsing failed, falling back to regex: {e}")
         return analyze_cv_regex_fallback(cv_text)
+
+
+def generate_corrections_with_claude(cv_text: str) -> Dict[str, Any]:
+    """
+    Second Claude call: analyze CV for 9 types of corrections.
+    Each correction item includes the exact verbatim text for PDF highlighting.
+    Returns empty checkers list on any failure so upload is never blocked.
+    """
+    prompt = f"""You are a professional resume reviewer. Analyze the following resume and identify issues across exactly 9 dimensions.
+
+CRITICAL RULES:
+1. The "text" field in every item MUST be an exact verbatim substring copied from the resume text below. Do not paraphrase or summarize. This text will be used to highlight that exact excerpt in the PDF.
+2. Keep "text" to a single bullet point or sentence — not the entire paragraph.
+3. Return ONLY valid JSON, no markdown, no explanation.
+
+Return this exact JSON structure:
+{{
+  "checkers": [
+    {{
+      "id": "quantification",
+      "label": "Quantification Checker",
+      "description": "Bullet points that lack measurable metrics, numbers, or percentages",
+      "needsFix": [{{"text": "<exact verbatim bullet>", "issue": "Missing quantifiable metric", "suggestion": "Add a specific number, percentage, or scale"}}],
+      "good": [{{"text": "<exact verbatim bullet>", "issue": ""}}],
+      "score": <0-100 based on % of bullets that have metrics>
+    }},
+    {{
+      "id": "bullet_length",
+      "label": "Bullet Point Length",
+      "description": "Bullets that are too long (>25 words) or too short (<5 words)",
+      "needsFix": [{{"text": "<exact verbatim bullet>", "issue": "Too long — 32 words" or "Too short — 3 words", "suggestion": "..."}}],
+      "good": [{{"text": "<exact verbatim bullet>", "issue": ""}}],
+      "score": <0-100>
+    }},
+    {{
+      "id": "bullet_improver",
+      "label": "Bullet Points Improver",
+      "description": "Weak or generic bullet points that lack impact or specificity",
+      "needsFix": [{{"text": "<exact verbatim bullet>", "issue": "Generic description", "suggestion": "<specific improved version>"}}],
+      "good": [{{"text": "<exact verbatim bullet>", "issue": ""}}],
+      "score": <0-100>
+    }},
+    {{
+      "id": "verb_tense",
+      "label": "Verb Tense Checker",
+      "description": "Wrong verb tense: past roles must use past tense, current role must use present tense",
+      "needsFix": [{{"text": "<exact verbatim bullet>", "issue": "Present tense used for past job" or "Past tense used for current job", "suggestion": "<corrected text>"}}],
+      "good": [{{"text": "<exact verbatim bullet>", "issue": ""}}],
+      "score": <0-100>
+    }},
+    {{
+      "id": "weak_verb",
+      "label": "Weak Verb Checker",
+      "description": "Bullets starting with weak verbs like 'Worked on', 'Helped', 'Assisted', 'Supported', 'Participated in'",
+      "needsFix": [{{"text": "<exact verbatim bullet>", "issue": "Weak opening verb: 'Helped'", "suggestion": "Replace with strong verb like 'Led', 'Built', 'Delivered'"}}],
+      "good": [{{"text": "<exact verbatim bullet>", "issue": ""}}],
+      "score": <0-100>
+    }},
+    {{
+      "id": "section_checker",
+      "label": "Section Checker",
+      "description": "Missing or poorly labeled resume sections",
+      "needsFix": [{{"text": "<section header or first line of the problematic section>", "issue": "Section 'Summary' is missing", "suggestion": "Add a professional summary section"}}],
+      "good": [{{"text": "<section header>", "issue": ""}}],
+      "score": <0-100>
+    }},
+    {{
+      "id": "skill_checker",
+      "label": "Skill Checker",
+      "description": "Missing important skills for the candidate's target role based on their experience",
+      "needsFix": [{{"text": "<relevant section header or nearby text>", "issue": "Missing skill: Docker", "suggestion": "Add Docker if you have experience with it"}}],
+      "good": [{{"text": "<skill or skills section text>", "issue": ""}}],
+      "score": <0-100>
+    }},
+    {{
+      "id": "repetition",
+      "label": "Repetition Checker",
+      "description": "Repeated words, phrases, or action verbs used too many times",
+      "needsFix": [{{"text": "<exact verbatim sentence containing the repeated word>", "issue": "'Developed' used 5 times", "suggestion": "Vary with: Built, Engineered, Created, Designed"}}],
+      "good": [],
+      "score": <0-100>
+    }},
+    {{
+      "id": "spelling",
+      "label": "Spelling Checker",
+      "description": "Spelling errors and typos found in the resume",
+      "needsFix": [{{"text": "<exact verbatim sentence containing the error>", "issue": "Misspelling: 'recieve' should be 'receive'", "suggestion": "receive"}}],
+      "good": [],
+      "score": <0-100>
+    }}
+  ],
+  "generatedAt": "{datetime.utcnow().isoformat()}Z"
+}}
+
+RESUME TEXT:
+{cv_text[:8000]}"""
+
+    try:
+        bedrock = get_bedrock_client()
+        response = bedrock.invoke_model(
+            modelId='us.anthropic.claude-sonnet-4-6',
+            body=json.dumps({
+                'anthropic_version': 'bedrock-2023-05-31',
+                'max_tokens': 4000,
+                'messages': [{'role': 'user', 'content': prompt}]
+            }),
+            contentType='application/json',
+            accept='application/json'
+        )
+        result = json.loads(response['body'].read())
+        text = result['content'][0]['text'].strip()
+
+        if text.startswith('```'):
+            text = re.sub(r'^```[a-z]*\n?', '', text)
+            text = re.sub(r'\n?```$', '', text)
+
+        corrections = json.loads(text)
+        return corrections
+
+    except Exception as e:
+        logger.error(f"Corrections generation failed (non-fatal): {e}")
+        return {
+            "checkers": [],
+            "generatedAt": datetime.utcnow().isoformat() + "Z"
+        }
 
 
 def analyze_cv_regex_fallback(text: str) -> Dict[str, Any]:

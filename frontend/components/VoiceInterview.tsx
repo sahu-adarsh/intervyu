@@ -564,13 +564,20 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
                     : <img src="/women-icon.svg" className="w-full h-full object-cover" alt="AI" />
                   }
                 </div>
-                {/* Bubble */}
-                <div className={`max-w-[75%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                  msg.role === 'user'
-                    ? 'bg-purple-600 text-white rounded-br-sm'
-                    : 'bg-gray-100 text-slate-800 rounded-bl-sm'
-                }`}>
-                  {msg.content}
+                {/* Bubble + label */}
+                <div className={`flex flex-col gap-1 max-w-[75%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                  <span className="text-[10px] text-slate-400 px-1">
+                    {msg.role === 'user' ? candidateName : 'Neerja'}
+                    {' · '}
+                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  <div className={`px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                    msg.role === 'user'
+                      ? 'bg-purple-600 text-white rounded-br-sm'
+                      : 'bg-gray-100 text-slate-800 rounded-bl-sm'
+                  }`}>
+                    {msg.content}
+                  </div>
                 </div>
               </div>
             ))}

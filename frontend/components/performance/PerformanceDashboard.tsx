@@ -491,8 +491,10 @@ export default function PerformanceDashboard({ report, onExportPDF }: Performanc
                         )}
                       </div>
                       <div className={`flex flex-col gap-1.5 max-w-[78%] ${isAI ? 'items-start' : 'items-end'}`}>
-                        <span className="text-[10px] text-slate-600 font-medium px-1">
+                        <span className="text-[10px] text-slate-500 px-1">
                           {isAI ? 'Neerja' : candidateName}
+                          {' · '}
+                          {fmtTime(msg.timestamp)}
                         </span>
                         <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed ${
                           isAI
@@ -501,7 +503,6 @@ export default function PerformanceDashboard({ report, onExportPDF }: Performanc
                         }`}>
                           {msg.content}
                         </div>
-                        <span className="text-[10px] text-slate-700 px-1">{fmtTime(msg.timestamp)}</span>
                       </div>
                     </div>
                   );

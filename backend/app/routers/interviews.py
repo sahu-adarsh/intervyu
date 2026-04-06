@@ -173,8 +173,11 @@ async def upload_cv(
             mime_type=file.content_type,
         )
 
-        # Analyze CV using Lambda
+        # Analyze CV using Lambda (returns parsed data + corrections from two Claude calls)
         analysis = lambda_service.invoke_cv_analyzer(cv_text=cv_text)
+
+        # Separate corrections from the main analysis before storing
+        corrections = analysis.pop('corrections', {})
 
         # Extract industry-specific skills
         interview_type = session_data.get("interview_type", "")
@@ -189,16 +192,18 @@ async def upload_cv(
         analysis['industry'] = industry
         analysis['file_type'] = file_extension
 
-        # Save analysis to DB
+        # Save analysis to DB — corrections stored in structured_data JSONB column
         await db_service.save_cv_analysis(
             session_id=session_id,
             skills_json=analysis,
-            raw_text=cv_text[:10000],  # cap raw text at 10k chars
+            raw_text=cv_text[:10000],
+            structured_data=corrections,
         )
 
         return JSONResponse(content={
             "success": True,
             "analysis": analysis,
+            "corrections": corrections,
             "message": f"CV uploaded and analyzed successfully ({file_extension.upper()})",
         })
 
@@ -218,17 +223,56 @@ async def get_cv_analysis(
     try:
         await _verify_session_owner(session_id, current_user.user_id)
 
-        analysis = await db_service.get_cv_analysis(session_id)
+        cv_data = await db_service.get_cv_analysis(session_id)
 
         return JSONResponse(content={
             "success": True,
-            "analysis": analysis,
-            "filename": analysis.get("filename", "") if analysis else "",
+            "analysis": cv_data.get("skills", {}) if cv_data else {},
+            "corrections": cv_data.get("structured_data", {}) if cv_data else {},
+            "filename": cv_data.get("filename", "") if cv_data else "",
         })
 
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{session_id}/cv-url")
+async def get_cv_presigned_url(
+    session_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Return a short-lived pre-signed S3 URL for the uploaded CV file."""
+    try:
+        await _verify_session_owner(session_id, current_user.user_id)
+
+        pool = await db_service.get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT s3_key, filename, mime_type FROM cv_documents WHERE session_id = $1::uuid ORDER BY created_at DESC LIMIT 1",
+                session_id,
+            )
+
+        if not row:
+            raise HTTPException(status_code=404, detail="No CV found for this session")
+
+        s3_key = row["s3_key"]
+        # Strip s3://bucket-name/ prefix if present
+        if s3_key.startswith("s3://"):
+            s3_key = "/".join(s3_key.split("/")[3:])
+
+        url = s3_service.s3_client.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': s3_service.bucket_name, 'Key': s3_key},
+            ExpiresIn=3600,
+        )
+        return JSONResponse(content={"url": url, "filename": row["filename"]})
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"CV presigned URL error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

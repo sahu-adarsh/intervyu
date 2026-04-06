@@ -90,7 +90,7 @@ Resources:
       CodeUri: cv-analyzer/
       Handler: lambda_function.lambda_handler
       Role: !GetAtt PrepAILambdaRole.Arn
-      Timeout: 60
+      Timeout: 90
       MemorySize: 512
       Environment:
         Variables:
