@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from fastapi.responses import JSONResponse
@@ -55,30 +56,27 @@ async def get_transcript(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/{session_id}/end", response_model=EndSessionResponse)
-async def end_interview(
+async def _generate_report_background(
     session_id: str,
-    current_user: CurrentUser = Depends(get_current_user),
-):
-    """End interview session and generate performance report"""
+    user_id: str,
+    session_data: dict,
+    ended_at: datetime,
+) -> None:
+    """Generate performance report in background and update session status when done."""
     try:
-        session_data = await _verify_session_owner(session_id, current_user.user_id)
+        transcript_messages = await db_service.get_transcript(session_id)
+        duration = 0
+        if session_data.get("created_at"):
+            try:
+                started_at = datetime.fromisoformat(session_data["created_at"])
+                duration = int((ended_at - started_at.replace(tzinfo=timezone.utc)).total_seconds())
+            except Exception:
+                pass
 
-        ended_at = datetime.now(timezone.utc)
-
-        # Generate performance report using Lambda
-        report_url = None
-        try:
-            transcript_messages = await db_service.get_transcript(session_id)
-            duration = 0
-            if session_data.get("created_at"):
-                try:
-                    started_at = datetime.fromisoformat(session_data["created_at"])
-                    duration = int((ended_at - started_at.replace(tzinfo=timezone.utc)).total_seconds())
-                except Exception:
-                    pass
-
-            report = lambda_service.invoke_performance_evaluator(
+        loop = asyncio.get_event_loop()
+        report = await loop.run_in_executor(
+            None,
+            lambda: lambda_service.invoke_performance_evaluator(
                 session_id=session_id,
                 conversation_history=transcript_messages,
                 code_submissions=[],
@@ -86,27 +84,43 @@ async def end_interview(
                 duration=duration,
                 candidate_name=session_data.get("candidate_name", "Candidate"),
                 save_to_s3=True,
-            )
+            ),
+        )
 
-            report_url = report.get("reportUrl")
-
-            # Save report to PostgreSQL
-            await db_service.save_performance_report(
-                session_id=session_id,
-                user_id=current_user.user_id,
-                report=report,
-            )
-
-        except Exception as e:
-            logger.error(f"Error generating performance report: {e}")
-
-        # Update session status
+        await db_service.save_performance_report(
+            session_id=session_id,
+            user_id=user_id,
+            report=report,
+        )
         await db_service.update_session_status(session_id, "completed", ended_at)
+
+    except Exception as e:
+        logger.error(f"Background report generation failed for {session_id}: {e}")
+        await db_service.update_session_status(session_id, "completed", ended_at)
+
+
+@router.post("/{session_id}/end", response_model=EndSessionResponse)
+async def end_interview(
+    session_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """End interview session and kick off background report generation."""
+    try:
+        session_data = await _verify_session_owner(session_id, current_user.user_id)
+        ended_at = datetime.now(timezone.utc)
+
+        # Mark as processing immediately so the frontend can start polling
+        await db_service.update_session_status(session_id, "processing", ended_at)
+
+        # Fire and forget — Lambda call runs in a thread, doesn't block the response
+        asyncio.create_task(
+            _generate_report_background(session_id, current_user.user_id, session_data, ended_at)
+        )
 
         return EndSessionResponse(
             session_id=session_id,
-            status="completed",
-            report_url=report_url,
+            status="processing",
+            report_url=None,
         )
 
     except HTTPException:
@@ -229,13 +243,18 @@ async def get_performance_report(
     try:
         session_data = await _verify_session_owner(session_id, current_user.user_id)
 
-        if session_data.get("status") != "completed":
+        status = session_data.get("status")
+        if status == "processing":
+            return JSONResponse(status_code=202, content={"status": "processing"})
+
+        if status != "completed":
             raise HTTPException(status_code=400, detail="Interview not completed yet")
 
         report = await db_service.get_performance_report(session_id)
 
         if not report:
-            raise HTTPException(status_code=404, detail="Performance report not generated")
+            # Completed but report missing — treat as still processing
+            return JSONResponse(status_code=202, content={"status": "processing"})
 
         return JSONResponse(content={
             "success": True,

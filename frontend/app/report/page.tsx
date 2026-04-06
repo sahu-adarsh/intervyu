@@ -7,6 +7,9 @@ import { exportToPDF } from '@/components/common/PDFExport';
 import { Loader2, Home, RefreshCw } from 'lucide-react';
 import { getPerformanceReport } from '@/lib/api';
 
+const POLL_INTERVAL_MS = 2500;
+const POLL_TIMEOUT_MS = 90_000;
+
 function ReportContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -15,35 +18,58 @@ function ReportContent() {
   const [report, setReport] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const hasFetched = useRef(false);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startTimeRef = useRef<number>(Date.now());
 
-  const fetchReport = async () => {
+  const stopPolling = () => {
+    if (pollRef.current) {
+      clearTimeout(pollRef.current);
+      pollRef.current = null;
+    }
+  };
+
+  const pollReport = async () => {
     if (!sessionId) {
       setError('No session ID provided.');
       setLoading(false);
       return;
     }
+
     try {
       setError(null);
       const data = await getPerformanceReport(sessionId);
+
+      if (data.status === 'processing') {
+        // Still generating — schedule next poll if within timeout
+        if (Date.now() - startTimeRef.current < POLL_TIMEOUT_MS) {
+          pollRef.current = setTimeout(pollReport, POLL_INTERVAL_MS);
+        } else {
+          setError('Report is taking longer than expected. Please retry in a moment.');
+          setLoading(false);
+        }
+        return;
+      }
+
       setReport(data.report ?? data);
+      setLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load report.');
-    } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (hasFetched.current) return;
-    hasFetched.current = true;
-    fetchReport();
+    startTimeRef.current = Date.now();
+    pollReport();
+    return stopPolling;
   }, [sessionId]);
 
   const handleRetry = () => {
     setLoading(true);
-    hasFetched.current = false;
-    fetchReport();
+    setError(null);
+    startTimeRef.current = Date.now();
+    stopPolling();
+    pollReport();
   };
 
   const handleExportPDF = async () => {

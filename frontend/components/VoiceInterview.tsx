@@ -344,19 +344,20 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     }
   };
 
-  const handleEndInterview = async () => {
+  const handleEndInterview = () => {
+    // Save session to local history immediately
     try {
-      await endInterview(sessionId);
-      try {
-        const stored = JSON.parse(localStorage.getItem('intervyu_sessions') || '[]');
-        const entry = { sessionId, interviewType, candidateName, date: new Date().toISOString() };
-        const updated = [entry, ...stored.filter((s: any) => s.sessionId !== sessionId)].slice(0, 20);
-        localStorage.setItem('intervyu_sessions', JSON.stringify(updated));
-      } catch {}
-      router.push(`/report?session=${sessionId}`);
-    } catch {
-      router.push(`/report?session=${sessionId}`);
-    }
+      const stored = JSON.parse(localStorage.getItem('intervyu_sessions') || '[]');
+      const entry = { sessionId, interviewType, candidateName, date: new Date().toISOString() };
+      const updated = [entry, ...stored.filter((s: any) => s.sessionId !== sessionId)].slice(0, 20);
+      localStorage.setItem('intervyu_sessions', JSON.stringify(updated));
+    } catch {}
+
+    // Fire end-session API call without blocking navigation
+    endInterview(sessionId).catch(() => {});
+
+    // Navigate immediately — report page will poll until report is ready
+    router.push(`/report?session=${sessionId}`);
   };
 
   const formatTime = (seconds: number) => {
