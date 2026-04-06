@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import {
   FileText, Upload, X, Sparkles, AlertCircle, CheckCircle2,
-  Target, Zap, TrendingUp, ArrowLeft, ExternalLink,
+  Target, Zap, TrendingUp, ArrowLeft, ExternalLink, Trash2,
 } from 'lucide-react';
 import DashboardLayout from '@/components/DashboardLayout';
 import { createSession, uploadCV, getCVPresignedUrl } from '@/lib/api';
@@ -82,7 +82,7 @@ function computeAtsScore(analysis: CVAnalysis, jdText?: string): {
 
 // ─── Resume Card (for grid view) ─────────────────────────────────────────────
 
-function ResumeCard({ resume, onView }: { resume: StoredResume; onView: () => void }) {
+function ResumeCard({ resume, onView, onDelete }: { resume: StoredResume; onView: () => void; onDelete: () => void }) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const score = resume.atsScore ?? 0;
   const scoreColor = score >= 80 ? '#10b981' : score >= 60 ? '#8b5cf6' : '#f59e0b';
@@ -101,7 +101,7 @@ function ResumeCard({ resume, onView }: { resume: StoredResume; onView: () => vo
     <div className="group bg-slate-800/50 rounded-2xl overflow-hidden hover:bg-slate-800/80 transition-all duration-300 border border-slate-700/50 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/30 flex flex-col">
       {/* Card header */}
       <div className="px-4 pt-4 pb-3 flex items-start justify-between gap-2">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-slate-200 truncate" title={resume.filename}>
             {resume.filename}
           </p>
@@ -111,9 +111,18 @@ function ResumeCard({ resume, onView }: { resume: StoredResume; onView: () => vo
             {resume.jobTitle && <span className="truncate max-w-[120px]">{resume.jobTitle}</span>}
           </p>
         </div>
-        <span className={`shrink-0 text-xs font-bold px-2.5 py-1 rounded-full border ${scoreBg}`}>
-          {score}%
-        </span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${scoreBg}`}>
+            {score}%
+          </span>
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            className="p-1.5 rounded-lg text-slate-600 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+            title="Remove"
+          >
+            <Trash2 size={13} />
+          </button>
+        </div>
       </div>
 
       {/* PDF Thumbnail */}
@@ -151,19 +160,37 @@ function ResumeCard({ resume, onView }: { resume: StoredResume; onView: () => vo
 
 // ─── Past Resumes Grid ────────────────────────────────────────────────────────
 
-function PastResumesGrid({ resumes, onView, onNew }: {
+function PastResumesGrid({ resumes, onView, onNew, onDelete }: {
   resumes: StoredResume[];
   onView: (r: StoredResume) => void;
   onNew: () => void;
+  onDelete: (id: string) => void;
 }) {
   return (
     <div className="flex-1 overflow-auto bg-slate-950">
-      <div className="max-w-5xl mx-auto px-6 py-8">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {resumes.map((r) => (
-            <ResumeCard key={r.id} resume={r} onView={() => onView(r)} />
-          ))}
-        </div>
+      <div className="max-w-5xl mx-auto px-6 py-6">
+        {resumes.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-24 gap-4">
+            <div className="w-16 h-16 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center">
+              <FileText size={24} className="text-slate-500" />
+            </div>
+            <p className="text-slate-400 text-sm">No resumes analysed yet</p>
+            <button
+              onClick={onNew}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white hover:opacity-90 transition-opacity"
+              style={{ background: 'linear-gradient(135deg, #7c3aed, #4f46e5)' }}
+            >
+              <Sparkles size={14} />
+              Analyse Your First CV
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 items-start">
+            {resumes.map((r) => (
+              <ResumeCard key={r.id} resume={r} onView={() => onView(r)} onDelete={() => onDelete(r.id)} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -171,9 +198,10 @@ function PastResumesGrid({ resumes, onView, onNew }: {
 
 // ─── Upload Phase ─────────────────────────────────────────────────────────────
 
-function UploadPhase({ onComplete, onBack }: {
+function UploadPhase({ onComplete, onBack, compact }: {
   onComplete: (resume: StoredResume, file: File) => void;
   onBack?: () => void;
+  compact?: boolean;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -249,23 +277,25 @@ function UploadPhase({ onComplete, onBack }: {
     : 'Analysing your resume...';
 
   return (
-    <div className="flex-1 overflow-y-auto bg-slate-950">
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-        <div className="text-center mb-8 sm:mb-10">
-          <div className="inline-flex items-center gap-2 bg-violet-500/10 border border-violet-500/20 rounded-full px-4 py-1.5 mb-4">
-            <Sparkles size={13} className="text-violet-400" />
-            <span className="text-xs font-medium text-violet-300">AI-Powered Resume Analysis</span>
+    <div className={compact ? '' : 'flex-1 overflow-y-auto bg-slate-950'}>
+      <div className={`max-w-3xl mx-auto px-4 sm:px-6 ${compact ? 'py-2' : 'py-8 sm:py-12'}`}>
+        {!compact && (
+          <div className="text-center mb-8 sm:mb-10">
+            <div className="inline-flex items-center gap-2 bg-violet-500/10 border border-violet-500/20 rounded-full px-4 py-1.5 mb-4">
+              <Sparkles size={13} className="text-violet-400" />
+              <span className="text-xs font-medium text-violet-300">AI-Powered Resume Analysis</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-black text-white leading-tight">
+              Get Your ATS Score & <br className="hidden sm:block" />
+              <span className="bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent">
+                Targeted Feedback
+              </span>
+            </h1>
+            <p className="text-sm text-slate-400 mt-3 max-w-md mx-auto leading-relaxed">
+              Upload your resume to get an ATS score, keyword-match analysis, and 9 detailed correction checks with PDF highlighting.
+            </p>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black text-white leading-tight">
-            Get Your ATS Score & <br className="hidden sm:block" />
-            <span className="bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent">
-              Targeted Feedback
-            </span>
-          </h1>
-          <p className="text-sm text-slate-400 mt-3 max-w-md mx-auto leading-relaxed">
-            Upload your resume to get an ATS score, keyword-match analysis, and 9 detailed correction checks with PDF highlighting.
-          </p>
-        </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-6">
           {/* CV Upload */}
@@ -392,28 +422,27 @@ function UploadPhase({ onComplete, onBack }: {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type View = 'grid' | 'upload' | 'review';
+type View = 'grid' | 'review';
 
 export default function ResumePage() {
   const [resumes, setResumes] = useState<StoredResume[]>([]);
   const [activeResume, setActiveResume] = useState<StoredResume | null>(null);
   const [activeFile, setActiveFile] = useState<File | null>(null);
   const [view, setView] = useState<View>('grid');
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
   useEffect(() => {
     try {
       const stored: StoredResume[] = JSON.parse(localStorage.getItem('intervyu_resumes') || '[]');
       setResumes(stored);
-      setView(stored.length > 0 ? 'grid' : 'upload');
-    } catch {
-      setView('upload');
-    }
+    } catch { /* ignore */ }
   }, []);
 
   const handleComplete = (resume: StoredResume, file: File) => {
     setResumes(prev => [resume, ...prev]);
     setActiveResume(resume);
     setActiveFile(file);
+    setShowUploadModal(false);
     setView('review');
   };
 
@@ -424,9 +453,17 @@ export default function ResumePage() {
   };
 
   const handleBack = () => {
-    setView(resumes.length > 0 ? 'grid' : 'upload');
+    setView('grid');
     setActiveResume(null);
     setActiveFile(null);
+  };
+
+  const handleDelete = (id: string) => {
+    setResumes(prev => {
+      const next = prev.filter(r => r.id !== id);
+      try { localStorage.setItem('intervyu_resumes', JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
   };
 
   return (
@@ -450,7 +487,7 @@ export default function ResumePage() {
               </h1>
               {view !== 'review' && (
                 <p className="text-xs sm:text-sm mt-0.5 text-slate-400">
-                  ATS scoring, keyword matching & AI feedback
+                  Track and review your analysed resumes
                 </p>
               )}
             </div>
@@ -458,7 +495,7 @@ export default function ResumePage() {
 
           {view !== 'review' && (
             <button
-              onClick={() => setView('upload')}
+              onClick={() => setShowUploadModal(true)}
               className="flex items-center gap-2 text-white text-xs sm:text-sm font-semibold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl transition-opacity hover:opacity-90 shadow-md shadow-violet-500/20"
               style={{ background: 'linear-gradient(135deg, #7c3aed, #4f46e5)' }}
             >
@@ -474,14 +511,8 @@ export default function ResumePage() {
           <PastResumesGrid
             resumes={resumes}
             onView={handleViewResume}
-            onNew={() => setView('upload')}
-          />
-        )}
-
-        {view === 'upload' && (
-          <UploadPhase
-            onComplete={handleComplete}
-            onBack={resumes.length > 0 ? handleBack : undefined}
+            onNew={() => setShowUploadModal(true)}
+            onDelete={handleDelete}
           />
         )}
 
@@ -496,6 +527,36 @@ export default function ResumePage() {
               missingKeywords={activeResume.missingKeywords}
               localPdfFile={activeFile}
             />
+          </div>
+        )}
+
+        {/* Upload Modal */}
+        {showUploadModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) setShowUploadModal(false); }}
+          >
+            <div className="bg-slate-900 rounded-2xl border border-slate-700/50 w-full max-w-2xl max-h-[90vh] overflow-y-auto relative shadow-2xl shadow-black/60">
+              {/* Modal header */}
+              <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-slate-800">
+                <div>
+                  <h2 className="text-base font-bold text-white flex items-center gap-2">
+                    <Sparkles size={15} className="text-violet-400" />
+                    Analyse Your CV
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">ATS score, keyword matching &amp; 9 correction checks</p>
+                </div>
+                <button
+                  onClick={() => setShowUploadModal(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="px-2 py-4">
+                <UploadPhase onComplete={handleComplete} compact />
+              </div>
+            </div>
           </div>
         )}
       </div>

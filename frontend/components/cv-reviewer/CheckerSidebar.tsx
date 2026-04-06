@@ -122,12 +122,6 @@ export default function CheckerSidebar({ corrections, activeChecker, onSelect, o
         )}
       </div>
 
-      {!hasData && (
-        <p className="text-xs text-slate-600 mb-3 italic text-center">
-          Upload a new CV to generate detailed corrections
-        </p>
-      )}
-
       <div className="grid grid-cols-3 gap-2">
         {checkers.map((c, i) => (
           <CheckerCard key={c.id} checker={c} onClick={() => onSelect(c.id)} index={i} />
