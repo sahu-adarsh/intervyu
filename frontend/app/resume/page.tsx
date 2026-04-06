@@ -98,16 +98,16 @@ function ResumeCard({ resume, onView }: { resume: StoredResume; onView: () => vo
   }, [resume.sessionId]);
 
   return (
-    <div className="group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-slate-100 hover:-translate-y-1 flex flex-col">
+    <div className="group bg-slate-800/50 rounded-2xl overflow-hidden hover:bg-slate-800/80 transition-all duration-300 border border-slate-700/50 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/30 flex flex-col">
       {/* Card header */}
       <div className="px-4 pt-4 pb-3 flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-slate-800 truncate" title={resume.filename}>
+          <p className="text-sm font-semibold text-slate-200 truncate" title={resume.filename}>
             {resume.filename}
           </p>
-          <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
+          <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
             <span>📅</span> {formatDate(resume.uploadedAt)}
-            {resume.jobTitle && <span className="text-slate-300 mx-1">·</span>}
+            {resume.jobTitle && <span className="text-slate-600 mx-1">·</span>}
             {resume.jobTitle && <span className="truncate max-w-[120px]">{resume.jobTitle}</span>}
           </p>
         </div>
@@ -117,7 +117,7 @@ function ResumeCard({ resume, onView }: { resume: StoredResume; onView: () => vo
       </div>
 
       {/* PDF Thumbnail */}
-      <div className="mx-4 mb-3 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 flex items-start justify-center"
+      <div className="mx-4 mb-3 rounded-xl overflow-hidden bg-slate-900 border border-slate-700/40 flex items-start justify-center"
         style={{ minHeight: 180 }}>
         {pdfUrl ? (
           <PDFThumbnail url={pdfUrl} width={220} />
@@ -127,27 +127,11 @@ function ResumeCard({ resume, onView }: { resume: StoredResume; onView: () => vo
               style={{ background: `linear-gradient(135deg, ${scoreColor}22, ${scoreColor}11)` }}>
               <FileText size={18} style={{ color: scoreColor }} />
             </div>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-500">
               {resume.sessionId ? 'Loading preview...' : 'No preview available'}
             </p>
           </div>
         )}
-      </div>
-
-      {/* Metrics row */}
-      <div className="px-4 pb-3 flex items-center gap-3">
-        {[
-          { label: 'Skills', value: Math.min(100, (resume.analysis.skills?.length ?? 0) * 4) },
-          { label: 'Exp', value: Math.min(100, (resume.analysis.experience?.length ?? 0) * 25) },
-          { label: 'Edu', value: resume.analysis.education?.length ? 100 : 0 },
-        ].map(m => (
-          <div key={m.label} className="flex-1">
-            <p className="text-[9px] text-slate-400 mb-1">{m.label}</p>
-            <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
-              <div className="h-full rounded-full" style={{ width: `${m.value}%`, backgroundColor: scoreColor }} />
-            </div>
-          </div>
-        ))}
       </div>
 
       {/* View Analysis button */}
@@ -173,23 +157,8 @@ function PastResumesGrid({ resumes, onView, onNew }: {
   onNew: () => void;
 }) {
   return (
-    <div className="flex-1 overflow-auto bg-white">
+    <div className="flex-1 overflow-auto bg-slate-950">
       <div className="max-w-5xl mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900">Your Past Resumes</h2>
-            <p className="text-sm text-slate-400 mt-0.5">Track and review your analyzed resumes</p>
-          </div>
-          <button
-            onClick={onNew}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-md shadow-violet-500/20 hover:opacity-90 transition-opacity"
-            style={{ background: 'linear-gradient(135deg, #7c3aed, #4f46e5)' }}
-          >
-            <FileText size={14} />
-            Analyze New CV
-          </button>
-        </div>
-
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {resumes.map((r) => (
             <ResumeCard key={r.id} resume={r} onView={() => onView(r)} />
@@ -464,9 +433,7 @@ export default function ResumePage() {
     <DashboardLayout>
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Header */}
-        <div className={`px-4 sm:px-6 pt-5 sm:pt-6 pb-4 border-b flex items-center justify-between flex-shrink-0 ${
-          view === 'grid' ? 'border-slate-200 bg-white' : 'border-slate-800 bg-slate-950'
-        }`}>
+        <div className="px-4 sm:px-6 pt-5 sm:pt-6 pb-4 border-b border-slate-800 bg-slate-950 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3">
             {view === 'review' && (
               <button
@@ -477,16 +444,15 @@ export default function ResumePage() {
               </button>
             )}
             <div>
-              <h1 className={`text-lg sm:text-xl font-bold flex items-center gap-2 ${view === 'grid' ? 'text-slate-900' : 'text-white'}`}>
+              <h1 className="text-lg sm:text-xl font-bold flex items-center gap-2 text-white">
                 <TrendingUp size={18} className="text-violet-500" />
-                Resume Analyser
+                {view === 'review' && activeResume ? activeResume.filename : 'Your Past Resumes'}
               </h1>
-              <p className={`text-xs sm:text-sm mt-0.5 ${view === 'grid' ? 'text-slate-400' : 'text-slate-400'}`}>
-                {view === 'review' && activeResume
-                  ? activeResume.filename
-                  : 'ATS scoring, keyword matching & AI feedback'
-                }
-              </p>
+              {view !== 'review' && (
+                <p className="text-xs sm:text-sm mt-0.5 text-slate-400">
+                  ATS scoring, keyword matching & AI feedback
+                </p>
+              )}
             </div>
           </div>
 

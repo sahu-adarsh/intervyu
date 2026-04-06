@@ -131,9 +131,6 @@ export default function AtsScorePanel({ atsScore, analysis, matchedKeywords = []
       {/* Hero Score Card */}
       <div className="rounded-2xl overflow-hidden border border-slate-700/50"
         style={{ background: 'linear-gradient(135deg, rgb(15,23,42) 0%, rgb(23,30,51) 50%, rgb(15,23,42) 100%)' }}>
-        {/* Top accent bar */}
-        <div className="h-0.5 w-full" style={{ background: 'linear-gradient(90deg, #8b5cf6, #6366f1, #3b82f6)' }} />
-
         <div className="p-4">
           <div className="flex items-start gap-4">
             <ScoreRing score={atsScore} />
@@ -172,8 +169,7 @@ export default function AtsScorePanel({ atsScore, analysis, matchedKeywords = []
 
       {/* AI Summary */}
       {analysis.summary && (
-        <div className="rounded-2xl border border-violet-500/20 bg-violet-950/20 p-4 relative overflow-hidden">
-          <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b from-violet-500 to-indigo-500 rounded-l-2xl" />
+        <div className="rounded-2xl border border-violet-500/20 bg-violet-950/20 p-4">
           <div className="flex items-center gap-2 mb-2">
             <Sparkles size={13} className="text-violet-400" />
             <p className="text-xs font-semibold text-violet-400 uppercase tracking-wider">AI Summary</p>
