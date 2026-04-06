@@ -172,7 +172,7 @@ export default function AtsScorePanel({ atsScore, analysis, matchedKeywords = []
         <div className="rounded-2xl border border-violet-500/20 bg-violet-950/20 p-4">
           <div className="flex items-center gap-2 mb-2">
             <Sparkles size={13} className="text-violet-400" />
-            <p className="text-xs font-semibold text-violet-400 uppercase tracking-wider">AI Summary</p>
+            <p className="text-xs font-semibold text-violet-400 uppercase tracking-wider">Summary</p>
           </div>
           <p className="text-sm text-slate-300 leading-relaxed">{analysis.summary}</p>
         </div>

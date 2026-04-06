@@ -79,32 +79,6 @@ export default function CVReviewer({
 
   return (
     <div className="flex h-full w-full flex-col bg-slate-950 overflow-hidden">
-      {/* ── Top info strip ── */}
-      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-800 bg-slate-900/80 flex-shrink-0">
-        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${scoreDot} shadow-sm`}
-          style={{ boxShadow: `0 0 6px currentColor` }} />
-        <div className="flex-1 min-w-0">
-          {analysis.candidateName && (
-            <p className="text-xs font-semibold text-slate-200 truncate">{analysis.candidateName}</p>
-          )}
-          {analysis.totalYearsExperience != null && (
-            <p className="text-[10px] text-slate-500">{analysis.totalYearsExperience} yrs experience · {analysis.industry ?? 'Software Engineering'}</p>
-          )}
-        </div>
-        <div className="flex items-center gap-3 shrink-0">
-          <span className={`text-xs font-bold ${scoreColor}`}>{atsScore}/100 ATS</span>
-          {corrections?.checkers?.length > 0 && (
-            <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
-              totalIssues === 0
-                ? 'bg-emerald-500/15 text-emerald-400'
-                : 'bg-amber-500/15 text-amber-400'
-            }`}>
-              {totalIssues === 0 ? 'No issues' : `${totalIssues} issue${totalIssues !== 1 ? 's' : ''}`}
-            </span>
-          )}
-        </div>
-      </div>
-
       {/* ── Mobile tab bar ── */}
       <div className="sm:hidden flex border-b border-slate-800 bg-slate-900 flex-shrink-0">
         <button

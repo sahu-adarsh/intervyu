@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import {
   FileText, Upload, X, Sparkles, AlertCircle, CheckCircle2,
-  Target, Zap, TrendingUp, ArrowLeft, ExternalLink, Trash2,
+  Target, Zap, ArrowLeft, ExternalLink, Trash2,
 } from 'lucide-react';
 import DashboardLayout from '@/components/DashboardLayout';
 import { createSession, uploadCV, getCVPresignedUrl } from '@/lib/api';
@@ -24,6 +24,7 @@ interface CVAnalysis {
   experience?: Array<{ duration: string; company?: string; role?: string; context: string }>;
   education?: Array<{ degree: string; institution?: string; year?: string; context: string }>;
   totalYearsExperience?: number;
+  industry?: string;
   summary?: string;
   file_type?: string;
 }
@@ -125,13 +126,13 @@ function ResumeCard({ resume, onView, onDelete }: { resume: StoredResume; onView
         </div>
       </div>
 
-      {/* PDF Thumbnail */}
+      {/* PDF Thumbnail — fixed height so all cards are uniform */}
       <div className="mx-4 mb-3 rounded-xl overflow-hidden bg-slate-900 border border-slate-700/40 flex items-start justify-center"
-        style={{ minHeight: 180 }}>
+        style={{ height: 280 }}>
         {pdfUrl ? (
-          <PDFThumbnail url={pdfUrl} width={220} />
+          <PDFThumbnail url={pdfUrl} width={260} />
         ) : (
-          <div className="flex flex-col items-center justify-center h-[180px] w-full gap-2">
+          <div className="flex flex-col items-center justify-center w-full h-full gap-2">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center"
               style={{ background: `linear-gradient(135deg, ${scoreColor}22, ${scoreColor}11)` }}>
               <FileText size={18} style={{ color: scoreColor }} />
@@ -168,7 +169,7 @@ function PastResumesGrid({ resumes, onView, onNew, onDelete }: {
 }) {
   return (
     <div className="flex-1 overflow-auto bg-slate-950">
-      <div className="max-w-5xl mx-auto px-6 py-6">
+      <div className="px-6 py-6">
         {resumes.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 gap-4">
             <div className="w-16 h-16 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center">
@@ -412,9 +413,6 @@ function UploadPhase({ onComplete, onBack, compact }: {
           )}
         </button>
 
-        <p className="text-xs text-slate-600 text-center mt-3">
-          Powered by AWS Textract + Claude AI · ~20s
-        </p>
       </div>
     </div>
   );
@@ -481,11 +479,22 @@ export default function ResumePage() {
               </button>
             )}
             <div>
-              <h1 className="text-lg sm:text-xl font-bold flex items-center gap-2 text-white">
-                <TrendingUp size={18} className="text-violet-500" />
+              <h1 className="text-lg sm:text-xl font-bold text-white">
                 {view === 'review' && activeResume ? activeResume.filename : 'Your Past Resumes'}
               </h1>
-              {view !== 'review' && (
+              {view === 'review' && activeResume ? (
+                <p className="text-xs mt-0.5 text-slate-500">
+                  {activeResume.analysis.candidateName && (
+                    <span className="text-slate-300 font-medium">{activeResume.analysis.candidateName}</span>
+                  )}
+                  {activeResume.analysis.candidateName && activeResume.analysis.totalYearsExperience != null && (
+                    <span className="mx-1.5 text-slate-600">·</span>
+                  )}
+                  {activeResume.analysis.totalYearsExperience != null && (
+                    <span>{activeResume.analysis.totalYearsExperience} yrs · {activeResume.analysis.industry ?? 'Software Engineering'}</span>
+                  )}
+                </p>
+              ) : (
                 <p className="text-xs sm:text-sm mt-0.5 text-slate-400">
                   Track and review your analysed resumes
                 </p>
@@ -493,7 +502,24 @@ export default function ResumePage() {
             </div>
           </div>
 
-          {view !== 'review' && (
+          {view === 'review' && activeResume ? (
+            <div className="flex items-center gap-2 shrink-0">
+              {(() => {
+                const s = activeResume.atsScore ?? 0;
+                const col = s >= 80 ? 'text-emerald-400' : s >= 60 ? 'text-violet-400' : 'text-amber-400';
+                const issues = activeResume.corrections?.checkers?.reduce((n, c) => n + c.needsFix.length, 0) ?? 0;
+                const hasCheckers = (activeResume.corrections?.checkers?.length ?? 0) > 0;
+                return (<>
+                  <span className={`text-sm font-bold ${col}`}>{s}/100 ATS</span>
+                  {hasCheckers && (
+                    <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${issues === 0 ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'}`}>
+                      {issues === 0 ? 'No issues' : `${issues} issue${issues !== 1 ? 's' : ''}`}
+                    </span>
+                  )}
+                </>);
+              })()}
+            </div>
+          ) : (
             <button
               onClick={() => setShowUploadModal(true)}
               className="flex items-center gap-2 text-white text-xs sm:text-sm font-semibold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl transition-opacity hover:opacity-90 shadow-md shadow-violet-500/20"
@@ -544,7 +570,7 @@ export default function ResumePage() {
                     <Sparkles size={15} className="text-violet-400" />
                     Analyse Your CV
                   </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">ATS score, keyword matching &amp; 9 correction checks</p>
+                  <p className="text-xs text-slate-500 mt-0.5">ATS score, keyword matching &amp; correction checks</p>
                 </div>
                 <button
                   onClick={() => setShowUploadModal(false)}
