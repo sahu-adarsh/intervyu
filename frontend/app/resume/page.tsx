@@ -199,9 +199,8 @@ function PastResumesGrid({ resumes, onView, onNew, onDelete }: {
 
 // ─── Upload Phase ─────────────────────────────────────────────────────────────
 
-function UploadPhase({ onComplete, onBack, compact }: {
+function UploadPhase({ onComplete, compact }: {
   onComplete: (resume: StoredResume, file: File) => void;
-  onBack?: () => void;
   compact?: boolean;
 }) {
   const [file, setFile] = useState<File | null>(null);
@@ -235,7 +234,7 @@ function UploadPhase({ onComplete, onBack, compact }: {
     try {
       const { session_id } = await createSession({
         interview_type: 'behavioral',
-        candidate_name: localStorage.getItem('intervyu_last_name') || 'Resume Analysis',
+        candidate_name: 'Resume Analysis',
       });
 
       const stageTimer = setTimeout(() => setUploadStage('corrections'), 8000);

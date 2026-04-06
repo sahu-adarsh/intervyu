@@ -577,6 +577,7 @@ async def get_user_aggregate(user_id: str) -> dict:
             FROM interview_sessions s
             LEFT JOIN performance_reports pr ON pr.session_id = s.id
             WHERE s.user_id = $1::uuid
+              AND s.candidate_name != 'Resume Analysis'
             """,
             user_id,
         )
@@ -585,6 +586,7 @@ async def get_user_aggregate(user_id: str) -> dict:
             SELECT interview_type::text AS itype, COUNT(*) AS cnt
             FROM interview_sessions
             WHERE user_id = $1::uuid
+              AND candidate_name != 'Resume Analysis'
             GROUP BY interview_type
             """,
             user_id,
@@ -595,6 +597,7 @@ async def get_user_aggregate(user_id: str) -> dict:
             FROM performance_reports pr
             JOIN interview_sessions s ON s.id = pr.session_id
             WHERE s.user_id = $1::uuid
+              AND s.candidate_name != 'Resume Analysis'
             GROUP BY pr.recommendation
             """,
             user_id,
@@ -625,6 +628,7 @@ async def get_user_trends(user_id: str, days: int = 30) -> list[dict]:
             FROM interview_sessions s
             JOIN performance_reports pr ON pr.session_id = s.id
             WHERE s.user_id = $1::uuid
+              AND s.candidate_name != 'Resume Analysis'
               AND s.started_at >= NOW() - ($2 || ' days')::INTERVAL
             GROUP BY DATE(s.started_at)
             ORDER BY date ASC
@@ -695,6 +699,7 @@ async def get_user_history(user_id: str) -> list[dict]:
             FROM interview_sessions s
             LEFT JOIN performance_reports pr ON pr.session_id = s.id
             WHERE s.user_id = $1::uuid
+              AND s.candidate_name != 'Resume Analysis'
             ORDER BY s.started_at DESC
             """,
             user_id,
