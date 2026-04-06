@@ -230,6 +230,7 @@ function UploadPhase({ onComplete, onBack, compact }: {
 
   const handleAnalyse = async () => {
     if (!file) return;
+    if (!jobTitle.trim()) { setError('Please enter a target job title.'); return; }
     setUploading(true); setError(null); setUploadStage('parsing');
     try {
       const { session_id } = await createSession({
@@ -358,7 +359,7 @@ function UploadPhase({ onComplete, onBack, compact }: {
                 <Target size={13} className="text-emerald-400" />
               </div>
               <span className="text-sm font-semibold text-white">Target Job</span>
-              <span className="text-xs text-slate-500">(optional)</span>
+              <span className="text-xs text-red-400">*</span>
             </div>
 
             <input
@@ -395,7 +396,7 @@ function UploadPhase({ onComplete, onBack, compact }: {
 
         <button
           onClick={handleAnalyse}
-          disabled={!file || uploading}
+          disabled={!file || !jobTitle.trim() || uploading}
           className="w-full py-3.5 rounded-2xl text-sm font-bold transition-all duration-150 flex items-center justify-center gap-2.5 disabled:opacity-40 disabled:cursor-not-allowed text-white shadow-xl shadow-violet-500/25"
           style={{ background: 'linear-gradient(135deg, #7c3aed, #4f46e5)' }}
         >
