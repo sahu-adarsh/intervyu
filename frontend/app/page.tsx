@@ -472,10 +472,9 @@ export default function HomePage() {
           <footer className="flex flex-col gap-4 py-8 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between">
             <p>intervyu is an AI-powered mock interviewer for job candidates.</p>
             <div className="flex items-center gap-4">
-              <Link href="/login" className="transition hover:text-slate-950">App</Link>
-              <a href="#features" className="transition hover:text-slate-950">Features</a>
-              <a href="#story" className="transition hover:text-slate-950">Story</a>
-              <a href="#proof" className="transition hover:text-slate-950">Proof</a>
+              <a href="https://github.com/sahu-adarsh/intervyu" target="_blank" rel="noopener noreferrer" className="transition hover:text-slate-950">GitHub</a>
+              <a href="https://www.linkedin.com/in/adarshsahu/" target="_blank" rel="noopener noreferrer" className="transition hover:text-slate-950">LinkedIn</a>
+              <a href="mailto:adarshsahu1077@gmail.com" className="transition hover:text-slate-950">Contact</a>
             </div>
           </footer>
 

@@ -13,10 +13,57 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Intervyu",
-  description: "AI-Powered Interview Preparation Platform",
+  title: {
+    default: "intervyu.io | AI Interview Prep",
+    template: "%s | intervyu.io",
+  },
+  description:
+    "Practice real voice interviews with Neerja, our AI interviewer. Get live code evaluation, CV analysis, and a detailed performance report. Land your dream job at Google, Amazon, Microsoft, and more.",
+  keywords: [
+    "interview prep",
+    "AI interview",
+    "mock interview",
+    "coding interview",
+    "system design interview",
+    "voice interview practice",
+    "Google interview prep",
+    "Amazon interview prep",
+    "software engineer interview",
+  ],
+  metadataBase: new URL("https://intervyu.io"),
+  openGraph: {
+    type: "website",
+    url: "https://intervyu.io",
+    title: "intervyu.io | AI Interview Prep",
+    description:
+      "Practice real voice interviews with Neerja, our AI interviewer. Live code evaluation, CV analysis, and performance reports — all in one session.",
+    siteName: "intervyu.io",
+    images: [
+      {
+        url: "/favicon-64.png",
+        width: 64,
+        height: 64,
+        alt: "intervyu.io logo",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary",
+    title: "intervyu.io | AI Interview Prep",
+    description:
+      "Practice real voice interviews with AI. Live code evaluation, CV analysis, and performance reports.",
+  },
   icons: {
-    icon: "/favicon.ico",
+    icon: [
+      { url: "/favicon-64.png", sizes: "64x64", type: "image/png" },
+    ],
+    shortcut: "/favicon-64.png",
+    apple: "/favicon-64.png",
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: { index: true, follow: true },
   },
 };
 
