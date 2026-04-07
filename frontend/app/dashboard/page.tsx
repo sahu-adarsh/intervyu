@@ -322,7 +322,7 @@ export default function Dashboard() {
                   </span>
                 </h1>
                 <p className="text-xs text-slate-500 mt-1 hidden sm:block">
-                  Practice with Intervyu AI · Get real-time feedback · Land your dream job
+                  Practice with intervyu AI · Get real-time feedback · Land your dream job
                 </p>
               </div>
             </div>

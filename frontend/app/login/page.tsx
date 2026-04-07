@@ -73,12 +73,11 @@ export default function LoginPage() {
   const busy = loading !== null;
 
   return (
-    <div
-      className="min-h-screen flex flex-col items-center justify-center px-4"
-      style={{ background: 'linear-gradient(135deg, #eef0f8 0%, #f4f2fb 50%, #eef0f8 100%)' }}
-    >
+    <div className="relative min-h-screen flex flex-col items-center justify-center px-4 bg-white overflow-hidden">
+      {/* Background — matches landing page */}
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,_rgba(99,102,241,0.06)_1px,_transparent_1px),linear-gradient(to_bottom,_rgba(99,102,241,0.06)_1px,_transparent_1px)] [background-size:32px_32px]" />
       {/* Card */}
-      <div className="w-full max-w-[400px] bg-white rounded-3xl shadow-[0_4px_40px_rgba(0,0,0,0.08)] px-9 py-10">
+      <div className="relative w-full max-w-[400px] bg-white rounded-3xl shadow-[0_4px_40px_rgba(0,0,0,0.08)] px-9 py-10">
 
         {/* Logo */}
         <div className="flex flex-col items-center mb-7">
@@ -87,7 +86,7 @@ export default function LoginPage() {
           </div>
           {!sent && (
             <h1 className="mt-4 text-[21px] font-bold text-slate-900 tracking-tight">
-              Continue to Intervyu
+              Continue to intervyu
             </h1>
           )}
         </div>
@@ -197,7 +196,7 @@ export default function LoginPage() {
       </div>
 
       {/* Footer */}
-      <p className="mt-5 text-[12px] text-slate-500 text-center">
+      <p className="relative mt-5 text-[12px] text-slate-500 text-center">
         By signing in, you agree to our{' '}
         <span className="underline underline-offset-2 cursor-pointer">Terms of Service</span>
         .
