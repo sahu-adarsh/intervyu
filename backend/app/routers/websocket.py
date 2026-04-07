@@ -137,6 +137,9 @@ def clean_agent_response(text: str) -> str:
     for pattern in stage_direction_patterns:
         cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
 
+    # Replace em dashes with a comma-space for natural TTS flow
+    cleaned = cleaned.replace('\u2014', ', ')
+
     # Clean up extra whitespace
     cleaned = re.sub(r'\s+', ' ', cleaned)
     cleaned = cleaned.strip()
