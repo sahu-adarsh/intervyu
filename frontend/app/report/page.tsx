@@ -105,7 +105,7 @@ function ReportContent() {
               Retry
             </button>
             <button
-              onClick={() => router.push('/')}
+              onClick={() => router.push('/dashboard')}
               className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-slate-300 rounded-lg hover:bg-slate-700 transition-colors"
             >
               <Home className="w-4 h-4" />
@@ -121,7 +121,7 @@ function ReportContent() {
     <div className="min-h-screen bg-slate-950 py-8 px-4">
       <div className="max-w-4xl mx-auto space-y-4">
         <button
-          onClick={() => router.push('/')}
+          onClick={() => router.push('/dashboard')}
           className="flex items-center gap-2 text-slate-400 hover:text-slate-200 transition-colors text-sm"
         >
           <Home className="w-4 h-4" />

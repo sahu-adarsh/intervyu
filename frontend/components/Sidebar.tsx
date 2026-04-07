@@ -257,8 +257,8 @@ export default function Sidebar() {
         <NavItem
           icon={<LayoutGrid size={18} />}
           label="Interview"
-          href="/"
-          active={pathname === '/'}
+          href="/dashboard"
+          active={pathname === '/dashboard'}
         />
         <NavItem
           icon={<FileText size={18} />}

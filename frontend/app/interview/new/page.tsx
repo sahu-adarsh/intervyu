@@ -27,7 +27,7 @@ function InterviewSessionContent() {
     if (!session) return;
 
     if (!interviewType || !candidateName) {
-      router.push('/');
+      router.push('/dashboard');
       return;
     }
 
@@ -80,7 +80,7 @@ function InterviewSessionContent() {
           <p className="text-sm font-semibold text-red-400">Failed to start session</p>
           <p className="text-sm text-red-300">{error}</p>
           <button
-            onClick={() => router.push('/')}
+            onClick={() => router.push('/dashboard')}
             className="w-full px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-sm font-medium transition-colors"
           >
             Go Back

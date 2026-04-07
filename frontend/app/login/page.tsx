@@ -27,7 +27,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session) router.replace('/');
+      if (data.session) router.replace('/dashboard');
     });
   }, [router]);
 
@@ -51,7 +51,7 @@ export default function LoginPage() {
     setError(null);
     try {
       await verifyEmailOtp(email, otp);
-      router.replace('/');
+      router.replace('/dashboard');
     } catch (e: any) {
       setError(e.message || 'Invalid or expired code');
     } finally {

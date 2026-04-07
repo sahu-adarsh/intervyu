@@ -22,7 +22,7 @@ export default function AuthCallbackPage() {
       (event, session) => {
         if (session) {
           subscription.unsubscribe();
-          router.replace('/');
+          router.replace('/dashboard');
         }
       }
     );
@@ -31,7 +31,7 @@ export default function AuthCallbackPage() {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) {
         subscription.unsubscribe();
-        router.replace('/');
+        router.replace('/dashboard');
       }
     });
 

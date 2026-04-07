@@ -67,7 +67,7 @@ export default function HistoryPage() {
       <div className="max-w-3xl mx-auto space-y-4">
         <div className="flex items-center justify-between">
           <button
-            onClick={() => router.push('/')}
+            onClick={() => router.push('/dashboard')}
             className="flex items-center gap-2 text-slate-400 hover:text-slate-200 transition-colors text-sm"
           >
             <Home className="w-4 h-4" />
