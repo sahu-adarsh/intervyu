@@ -276,6 +276,40 @@ async def get_cv_presigned_url(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/{session_id}/link-resume")
+async def link_resume(
+    session_id: str,
+    body: dict = Body(...),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Copy CV analysis from a previous session into this session so Neerja can use it."""
+    try:
+        await _verify_session_owner(session_id, current_user.user_id)
+        source_session_id = body.get("source_session_id")
+        if not source_session_id:
+            raise HTTPException(status_code=400, detail="source_session_id required")
+
+        # Verify user owns the source session too
+        await _verify_session_owner(source_session_id, current_user.user_id)
+
+        cv = await db_service.get_cv_analysis(source_session_id)
+        if not cv:
+            raise HTTPException(status_code=404, detail="No CV analysis found for source session")
+
+        await db_service.save_cv_analysis(
+            session_id=session_id,
+            skills_json=cv.get("skills", {}),
+            raw_text=cv.get("raw_text", ""),
+            structured_data=cv.get("structured_data", {}),
+        )
+        return JSONResponse(content={"success": True})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"link-resume error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/resumes", include_in_schema=True)
 async def list_user_resumes(
     current_user: CurrentUser = Depends(get_current_user),

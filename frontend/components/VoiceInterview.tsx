@@ -547,7 +547,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
         )}
 
         {/* ── Transcript slide-in panel — from left ── */}
-        <div className={`absolute top-0 left-0 bottom-0 w-80 bg-white z-30 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${
+        <div className={`absolute top-0 left-0 bottom-0 w-80 bg-white z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-in-out ${
           showTranscript ? 'translate-x-0' : '-translate-x-full'
         }`}>
           {/* Header */}

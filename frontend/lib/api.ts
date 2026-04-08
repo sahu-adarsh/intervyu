@@ -95,6 +95,15 @@ export async function getCVAnalysis(sessionId: string) {
   return res.json();
 }
 
+export async function linkResume(sessionId: string, sourceSessionId: string) {
+  const res = await authFetch(`/api/interviews/${sessionId}/link-resume`, {
+    method: 'POST',
+    body: JSON.stringify({ source_session_id: sourceSessionId }),
+  });
+  if (!res.ok) throw new Error(`Failed to link resume: ${res.status}`);
+  return res.json();
+}
+
 export async function getUserResumes(): Promise<{ resumes: Array<{
   session_id: string;
   filename: string;

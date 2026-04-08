@@ -481,7 +481,27 @@ async def voice_interview_websocket(
             async def _warm_session():
                 if session_id not in _session_cache:
                     _raw = await asyncio.to_thread(s3_service.get_session, session_id)
-                    _session_cache[session_id] = _raw or {}
+                    cache_data = _raw or {}
+                    # For DB-based sessions (no S3 JSON), load cv_analysis from Postgres
+                    if not cache_data.get("cv_analysis"):
+                        from app.services import db_service as _db_ws
+                        cv = await _db_ws.get_cv_analysis(session_id)
+                        if cv:
+                            skills_dict = cv.get("skills", {})
+                            all_skills: list = []
+                            if isinstance(skills_dict, dict):
+                                for v in skills_dict.values():
+                                    if isinstance(v, list):
+                                        all_skills.extend(v)
+                            elif isinstance(skills_dict, list):
+                                all_skills = skills_dict
+                            structured = cv.get("structured_data", {})
+                            cache_data["cv_analysis"] = {
+                                "skills": all_skills,
+                                "years_of_experience": structured.get("years_of_experience", ""),
+                                "summary": structured.get("summary", ""),
+                            }
+                    _session_cache[session_id] = cache_data
 
             step_start = time.time()
             transcript, _ = await asyncio.gather(
