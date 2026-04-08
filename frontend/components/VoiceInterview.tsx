@@ -29,6 +29,7 @@ import {
 const CodeEditor = dynamic(() => import('./code-editor/CodeEditor'), { ssr: false });
 const CVUpload = dynamic(() => import('./cv/CVUpload'), { ssr: false });
 const CVAnalysisDisplay = dynamic(() => import('./cv/CVAnalysisDisplay'), { ssr: false });
+const PostInterviewFeedback = dynamic(() => import('./interview/PostInterviewFeedback'), { ssr: false });
 
 type Message = {
   role: 'user' | 'assistant';
@@ -80,6 +81,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   const [showCodeEditor, setShowCodeEditor] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
   const [showCV, setShowCV] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
   const [cvAnalysis, setCvAnalysis] = useState<any>(null);
   const [codingQuestion, setCodingQuestion] = useState<{
     question: string;
@@ -282,6 +284,21 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     }
   };
 
+  const teardownInterview = () => {
+    // Stop mic/VAD
+    vad.pause();
+    // Close WebSocket — server will clean up session
+    wsRef.current?.close();
+    wsRef.current = null;
+    // Stop any playing TTS audio and drain the queue
+    stopAudioPlayback();
+    // Kill the elapsed-time ticker
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    if (wordRevealRef.current) { clearInterval(wordRevealRef.current); wordRevealRef.current = null; }
+    // Close AudioContext to release mic/speaker resources
+    audioContextRef.current?.close();
+  };
+
   const stopAudioPlayback = () => {
     if (currentAudioSourceRef.current) {
       try {
@@ -362,11 +379,14 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
       turn_count: messages.length,
     });
 
-    // Fire end-session API call without blocking navigation
+    // Stop mic, WebSocket, audio, timers immediately
+    teardownInterview();
+
+    // Fire end-session API call — report generates while user fills feedback
     endInterview(sessionId).catch(() => {});
 
-    // Navigate immediately — report page will poll until report is ready
-    router.push(`/report?session=${sessionId}`);
+    // Show feedback form; user will navigate to report after submitting
+    setShowFeedback(true);
   };
 
   const formatTime = (seconds: number) => {
@@ -388,6 +408,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   const neerjaActive = isProcessing || isTTSSpeaking;
 
   return (
+    <>
     <div className="flex flex-col h-screen bg-black text-white overflow-hidden">
 
       {/* ── Top Bar ── */}
@@ -793,5 +814,14 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
       </div>
 
     </div>
+
+    {/* Post-interview feedback overlay */}
+    {showFeedback && (
+      <PostInterviewFeedback
+        sessionId={sessionId}
+        onComplete={() => router.push(`/report?session=${sessionId}`)}
+      />
+    )}
+    </>
   );
 }
