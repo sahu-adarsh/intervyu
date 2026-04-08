@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { FileText, ChevronDown, ChevronUp, X, Upload } from 'lucide-react';
 import { createSession, uploadCV } from '@/lib/api';
 import { useSupabaseSession, getUserDisplayName } from '@/lib/supabase/auth';
+import { posthog } from '@/lib/posthog';
 
 interface InterviewTypeInfo {
   id: string;
@@ -96,6 +97,13 @@ export default function StartInterviewModal({ interviewType, onClose }: StartInt
           // CV upload failed silently — interview continues without CV context
         }
       }
+
+      posthog.capture('interview_started', {
+        interview_type: interviewType.id,
+        interview_title: interviewType.title,
+        session_id,
+        has_cv: !!cvFile,
+      });
 
       router.push(`/interview/new?type=${interviewType.id}&name=${encodeURIComponent(candidateName.trim())}&session=${session_id}`);
     } catch (err) {

@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
+import { posthog } from '@/lib/posthog';
 
 /**
  * OAuth callback page.
@@ -22,6 +23,7 @@ export default function AuthCallbackPage() {
       (event, session) => {
         if (session) {
           subscription.unsubscribe();
+          posthog.capture('login_succeeded', { method: 'google' });
           router.replace('/dashboard');
         }
       }

@@ -18,6 +18,7 @@ if (typeof window !== 'undefined') {
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCVAnalysis, endInterview } from '@/lib/api';
+import { posthog } from '@/lib/posthog';
 import dynamic from 'next/dynamic';
 import { useMicVAD } from '@ricky0123/vad-react';
 import {
@@ -224,6 +225,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
         } else if (data.type === 'coding_question') {
           const lang = data.language || 'python';
           const question = data.question || '';
+          posthog.capture('coding_question_received', { session_id: sessionId, language: lang });
           if (question) {
             setCodingQuestion({
               question,
@@ -352,6 +354,13 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
       const updated = [entry, ...stored.filter((s: any) => s.sessionId !== sessionId)].slice(0, 20);
       localStorage.setItem('intervyu_sessions', JSON.stringify(updated));
     } catch {}
+
+    posthog.capture('interview_ended', {
+      interview_type: interviewType,
+      session_id: sessionId,
+      duration_seconds: timeElapsed,
+      turn_count: messages.length,
+    });
 
     // Fire end-session API call without blocking navigation
     endInterview(sessionId).catch(() => {});

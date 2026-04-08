@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload, FileText, X, Loader2 } from 'lucide-react';
+import { posthog } from '@/lib/posthog';
 
 interface CVUploadProps {
   sessionId: string;
@@ -35,6 +36,11 @@ export default function CVUpload({ sessionId, onUploadSuccess, onUploadError }: 
       }
 
       const data = await response.json();
+      posthog.capture('cv_uploaded', {
+        session_id: sessionId,
+        file_type: file.type,
+        file_size_kb: Math.round(file.size / 1024),
+      });
       onUploadSuccess(data.analysis);
     } catch (error) {
       onUploadError(error instanceof Error ? error.message : 'Upload failed');

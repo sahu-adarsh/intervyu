@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { supabase } from '@/lib/supabase/client';
 import { signInWithGoogle, signInWithOtp, verifyEmailOtp } from '@/lib/supabase/auth';
+import { posthog } from '@/lib/posthog';
 
 function GoogleIcon() {
   return (
@@ -35,6 +36,7 @@ export default function LoginPage() {
     if (!email) { setError('Enter your email address.'); return; }
     setLoading('otp');
     setError(null);
+    posthog.capture('login_attempted', { method: 'otp' });
     try {
       await signInWithOtp(email);
       setSent(true);
@@ -51,6 +53,7 @@ export default function LoginPage() {
     setError(null);
     try {
       await verifyEmailOtp(email, otp);
+      posthog.capture('login_succeeded', { method: 'otp' });
       router.replace('/dashboard');
     } catch (e: any) {
       setError(e.message || 'Invalid or expired code');
@@ -62,6 +65,7 @@ export default function LoginPage() {
   async function handleGoogle() {
     setLoading('google');
     setError(null);
+    posthog.capture('login_attempted', { method: 'google' });
     try {
       await signInWithGoogle();
     } catch (e: any) {
