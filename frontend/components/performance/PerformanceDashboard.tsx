@@ -605,7 +605,7 @@ export default function PerformanceDashboard({ report, onExportPDF }: Performanc
                         <p className="text-[10px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: overallTier.strokeColor }}>
                           Bottom Line
                         </p>
-                        <p className="text-sm text-slate-300 leading-relaxed">{feedbackNotes.bottom_line}</p>
+                        <p className="text-sm text-slate-300 leading-relaxed">{feedbackNotes.bottom_line.replace(/\s*—\s*/g, ' ')}</p>
                       </div>
                     )}
 
@@ -623,12 +623,12 @@ export default function PerformanceDashboard({ report, onExportPDF }: Performanc
                                 })}
                                 className="w-full flex items-center justify-between px-4 py-3.5 text-left hover:bg-slate-800/40 transition-colors"
                               >
-                                <p className="text-sm font-semibold text-slate-100 leading-snug">{obs.title}</p>
+                                <p className="text-sm font-semibold text-slate-100 leading-snug">{obs.title.replace(/\s*—\s*/g, ' ')}</p>
                                 <ChevronDown className={`w-4 h-4 text-slate-500 flex-shrink-0 ml-3 transition-transform ${open ? 'rotate-180' : ''}`} />
                               </button>
                               {open && (
                                 <div className="px-4 pb-4 border-t border-slate-700/30">
-                                  <p className="text-sm text-slate-400 leading-relaxed pt-3">{obs.body}</p>
+                                  <p className="text-sm text-slate-400 leading-relaxed pt-3">{obs.body.replace(/\s*—\s*/g, ' ')}</p>
                                 </div>
                               )}
                             </div>
