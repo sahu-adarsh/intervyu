@@ -27,7 +27,16 @@ out/
 
 # IDE
 .vscode/
+.cursor/
 .idea/
+
+# code-review-graph (machine-specific or non-Claude tooling)
+.mcp.json
+.opencode.json
+.cursorrules
+.windsurfrules
+AGENTS.md
+GEMINI.md
 *.swp
 *.swo
 *.swn
