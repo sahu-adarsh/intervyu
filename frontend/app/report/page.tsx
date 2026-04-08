@@ -6,6 +6,7 @@ import PerformanceDashboard from '@/components/performance/PerformanceDashboard'
 import { exportToPDF } from '@/components/common/PDFExport';
 import { Loader2, Home, RefreshCw } from 'lucide-react';
 import { getPerformanceReport } from '@/lib/api';
+import { posthog } from '@/lib/posthog';
 
 const POLL_INTERVAL_MS = 2500;
 const POLL_TIMEOUT_MS = 90_000;
@@ -50,7 +51,13 @@ function ReportContent() {
         return;
       }
 
-      setReport(data.report ?? data);
+      const reportData = data.report ?? data;
+      posthog.capture('report_viewed', {
+        session_id: sessionId,
+        overall_score: reportData?.overall_score ?? reportData?.scores?.overall,
+        verdict: reportData?.verdict ?? reportData?.recommendation,
+      });
+      setReport(reportData);
       setLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load report.');
