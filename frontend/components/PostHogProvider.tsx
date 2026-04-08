@@ -4,9 +4,6 @@ import { PostHogProvider as PHProvider, usePostHog } from 'posthog-js/react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, Suspense } from 'react';
 import { useSupabaseSession } from '@/lib/supabase/auth';
-import { initPostHog, posthog } from '@/lib/posthog';
-
-initPostHog();
 
 function PostHogPageView() {
   const pathname = usePathname();
@@ -40,7 +37,14 @@ function PostHogIdentify() {
 
 export function PostHogProvider({ children }: { children: React.ReactNode }) {
   return (
-    <PHProvider client={posthog}>
+    <PHProvider
+      apiKey={process.env.NEXT_PUBLIC_POSTHOG_KEY!}
+      options={{
+        api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com',
+        capture_pageview: false,
+        capture_pageleave: true,
+      }}
+    >
       <Suspense fallback={null}>
         <PostHogPageView />
       </Suspense>
