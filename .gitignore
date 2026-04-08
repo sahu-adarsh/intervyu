@@ -1,6 +1,9 @@
 # Claude Code local config (may contain secrets)
 .claude/
 
+# SAM build artifacts
+lambda-tools/.aws-sam/
+
 # Environment variables
 .env
 .env.local
