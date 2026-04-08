@@ -750,6 +750,7 @@ async def voice_interview_websocket(
             # the sentence-limiter and "stop at ?" logic see only spoken text)
             spoken_response = re.sub(r'\[PROBLEM\].*?\[/PROBLEM\]', '', full_response, flags=re.IGNORECASE | re.DOTALL)
             spoken_response = re.sub(r'\[TESTCASE\].*?\[/TESTCASE\]', '', spoken_response, flags=re.IGNORECASE | re.DOTALL).strip()
+            spoken_response = spoken_response.replace('\u2014', ', ')  # strip em dashes from displayed text
             validated_response = validate_and_truncate_response(spoken_response)
 
             # Log if response was truncated
