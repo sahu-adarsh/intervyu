@@ -341,8 +341,9 @@ async def voice_interview_websocket(
         processing = True
 
         try:
-            # Fetch session data asynchronously to avoid blocking
-            session_data = await asyncio.to_thread(s3_service.get_session, session_id)
+            # Fetch session data from Supabase PostgreSQL
+            from app.services import db_service as _db_intro
+            session_data = await _db_intro.get_session(session_id)
             candidate_name = session_data.get("candidate_name", "candidate") if session_data else "candidate"
             interview_type = session_data.get("interview_type", "Technical Interview") if session_data else "Technical Interview"
 
@@ -448,12 +449,14 @@ async def voice_interview_websocket(
                 session_id, "assistant", full_response
             ))
 
+        except WebSocketDisconnect:
+            logger.info(f"[{session_id}] Client disconnected during introduction")
         except Exception as e:
             logger.error(f"Error sending introduction: {e}")
-            await websocket.send_json({
-                "type": "error",
-                "message": str(e)
-            })
+            try:
+                await websocket.send_json({"type": "error", "message": str(e)})
+            except Exception:
+                pass  # WS already closed — nothing to do
         finally:
             processing = False
 

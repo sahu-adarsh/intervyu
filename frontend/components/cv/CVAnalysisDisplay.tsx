@@ -148,7 +148,7 @@ export default function CVAnalysisDisplay({ analysis, onUpdate }: CVAnalysisDisp
           </h3>
         </div>
         <div className="space-y-2">
-          {editedAnalysis.experience.map((exp, index) => (
+          {(editedAnalysis.experience ?? []).map((exp, index) => (
             <div key={index} className="bg-gray-50 rounded-lg p-3">
               <p className="text-sm font-medium text-gray-900">{exp.duration}</p>
               <p className="text-sm text-gray-600 mt-1">{exp.context}</p>
@@ -164,7 +164,7 @@ export default function CVAnalysisDisplay({ analysis, onUpdate }: CVAnalysisDisp
           <h3 className="text-lg font-semibold text-gray-900">Education</h3>
         </div>
         <div className="space-y-2">
-          {editedAnalysis.education.map((edu, index) => (
+          {(editedAnalysis.education ?? []).map((edu, index) => (
             <div key={index} className="bg-gray-50 rounded-lg p-3">
               <p className="text-sm font-medium text-gray-900">{edu.degree}</p>
               <p className="text-sm text-gray-600 mt-1">{edu.context}</p>
@@ -189,7 +189,7 @@ export default function CVAnalysisDisplay({ analysis, onUpdate }: CVAnalysisDisp
           />
         ) : (
           <div className="flex flex-wrap gap-2">
-            {editedAnalysis.skills.map((skill, index) => (
+            {(editedAnalysis.skills ?? []).map((skill, index) => (
               <span
                 key={index}
                 className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium"
