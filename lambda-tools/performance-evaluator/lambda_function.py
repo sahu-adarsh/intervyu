@@ -14,12 +14,13 @@ from datetime import datetime
 # ─── AWS clients ──────────────────────────────────────────────────────────────
 
 s3_client = boto3.client('s3')
-bedrock_client = boto3.client(
-    'bedrock-runtime',
-    region_name=os.environ.get('BEDROCK_AWS_REGION', 'us-east-1'),
-    aws_access_key_id=os.environ.get('BEDROCK_AWS_ACCESS_KEY_ID'),
-    aws_secret_access_key=os.environ.get('BEDROCK_AWS_SECRET_ACCESS_KEY'),
-)
+_bedrock_kwargs = {'region_name': os.environ.get('BEDROCK_AWS_REGION', 'us-east-1')}
+_key_id = os.environ.get('BEDROCK_AWS_ACCESS_KEY_ID', '').strip()
+_secret = os.environ.get('BEDROCK_AWS_SECRET_ACCESS_KEY', '').strip()
+if _key_id and _secret:
+    _bedrock_kwargs['aws_access_key_id'] = _key_id
+    _bedrock_kwargs['aws_secret_access_key'] = _secret
+bedrock_client = boto3.client('bedrock-runtime', **_bedrock_kwargs)
 
 # Claude Sonnet 4.6 cross-region inference
 EVALUATION_MODEL_ID = 'us.anthropic.claude-sonnet-4-6'

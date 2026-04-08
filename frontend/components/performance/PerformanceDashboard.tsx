@@ -417,7 +417,7 @@ export default function PerformanceDashboard({ report, onExportPDF }: Performanc
                 </div>
                 <div className="flex items-baseline gap-2 mb-5">
                   <span className={`text-4xl font-bold tabular-nums ${overallTier.color}`}>
-                    {percentile >= 50 ? `Top ${100 - percentile}%` : `${percentile}th percentile`}
+                    {percentile >= 50 ? `Top ${Math.max(1, 100 - percentile)}%` : `${percentile}th percentile`}
                   </span>
                   <span className="text-sm text-slate-500">of candidates</span>
                 </div>
