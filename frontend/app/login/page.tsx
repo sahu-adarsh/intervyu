@@ -78,6 +78,17 @@ export default function LoginPage() {
 
   return (
     <div className="relative min-h-screen flex flex-col items-center justify-center px-4 bg-white overflow-hidden">
+      {/* Logo home link */}
+      <a
+        href="/"
+        className="absolute top-5 left-5"
+        title="Back to home"
+      >
+        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center shadow-sm shadow-violet-200 hover:opacity-80 transition">
+          <Image src="/logo-icon.svg" alt="intervyu" width={18} height={18} className="brightness-0 invert" />
+        </div>
+      </a>
+
       {/* Card */}
       <div className="relative w-full max-w-[400px] bg-white rounded-3xl shadow-[0_4px_40px_rgba(0,0,0,0.08)] px-9 py-10">
 
