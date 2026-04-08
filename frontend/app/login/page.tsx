@@ -74,8 +74,6 @@ export default function LoginPage() {
 
   return (
     <div className="relative min-h-screen flex flex-col items-center justify-center px-4 bg-white overflow-hidden">
-      {/* Background — matches landing page */}
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,_rgba(99,102,241,0.06)_1px,_transparent_1px),linear-gradient(to_bottom,_rgba(99,102,241,0.06)_1px,_transparent_1px)] [background-size:32px_32px]" />
       {/* Card */}
       <div className="relative w-full max-w-[400px] bg-white rounded-3xl shadow-[0_4px_40px_rgba(0,0,0,0.08)] px-9 py-10">
 
