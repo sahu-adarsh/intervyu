@@ -11,6 +11,7 @@ import os
 import logging
 from typing import Dict, Any, List
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +57,13 @@ def lambda_handler(event, context):
                 return format_response(event, {'success': False, 'error': 'Either cvText or s3Bucket+s3Key required'}, 400)
             cv_text = download_cv_from_s3(s3_bucket, s3_key)
 
-        analysis = analyze_cv_with_claude(cv_text)
-        corrections = generate_corrections_with_claude(cv_text)
+        # Run both Claude calls in parallel — cuts total time roughly in half
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f_analysis = pool.submit(analyze_cv_with_claude, cv_text)
+            f_corrections = pool.submit(generate_corrections_with_claude, cv_text)
+            analysis = f_analysis.result()
+            corrections = f_corrections.result()
+
         analysis['corrections'] = corrections
         return format_response(event, analysis, 200)
 
@@ -142,6 +148,8 @@ Rules:
 def generate_corrections_with_claude(cv_text: str) -> Dict[str, Any]:
     """
     Second Claude call: analyze CV for 9 types of corrections.
+    Uses Haiku (faster, cheaper) — corrections are pattern-matching tasks
+    that don't require Sonnet-level reasoning.
     Each correction item includes the exact verbatim text for PDF highlighting.
     Returns empty checkers list on any failure so upload is never blocked.
     """
@@ -237,7 +245,7 @@ RESUME TEXT:
     try:
         bedrock = get_bedrock_client()
         response = bedrock.invoke_model(
-            modelId='us.anthropic.claude-sonnet-4-6',
+            modelId='us.anthropic.claude-haiku-4-5-20251001',
             body=json.dumps({
                 'anthropic_version': 'bedrock-2023-05-31',
                 'max_tokens': 4000,

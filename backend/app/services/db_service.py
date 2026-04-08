@@ -497,12 +497,12 @@ async def get_user_cv_analyses(user_id: str) -> list:
                 ca.skills,
                 ca.structured_data,
                 cd.filename,
-                COALESCE(cd.created_at, ca.created_at) AS uploaded_at
+                cd.created_at AS uploaded_at
             FROM cv_analysis ca
             JOIN interview_sessions s ON s.id = ca.session_id
-            LEFT JOIN cv_documents cd ON cd.session_id = ca.session_id
+            JOIN cv_documents cd ON cd.session_id = ca.session_id
             WHERE s.user_id = $1::uuid
-            ORDER BY COALESCE(cd.created_at, ca.created_at) DESC
+            ORDER BY cd.created_at DESC
             """,
             user_id,
         )
