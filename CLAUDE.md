@@ -112,7 +112,28 @@ intervyu/
 - **Backend**: EC2 `i-032c3535f7a8f1d89` (t3.small, Ubuntu), IP `44.200.25.1`, port 8000
 - **EC2 SSH**: `ssh -i ~/.ssh/prepai-backend-key.pem ubuntu@44.200.25.1`
 - **Restart backend**: `sudo systemctl restart intervyu-backend`
-- **Redeploy frontend**: `cd frontend && npm run build && aws s3 sync out/ s3://prepai-frontend-1773670407/ --delete && aws cloudfront create-invalidation --distribution-id EEQ8MGLCMSZXT --paths "/*"`
+- **Redeploy frontend**: `cd intervyu && bash scripts/redeploy-frontend.sh` — do NOT use a bare `aws s3 sync` (see warning)
+  ```bash
+  cd frontend && npm run build
+  # 1. Sync all static assets (hashed filenames — safe to cache)
+  aws s3 sync out/ s3://prepai-frontend-1773670407/ --delete
+  # 2. Force-upload HTML and RSC payload .txt files — sync skips these when file size
+  #    is unchanged across builds (same-size files get identical ETags bypassed), which
+  #    leaves stale RSC payloads pointing to deleted chunks → Link navigation silently
+  #    breaks, buttons appear non-functional, SyntaxErrors on old chunks.
+  find frontend/out -name "*.html" -o -name "*.txt" | while read f; do
+    key="${f#frontend/out/}"
+    aws s3 cp "$f" "s3://prepai-frontend-1773670407/$key" --cache-control "no-cache, no-store, must-revalidate"
+  done
+  aws cloudfront create-invalidation --distribution-id EEQ8MGLCMSZXT --paths "/*"
+  ```
+  **WARNING — `aws s3 sync` alone is not enough.** Next.js App Router generates `*.html` and
+  `*.txt` (RSC payload) files alongside hashed JS chunks. When the JS chunk filenames change
+  but the HTML/txt files happen to be the same byte-size, `sync` considers them unchanged and
+  skips them. The stale files still reference the OLD chunk names, which get deleted by
+  `--delete`. Result: CloudFront serves HTML/RSC payloads that load deleted chunks →
+  `SyntaxError: Unexpected token '<'` (404 HTML served as JS) → entire page JS broken →
+  buttons do nothing, PostHog never initialises. Always force-upload HTML + txt after build.
 - **Lambda deploy**: `cd lambda-tools && sam build && sam deploy`
 
 ## Key APIs
