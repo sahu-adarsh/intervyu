@@ -1,6 +1,6 @@
 'use client';
 
-import { PHProvider, usePostHog } from 'posthog-js/react';
+import { PostHogProvider as PHProvider, usePostHog } from 'posthog-js/react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, Suspense } from 'react';
 import { useSupabaseSession } from '@/lib/supabase/auth';
