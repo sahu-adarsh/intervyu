@@ -1,6 +1,7 @@
 """
-AWS Textract Service
-Advanced document parsing for PDF and DOCX files
+PDF text extraction service.
+Primary: pdfplumber (free, layout-aware).
+Fallback: AWS Textract LAYOUT (for scanned/image-based PDFs).
 """
 
 import boto3
@@ -14,27 +15,52 @@ logger = logging.getLogger(__name__)
 
 class TextractService:
     def __init__(self):
-        self.textract_client = boto3.client(
-            'textract',
-            region_name=AWS_REGION,
-            aws_access_key_id=TEXTRACT_AWS_ACCESS_KEY,
-            aws_secret_access_key=TEXTRACT_AWS_SECRET_ACCESS_KEY
-        )
+        self._textract_client = None  # lazy-init; only used for scanned PDFs
+
+    def _get_textract_client(self):
+        if self._textract_client is None:
+            self._textract_client = boto3.client(
+                'textract',
+                region_name=AWS_REGION,
+                aws_access_key_id=TEXTRACT_AWS_ACCESS_KEY,
+                aws_secret_access_key=TEXTRACT_AWS_SECRET_ACCESS_KEY
+            )
+        return self._textract_client
 
     def extract_text_from_pdf(self, pdf_bytes: bytes) -> str:
         """
-        Extract text from PDF using AWS Textract with LAYOUT analysis.
-        LAYOUT feature preserves document structure and handles multi-column CVs
-        correctly by returning text in logical reading order.
-
-        Args:
-            pdf_bytes: PDF file content as bytes
-
-        Returns:
-            Extracted text as string
+        Extract text from PDF using pdfplumber (primary).
+        Falls back to AWS Textract LAYOUT for scanned/image-only PDFs
+        where pdfplumber returns little or no text.
         """
+        text = self._extract_with_pdfplumber(pdf_bytes)
+        if len(text.strip()) > 100:
+            return text
+
+        # Likely a scanned PDF — fall back to Textract OCR
+        logger.info("pdfplumber returned sparse text; falling back to Textract")
+        return self._extract_with_textract(pdf_bytes)
+
+    def _extract_with_pdfplumber(self, pdf_bytes: bytes) -> str:
+        """Extract text using pdfplumber, which preserves column layout."""
         try:
-            response = self.textract_client.analyze_document(
+            import pdfplumber
+            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                pages = []
+                for page in pdf.pages:
+                    text = page.extract_text(layout=True)
+                    if text:
+                        pages.append(text)
+            return '\n'.join(pages)
+        except Exception as e:
+            logger.error(f"pdfplumber error: {e}")
+            return ""
+
+    def _extract_with_textract(self, pdf_bytes: bytes) -> str:
+        """Extract text using AWS Textract LAYOUT (OCR fallback for scanned PDFs)."""
+        try:
+            client = self._get_textract_client()
+            response = client.analyze_document(
                 Document={'Bytes': pdf_bytes},
                 FeatureTypes=['LAYOUT']
             )
@@ -47,8 +73,6 @@ class TextractService:
                 'LAYOUT_LIST', 'LAYOUT_KEY_VALUE', 'LAYOUT_TABLE', 'LAYOUT_FIGURE'
             }
             layout_blocks = [b for b in blocks if b['BlockType'] in layout_types]
-
-            # Sort by page then top position for correct reading order
             layout_blocks.sort(key=lambda b: (
                 b.get('Page', 1),
                 b.get('Geometry', {}).get('BoundingBox', {}).get('Top', 0)
@@ -69,8 +93,6 @@ class TextractService:
 
             if text_parts:
                 return '\n'.join(text_parts)
-
-            # Fallback: plain line extraction if LAYOUT returned nothing
             return '\n'.join(b['Text'] for b in blocks if b['BlockType'] == 'LINE')
 
         except Exception as e:

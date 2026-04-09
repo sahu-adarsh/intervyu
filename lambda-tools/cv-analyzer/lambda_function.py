@@ -119,7 +119,7 @@ Rules:
     try:
         bedrock = get_bedrock_client()
         response = bedrock.invoke_model(
-            modelId='us.anthropic.claude-sonnet-4-6',
+            modelId='us.anthropic.claude-haiku-4-5-20251001',
             body=json.dumps({
                 'anthropic_version': 'bedrock-2023-05-31',
                 'max_tokens': 2000,

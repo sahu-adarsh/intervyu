@@ -17,7 +17,8 @@ azure-cognitiveservices-speech  # Azure Speech SDK — persistent connection, sa
 python-dotenv
 pydantic
 httpx  # Async HTTP client (Deepgram STT API)
-pypdf  # PDF text extraction fallback when Textract is unavailable
+pdfplumber  # PDF text extraction — primary (layout-aware, handles multi-column)
+pypdf  # Fallback PDF extraction (used inside pdfplumber and as last resort)
 
 # Auth & Database
 PyJWT>=2.8.0     # Supabase JWT verification
