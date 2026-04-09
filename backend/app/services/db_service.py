@@ -464,7 +464,7 @@ async def delete_cv_analysis(session_id: str, user_id: str) -> bool:
     async with pool.acquire() as conn:
         # Verify ownership via interview_sessions
         row = await conn.fetchrow(
-            "SELECT user_id FROM interview_sessions WHERE id = $1::uuid",
+            "SELECT user_id::text FROM interview_sessions WHERE id = $1::uuid",
             session_id,
         )
         if not row or row["user_id"] != user_id:
