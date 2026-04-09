@@ -174,7 +174,8 @@ async def upload_cv(
         )
 
         # Analyze CV using Lambda (returns parsed data + corrections from two Claude calls)
-        analysis = lambda_service.invoke_cv_analyzer(cv_text=cv_text)
+        # Run in a thread so the async event loop isn't blocked during the ~5-15s Lambda call
+        analysis = await asyncio.to_thread(lambda: lambda_service.invoke_cv_analyzer(cv_text=cv_text))
 
         # Separate corrections from the main analysis before storing
         corrections = analysis.pop('corrections', {})
