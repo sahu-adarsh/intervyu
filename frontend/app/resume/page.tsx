@@ -7,7 +7,7 @@ import {
   Target, Zap, ArrowLeft, ExternalLink, Trash2,
 } from 'lucide-react';
 import DashboardLayout from '@/components/DashboardLayout';
-import { createSession, uploadCV, getCVPresignedUrl, getUserResumes, saveCVMetadata } from '@/lib/api';
+import { createSession, uploadCV, getCVPresignedUrl, getUserResumes, saveCVMetadata, getCVCorrections } from '@/lib/api';
 import type { CVCorrections } from '@/components/cv-reviewer/types';
 
 const CVReviewer = dynamic(() => import('@/components/cv-reviewer/CVReviewer'), { ssr: false });
@@ -200,7 +200,7 @@ function PastResumesGrid({ resumes, onView, onNew, onDelete }: {
 // ─── Upload Phase ─────────────────────────────────────────────────────────────
 
 function UploadPhase({ onComplete, compact }: {
-  onComplete: (resume: StoredResume, file: File) => void;
+  onComplete: (resume: StoredResume, file: File, sessionId: string) => void;
   compact?: boolean;
 }) {
   const [file, setFile] = useState<File | null>(null);
@@ -208,7 +208,6 @@ function UploadPhase({ onComplete, compact }: {
   const [jobTitle, setJobTitle] = useState('');
   const [jobDescription, setJobDescription] = useState('');
   const [uploading, setUploading] = useState(false);
-  const [uploadStage, setUploadStage] = useState<'parsing' | 'corrections' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -230,16 +229,14 @@ function UploadPhase({ onComplete, compact }: {
   const handleAnalyse = async () => {
     if (!file) return;
     if (!jobTitle.trim()) { setError('Please enter a target job title.'); return; }
-    setUploading(true); setError(null); setUploadStage('parsing');
+    setUploading(true); setError(null);
     try {
       const { session_id } = await createSession({
         interview_type: 'behavioral',
         candidate_name: 'Resume Analysis',
       });
 
-      const stageTimer = setTimeout(() => setUploadStage('corrections'), 8000);
       const data = await uploadCV(session_id, file);
-      clearTimeout(stageTimer);
 
       if (!data.success || !data.analysis) throw new Error('Analysis did not return results');
 
@@ -251,7 +248,7 @@ function UploadPhase({ onComplete, compact }: {
         filename: file.name,
         uploadedAt: new Date().toISOString(),
         analysis: data.analysis,
-        corrections: data.corrections ?? null,
+        corrections: null,
         jobTitle: jobTitle.trim() || undefined,
         jobDescription: jobDescription.trim() || undefined,
         atsScore: score,
@@ -268,7 +265,7 @@ function UploadPhase({ onComplete, compact }: {
         missing_keywords: missing,
       }).catch(() => {});
 
-      onComplete(newResume, file);
+      onComplete(newResume, file, session_id);
     } catch (err) {
       setError((err as Error).message || 'Something went wrong. Please try again.');
     } finally {
@@ -276,9 +273,7 @@ function UploadPhase({ onComplete, compact }: {
     }
   };
 
-  const uploadLabel = uploadStage === 'corrections' ? 'Analysing corrections...'
-    : uploadStage === 'parsing' ? 'Parsing your resume...'
-    : 'Analysing your resume...';
+  const uploadLabel = 'Analysing your resume...';
 
   return (
     <div className={compact ? '' : 'flex-1 overflow-y-auto bg-slate-950'}>
@@ -457,12 +452,29 @@ export default function ResumePage() {
       });
   }, []);
 
-  const handleComplete = (resume: StoredResume, file: File) => {
+  const handleComplete = (resume: StoredResume, file: File, sessionId: string) => {
     setResumes(prev => [resume, ...prev]);
     setActiveResume(resume);
     setActiveFile(file);
     setShowUploadModal(false);
     setView('review');
+
+    // Poll for Sonnet corrections in background — update state when ready
+    const poll = async () => {
+      for (let i = 0; i < 20; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        try {
+          const res = await getCVCorrections(sessionId);
+          if (res.status === 'ready' && res.corrections) {
+            const corrections = res.corrections as unknown as CVCorrections;
+            setActiveResume(prev => prev ? { ...prev, corrections } : prev);
+            setResumes(prev => prev.map(r => r.sessionId === sessionId ? { ...r, corrections } : r));
+            return;
+          }
+        } catch { /* non-fatal, keep polling */ }
+      }
+    };
+    poll();
   };
 
   const handleViewResume = (r: StoredResume) => {

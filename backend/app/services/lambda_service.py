@@ -81,6 +81,14 @@ class LambdaService:
 
         return self._invoke_lambda("prepai-cv-analyzer", payload)
 
+    def invoke_cv_corrections(self, cv_text: str) -> Dict[str, Any]:
+        """
+        Invoke CV Analyzer Lambda in corrections mode (Sonnet).
+        Returns the 9-dimension corrections checklist.
+        """
+        payload = {"cvText": cv_text, "mode": "corrections"}
+        return self._invoke_lambda("prepai-cv-analyzer", payload)
+
     def invoke_performance_evaluator(
         self,
         session_id: str,

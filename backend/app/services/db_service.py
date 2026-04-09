@@ -457,6 +457,21 @@ async def save_cv_analysis(
     return row["id"]
 
 
+async def update_cv_corrections(session_id: str, corrections: dict) -> None:
+    """Update only the structured_data (corrections) column for an existing CV analysis."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE cv_analysis
+            SET structured_data = $2::jsonb, updated_at = NOW()
+            WHERE session_id = $1::uuid
+            """,
+            session_id,
+            json.dumps(corrections),
+        )
+
+
 async def get_cv_analysis(session_id: str) -> Optional[dict]:
     """Fetch CV analysis for a session."""
     pool = await get_pool()

@@ -127,6 +127,18 @@ async def end_interview(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def _generate_corrections_background(session_id: str, cv_text: str) -> None:
+    """Generate Sonnet CV corrections in background and persist to DB."""
+    try:
+        corrections = await asyncio.to_thread(
+            lambda: lambda_service.invoke_cv_corrections(cv_text=cv_text)
+        )
+        await db_service.update_cv_corrections(session_id, corrections)
+        logger.info(f"CV corrections saved for session {session_id}")
+    except Exception as e:
+        logger.error(f"Background corrections failed for {session_id}: {e}")
+
+
 @router.post("/{session_id}/upload-cv")
 @limiter.limit("5/hour")
 async def upload_cv(
@@ -173,12 +185,8 @@ async def upload_cv(
             mime_type=file.content_type,
         )
 
-        # Analyze CV using Lambda (returns parsed data + corrections from two Claude calls)
-        # Run in a thread so the async event loop isn't blocked during the ~5-15s Lambda call
+        # Analyze CV using Lambda — Sonnet parsing only, runs in thread to unblock event loop
         analysis = await asyncio.to_thread(lambda: lambda_service.invoke_cv_analyzer(cv_text=cv_text))
-
-        # Separate corrections from the main analysis before storing
-        corrections = analysis.pop('corrections', {})
 
         # Extract industry-specific skills
         interview_type = session_data.get("interview_type", "")
@@ -193,18 +201,20 @@ async def upload_cv(
         analysis['industry'] = industry
         analysis['file_type'] = file_extension
 
-        # Save analysis to DB — corrections stored in structured_data JSONB column
+        # Save analysis to DB immediately — corrections will be filled in by background task
         await db_service.save_cv_analysis(
             session_id=session_id,
             skills_json=analysis,
             raw_text=cv_text[:10000],
-            structured_data=corrections,
+            structured_data={},
         )
+
+        # Fire Sonnet corrections as background task — doesn't block the response
+        asyncio.create_task(_generate_corrections_background(session_id, cv_text))
 
         return JSONResponse(content={
             "success": True,
             "analysis": analysis,
-            "corrections": corrections,
             "message": f"CV uploaded and analyzed successfully ({file_extension.upper()})",
         })
 
@@ -232,6 +242,34 @@ async def get_cv_analysis(
             "corrections": cv_data.get("structured_data", {}) if cv_data else {},
             "filename": cv_data.get("filename", "") if cv_data else "",
         })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{session_id}/cv-corrections")
+async def get_cv_corrections(
+    session_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Get CV corrections for a session.
+    Returns {"status": "pending"} if the background Sonnet call hasn't finished yet.
+    """
+    try:
+        await _verify_session_owner(session_id, current_user.user_id)
+
+        cv_data = await db_service.get_cv_analysis(session_id)
+        if not cv_data:
+            raise HTTPException(status_code=404, detail="No CV analysis found")
+
+        corrections = cv_data.get("structured_data", {})
+        if not corrections or not corrections.get("checkers"):
+            return JSONResponse(content={"status": "pending"})
+
+        return JSONResponse(content={"status": "ready", "corrections": corrections})
 
     except HTTPException:
         raise

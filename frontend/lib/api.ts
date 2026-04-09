@@ -95,6 +95,12 @@ export async function getCVAnalysis(sessionId: string) {
   return res.json();
 }
 
+export async function getCVCorrections(sessionId: string): Promise<{ status: 'pending' | 'ready'; corrections?: Record<string, unknown> }> {
+  const res = await authFetch(`/api/interviews/${sessionId}/cv-corrections`);
+  if (!res.ok) throw new Error(`Failed to get CV corrections: ${res.status}`);
+  return res.json();
+}
+
 export async function linkResume(sessionId: string, sourceSessionId: string) {
   const res = await authFetch(`/api/interviews/${sessionId}/link-resume`, {
     method: 'POST',

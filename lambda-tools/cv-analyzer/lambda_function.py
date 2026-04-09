@@ -11,7 +11,6 @@ import os
 import logging
 from typing import Dict, Any, List
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +48,7 @@ def lambda_handler(event, context):
             params = event
 
         cv_text = params.get('cvText', '')
+        mode = params.get('mode', 'analysis')  # "analysis" | "corrections"
 
         if not cv_text:
             s3_bucket = params.get('s3Bucket')
@@ -57,14 +57,11 @@ def lambda_handler(event, context):
                 return format_response(event, {'success': False, 'error': 'Either cvText or s3Bucket+s3Key required'}, 400)
             cv_text = download_cv_from_s3(s3_bucket, s3_key)
 
-        # Run both Claude calls in parallel — cuts total time roughly in half
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            f_analysis = pool.submit(analyze_cv_with_claude, cv_text)
-            f_corrections = pool.submit(generate_corrections_with_claude, cv_text)
-            analysis = f_analysis.result()
-            corrections = f_corrections.result()
+        if mode == 'corrections':
+            corrections = generate_corrections_with_claude(cv_text)
+            return format_response(event, corrections, 200)
 
-        analysis['corrections'] = corrections
+        analysis = analyze_cv_with_claude(cv_text)
         return format_response(event, analysis, 200)
 
     except Exception as e:
@@ -245,7 +242,7 @@ RESUME TEXT:
     try:
         bedrock = get_bedrock_client()
         response = bedrock.invoke_model(
-            modelId='us.anthropic.claude-haiku-4-5-20251001',
+            modelId='us.anthropic.claude-sonnet-4-6',
             body=json.dumps({
                 'anthropic_version': 'bedrock-2023-05-31',
                 'max_tokens': 4000,
