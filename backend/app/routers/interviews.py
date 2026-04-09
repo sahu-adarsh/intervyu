@@ -349,6 +349,24 @@ async def link_resume(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/{session_id}/cv")
+async def delete_cv(
+    session_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Delete CV analysis and document records for a session."""
+    try:
+        deleted = await db_service.delete_cv_analysis(session_id, current_user.user_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="CV not found or access denied")
+        return JSONResponse(content={"success": True})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"CV delete error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/resumes", include_in_schema=True)
 async def list_user_resumes(
     current_user: CurrentUser = Depends(get_current_user),

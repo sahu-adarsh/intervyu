@@ -110,6 +110,12 @@ export async function linkResume(sessionId: string, sourceSessionId: string) {
   return res.json();
 }
 
+export async function deleteCV(sessionId: string) {
+  const res = await authFetch(`/api/interviews/${sessionId}/cv`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to delete CV: ${res.status}`);
+  return res.json();
+}
+
 export async function getUserResumes(): Promise<{ resumes: Array<{
   session_id: string;
   filename: string;

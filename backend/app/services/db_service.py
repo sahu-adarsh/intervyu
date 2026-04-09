@@ -457,6 +457,27 @@ async def save_cv_analysis(
     return row["id"]
 
 
+async def delete_cv_analysis(session_id: str, user_id: str) -> bool:
+    """Delete cv_analysis and cv_documents rows for a session owned by user_id.
+    Returns True if something was deleted, False if not found / not owned."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        # Verify ownership via interview_sessions
+        row = await conn.fetchrow(
+            "SELECT user_id FROM interview_sessions WHERE id = $1::uuid",
+            session_id,
+        )
+        if not row or row["user_id"] != user_id:
+            return False
+        await conn.execute(
+            "DELETE FROM cv_analysis WHERE session_id = $1::uuid", session_id
+        )
+        await conn.execute(
+            "DELETE FROM cv_documents WHERE session_id = $1::uuid", session_id
+        )
+    return True
+
+
 async def update_cv_corrections(session_id: str, corrections: dict) -> None:
     """Update only the structured_data (corrections) column for an existing CV analysis."""
     pool = await get_pool()

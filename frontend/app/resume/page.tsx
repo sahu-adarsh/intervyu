@@ -7,7 +7,7 @@ import {
   Target, Zap, ArrowLeft, ExternalLink, Trash2,
 } from 'lucide-react';
 import DashboardLayout from '@/components/DashboardLayout';
-import { createSession, uploadCV, getCVPresignedUrl, getUserResumes, saveCVMetadata, getCVCorrections } from '@/lib/api';
+import { createSession, uploadCV, getCVPresignedUrl, getUserResumes, saveCVMetadata, getCVCorrections, deleteCV } from '@/lib/api';
 import type { CVCorrections } from '@/components/cv-reviewer/types';
 
 const CVReviewer = dynamic(() => import('@/components/cv-reviewer/CVReviewer'), { ssr: false });
@@ -490,7 +490,17 @@ export default function ResumePage() {
   };
 
   const handleDelete = (id: string) => {
+    // Optimistic UI update
     setResumes(prev => prev.filter(r => r.id !== id));
+    // Find sessionId — id equals sessionId for server-loaded resumes
+    const sessionId = resumes.find(r => r.id === id)?.sessionId ?? id;
+    deleteCV(sessionId).catch(() => {
+      // Rollback on failure
+      setResumes(prev => {
+        const deleted = resumes.find(r => r.id === id);
+        return deleted ? [deleted, ...prev] : prev;
+      });
+    });
   };
 
   return (
