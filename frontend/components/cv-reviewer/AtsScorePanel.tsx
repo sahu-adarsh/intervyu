@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Sparkles, TrendingUp, GraduationCap, Star, User, ChevronDown } from 'lucide-react';
+import { Sparkles, TrendingUp, GraduationCap, Star, User, ChevronDown, Bot } from 'lucide-react';
 import { CVAnalysis } from './types';
 
 interface AtsScorePanelProps {
@@ -271,6 +271,7 @@ function ScoreRing({ score }: { score: number }) {
 }
 
 // ─── Metric Card with expandable sub-metrics ──────────────────────────────────
+// Expansion is controlled by the parent to prevent concurrent opens (accordion).
 
 interface MetricCardProps {
   icon: React.ReactNode;
@@ -279,17 +280,18 @@ interface MetricCardProps {
   accentColor: string;
   bgColor: string;
   iconBg: string;
+  isExpanded: boolean;
+  onToggle: () => void;
 }
 
-function MetricCard({ icon, label, category, accentColor, bgColor, iconBg }: MetricCardProps) {
-  const [expanded, setExpanded] = useState(false);
+function MetricCard({ icon, label, category, accentColor, bgColor, iconBg, isExpanded, onToggle }: MetricCardProps) {
   const displayed = useCountUp(category.score, 900);
 
   return (
     <div className={`rounded-xl border border-white/5 ${bgColor} overflow-hidden`}>
       <button
         className="w-full flex items-center gap-2.5 p-2.5 text-left"
-        onClick={() => setExpanded(v => !v)}
+        onClick={(e) => { e.stopPropagation(); onToggle(); }}
       >
         <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${iconBg}`}>
           {icon}
@@ -309,11 +311,11 @@ function MetricCard({ icon, label, category, accentColor, bgColor, iconBg }: Met
         </div>
         <ChevronDown
           size={12}
-          className={`text-slate-600 flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
+          className={`text-slate-600 flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
         />
       </button>
 
-      {expanded && (
+      {isExpanded && (
         <div className="px-2.5 pb-2.5 space-y-1.5 border-t border-white/5 pt-2">
           {category.subs.map((sub) => {
             const pct = Math.round((sub.value / sub.max) * 100);
@@ -339,53 +341,82 @@ function MetricCard({ icon, label, category, accentColor, bgColor, iconBg }: Met
   );
 }
 
-// ─── Profile Snapshot (replaces generic Claude summary) ──────────────────────
+// ─── AI Summary ──────────────────────────────────────────────────────────────
+// Builds a detailed recruiter-readable narrative from structured CV data.
+// Falls back to the stored summary only if structured data is too sparse.
 
-function ProfileSnapshot({ analysis }: { analysis: CVAnalysis }) {
+function buildRecruiterSummary(analysis: CVAnalysis): string {
+  const name    = analysis.candidateName ?? 'The candidate';
+  const years   = analysis.totalYearsExperience ?? 0;
+  const roles   = analysis.experience ?? [];
   const allSkills = [...new Set([...(analysis.skills ?? []), ...(analysis.technologies ?? [])])];
-  const years = analysis.totalYearsExperience ?? 0;
-  const roles = analysis.experience ?? [];
-  const edu = analysis.education ?? [];
+  const edu     = analysis.education ?? [];
+  const catSkills = analysis.categorized_skills ?? {};
 
-  const rows: Array<{ icon: string; text: string }> = [];
+  const allTitles = roles.map(r => r.role ?? '').join(' ').toLowerCase();
+  const isLead   = ['lead', 'principal', 'staff', 'director', 'vp', 'architect'].some(k => allTitles.includes(k));
+  const isSenior = ['senior', 'sr.'].some(k => allTitles.includes(k)) || years >= 5;
+  const isMid    = years >= 2;
+  const level    = isLead ? 'senior-level' : isSenior ? 'senior' : isMid ? 'mid-level' : years > 0 ? 'junior-level' : '';
 
-  if (analysis.candidateName || analysis.email) {
-    const parts = [analysis.candidateName, analysis.email, analysis.phone].filter(Boolean);
-    rows.push({ icon: '👤', text: parts.join(' · ') });
+  const sentences: string[] = [];
+  const latestRole = roles[0];
+
+  // Sentence 1 — who they are
+  const roleLabel = latestRole?.role ?? 'software professional';
+  const expStr    = years > 0 ? ` with ${years} year${years !== 1 ? 's' : ''} of professional experience` : '';
+  sentences.push(`${name} is a ${level ? level + ' ' : ''}${roleLabel}${expStr}.`);
+
+  // Sentence 2 — what they've done most recently
+  if (latestRole?.company) {
+    const ctx = latestRole.context?.trim() ?? '';
+    if (ctx.length > 30) {
+      const ctxNormalized = ctx.endsWith('.') ? ctx : ctx + '.';
+      sentences.push(`Most recently at ${latestRole.company}, ${ctxNormalized.charAt(0).toLowerCase() + ctxNormalized.slice(1)}`);
+    } else {
+      const dur = latestRole.duration ? ` (${latestRole.duration})` : '';
+      sentences.push(`Most recently at ${latestRole.company}${dur}.`);
+    }
+  } else if (roles.length > 1) {
+    sentences.push(`Has accumulated experience across ${roles.length} professional roles.`);
   }
-  if (years > 0 || roles.length > 0) {
-    const parts: string[] = [];
-    if (years > 0) parts.push(`${years} yr${years !== 1 ? 's' : ''} experience`);
-    if (roles.length > 0) parts.push(`${roles.length} role${roles.length !== 1 ? 's' : ''}`);
-    const latestRole = roles[0];
-    if (latestRole?.role && latestRole?.company) parts.push(`Latest: ${latestRole.role} @ ${latestRole.company}`);
-    else if (latestRole?.role) parts.push(`Latest: ${latestRole.role}`);
-    rows.push({ icon: '💼', text: parts.join(' · ') });
-  }
-  if (edu.length > 0) {
-    const primary = edu[0];
-    const parts = [primary.degree, primary.institution, primary.year].filter(Boolean);
-    rows.push({ icon: '🎓', text: parts.join(' · ') });
-  }
+
+  // Sentence 3 — technical stack
   if (allSkills.length > 0) {
-    const preview = allSkills.slice(0, 4).join(', ');
-    const extra = allSkills.length > 4 ? ` +${allSkills.length - 4} more` : '';
-    rows.push({ icon: '⚡', text: `${allSkills.length} skills · ${preview}${extra}` });
+    const catNames = Object.keys(catSkills).filter(k => (catSkills[k]?.length ?? 0) > 0);
+    if (catNames.length >= 2) {
+      const topSkills = allSkills.slice(0, 5).join(', ');
+      sentences.push(`Technical proficiency spans ${catNames.join(', ')}, with key skills in ${topSkills}${allSkills.length > 5 ? ` and ${allSkills.length - 5} more` : ''}.`);
+    } else {
+      const top = allSkills.slice(0, 6).join(', ');
+      const rest = allSkills.length > 6 ? ` and ${allSkills.length - 6} additional technologies` : '';
+      sentences.push(`Core skills include ${top}${rest}.`);
+    }
   }
 
-  if (rows.length === 0) return null;
+  // Sentence 4 — education
+  if (edu.length > 0) {
+    const e = edu[0];
+    const edParts = [e.degree, e.context && `in ${e.context}`, e.institution && `from ${e.institution}`, e.year].filter(Boolean);
+    if (edParts.length > 0) sentences.push(`Holds a ${edParts.join(' ')}.`);
+  }
+
+  const built = sentences.join(' ');
+  // Only fall back to stored summary if we couldn't build anything meaningful
+  return built.length > 30 ? built : (analysis.summary?.trim() ?? '');
+}
+
+function AISummary({ analysis }: { analysis: CVAnalysis }) {
+  const summary = buildRecruiterSummary(analysis);
+  if (!summary) return null;
 
   return (
-    <div className="rounded-2xl border border-slate-700/50 bg-slate-800/30 p-4">
-      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2.5">Profile Snapshot</p>
-      <div className="space-y-1.5">
-        {rows.map((row, i) => (
-          <div key={i} className="flex items-start gap-2">
-            <span className="text-sm leading-tight flex-shrink-0">{row.icon}</span>
-            <span className="text-xs text-slate-300 leading-relaxed">{row.text}</span>
-          </div>
-        ))}
+    <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
+      <div className="flex items-center gap-1.5 mb-2.5">
+        <Bot size={12} className="text-violet-400" />
+        <p className="text-[10px] font-semibold text-violet-400 uppercase tracking-wider">AI Summary</p>
       </div>
+      <p className="text-xs text-slate-300 leading-relaxed">{summary}</p>
     </div>
   );
 }
@@ -395,6 +426,11 @@ function ProfileSnapshot({ analysis }: { analysis: CVAnalysis }) {
 export default function AtsScorePanel({ atsScore, analysis, matchedKeywords = [], missingKeywords = [] }: AtsScorePanelProps) {
   const sub = computeSubScores(analysis);
   const advice = getScoreAdvice(sub);
+  const [expandedCard, setExpandedCard] = useState<string | null>(null);
+
+  function toggleCard(id: string) {
+    setExpandedCard(prev => prev === id ? null : id);
+  }
 
   return (
     <div className="space-y-3">
@@ -409,21 +445,25 @@ export default function AtsScorePanel({ atsScore, analysis, matchedKeywords = []
                 icon={<Star size={13} className="text-blue-300" />}
                 label="Hard Skills" category={sub.hardSkills}
                 accentColor="#93c5fd" iconBg="bg-blue-500/15 text-blue-300" bgColor="bg-slate-800/60"
+                isExpanded={expandedCard === 'hardSkills'} onToggle={() => toggleCard('hardSkills')}
               />
               <MetricCard
                 icon={<TrendingUp size={13} className="text-violet-300" />}
                 label="Experience" category={sub.experience}
                 accentColor="#c4b5fd" iconBg="bg-violet-500/15 text-violet-300" bgColor="bg-slate-800/60"
+                isExpanded={expandedCard === 'experience'} onToggle={() => toggleCard('experience')}
               />
               <MetricCard
                 icon={<GraduationCap size={13} className="text-emerald-300" />}
                 label="Education" category={sub.education}
                 accentColor="#6ee7b7" iconBg="bg-emerald-500/15 text-emerald-300" bgColor="bg-slate-800/60"
+                isExpanded={expandedCard === 'education'} onToggle={() => toggleCard('education')}
               />
               <MetricCard
                 icon={<User size={13} className="text-amber-300" />}
                 label="Profile" category={sub.profile}
                 accentColor="#fcd34d" iconBg="bg-amber-500/15 text-amber-300" bgColor="bg-slate-800/60"
+                isExpanded={expandedCard === 'profile'} onToggle={() => toggleCard('profile')}
               />
             </div>
           </div>
@@ -433,8 +473,8 @@ export default function AtsScorePanel({ atsScore, analysis, matchedKeywords = []
         </div>
       </div>
 
-      {/* Profile Snapshot */}
-      <ProfileSnapshot analysis={analysis} />
+      {/* AI Summary */}
+      <AISummary analysis={analysis} />
 
       {/* Keywords */}
       {(matchedKeywords.length > 0 || missingKeywords.length > 0) && (
