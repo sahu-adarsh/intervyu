@@ -55,17 +55,48 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+// Weights: hardSkills 30%, experience 35%, education 20%, profile 15%
+// + up to 15 bonus pts for JD keyword match
 function computeAtsScore(analysis: CVAnalysis, jdText?: string): {
   score: number; matched: string[]; missing: string[];
 } {
-  let score = 0;
-  const allSkills = [...(analysis.skills ?? []), ...(analysis.technologies ?? [])];
-  const expLen = analysis.experience?.length ?? 0;
-  score += Math.min(30, expLen * 8 + ((analysis.totalYearsExperience ?? 0) > 3 ? 6 : 0));
-  score += analysis.education?.length ? 20 : 0;
-  score += Math.min(30, allSkills.length * 2);
-  score += (analysis.candidateName ? 5 : 0) + (analysis.email ? 5 : 0) + (analysis.summary ? 10 : 0);
+  const allSkills = [...new Set([...(analysis.skills ?? []), ...(analysis.technologies ?? [])])];
 
+  // Hard Skills (max 30)
+  const skillPts = Math.min(18, allSkills.length * 0.6);
+  const catKeys = Object.keys(analysis.categorized_skills ?? {}).filter(k => (analysis.categorized_skills?.[k]?.length ?? 0) > 0);
+  const diversityPts = Math.min(7, catKeys.length * 2);
+  const modernTech = ['docker','kubernetes','aws','azure','gcp','react','typescript','fastapi','terraform','llm','redis','kafka'];
+  const modernPts = Math.min(5, modernTech.filter(t => allSkills.some(s => s.toLowerCase().includes(t))).length * 1.5);
+  const hardSkillsScore = skillPts + diversityPts + modernPts;
+
+  // Experience (max 35)
+  const years = analysis.totalYearsExperience ?? 0;
+  const yearsPts = years === 0 ? 0 : years < 2 ? 8 : years < 4 ? 14 : years < 7 ? 20 : 22;
+  const rolesPts = Math.min(8, (analysis.experience?.length ?? 0) * 3);
+  const impactPattern = /\b(\d+[%x]|\d+\s*(users|ms|seconds|million|billion|k\b|times))\b/i;
+  const impactPts = Math.min(5, (analysis.experience ?? []).filter(e => impactPattern.test(e.context ?? '')).length * 2);
+  const experienceScore = yearsPts + rolesPts + impactPts;
+
+  // Education (max 20)
+  const eduText = (analysis.education ?? []).map(e => `${e.degree} ${e.context} ${e.institution ?? ''}`).join(' ').toLowerCase();
+  const degreePts = /phd|ph\.d|doctorate/.test(eduText) ? 14
+    : /master|m\.tech|mba|msc/.test(eduText) ? 12
+    : /bachelor|b\.tech|b\.e\.|b\.s\.|bsc/.test(eduText) ? 10
+    : (analysis.education?.length ?? 0) > 0 ? 5 : 0;
+  const techFieldPts = /computer|software|information|engineering|data|mathematics/.test(eduText) ? 6 : 0;
+  const educationScore = degreePts + techFieldPts;
+
+  // Profile (max 15)
+  const profileScore =
+    (analysis.candidateName ? 5 : 0) +
+    (analysis.email ? 4 : 0) +
+    (analysis.phone ? 2 : 0) +
+    ((analysis.summary?.length ?? 0) > 50 ? 4 : 0);
+
+  let score = hardSkillsScore + experienceScore + educationScore + profileScore;
+
+  // JD keyword match bonus (max 15)
   let matched: string[] = [];
   let missing: string[] = [];
   if (jdText && jdText.trim().length > 20) {
@@ -76,8 +107,9 @@ function computeAtsScore(analysis: CVAnalysis, jdText?: string): {
     const cvLower = allSkills.map(s => s.toLowerCase());
     matched = jdKeywords.filter(kw => cvLower.some(s => s.includes(kw) || kw.includes(s))).slice(0, 12);
     missing = jdKeywords.filter(kw => !cvLower.some(s => s.includes(kw) || kw.includes(s))).slice(0, 10);
-    score = Math.min(100, score + Math.round((matched.length / Math.min(jdKeywords.length, 20)) * 15));
+    score += Math.round((matched.length / Math.min(jdKeywords.length, 20)) * 15);
   }
+
   return { score: Math.min(100, Math.round(score)), matched, missing };
 }
 
@@ -269,7 +301,7 @@ function UploadPhase({ onComplete, compact }: {
     } catch (err) {
       setError((err as Error).message || 'Something went wrong. Please try again.');
     } finally {
-      setUploading(false); setUploadStage(null);
+      setUploading(false);
     }
   };
 
