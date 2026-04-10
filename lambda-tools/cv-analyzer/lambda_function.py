@@ -85,7 +85,7 @@ Return this exact JSON structure:
   "candidateName": "full name or null",
   "email": "email address or null",
   "phone": "phone number or null",
-  "summary": "2-sentence professional summary based on their experience and skills",
+  "summary": "3-4 sentence professional summary written in first person that the candidate could paste directly into their resume. Cover: current role/level, years of experience, key technical strengths, and a notable achievement or focus area. Be specific — mention actual companies, technologies, and domains from the CV. Do not fabricate details not present in the CV.",
   "totalYearsExperience": <number, calculate from work history dates, 0 if unclear>,
   "skills": ["list", "of", "technical", "skills", "extracted"],
   "technologies": ["same", "as", "skills"],
@@ -116,7 +116,7 @@ Rules:
     try:
         bedrock = get_bedrock_client()
         response = bedrock.invoke_model(
-            modelId='us.anthropic.claude-haiku-4-5-20251001',
+            modelId='us.anthropic.claude-sonnet-4-6',
             body=json.dumps({
                 'anthropic_version': 'bedrock-2023-05-31',
                 'max_tokens': 2000,

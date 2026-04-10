@@ -342,72 +342,11 @@ function MetricCard({ icon, label, category, accentColor, bgColor, iconBg, isExp
 }
 
 // ─── AI Summary ──────────────────────────────────────────────────────────────
-// Builds a detailed recruiter-readable narrative from structured CV data.
-// Falls back to the stored summary only if structured data is too sparse.
-
-function buildRecruiterSummary(analysis: CVAnalysis): string {
-  const name    = analysis.candidateName ?? 'The candidate';
-  const years   = analysis.totalYearsExperience ?? 0;
-  const roles   = analysis.experience ?? [];
-  const allSkills = [...new Set([...(analysis.skills ?? []), ...(analysis.technologies ?? [])])];
-  const edu     = analysis.education ?? [];
-  const catSkills = analysis.categorized_skills ?? {};
-
-  const allTitles = roles.map(r => r.role ?? '').join(' ').toLowerCase();
-  const isLead   = ['lead', 'principal', 'staff', 'director', 'vp', 'architect'].some(k => allTitles.includes(k));
-  const isSenior = ['senior', 'sr.'].some(k => allTitles.includes(k)) || years >= 5;
-  const isMid    = years >= 2;
-  const level    = isLead ? 'senior-level' : isSenior ? 'senior' : isMid ? 'mid-level' : years > 0 ? 'junior-level' : '';
-
-  const sentences: string[] = [];
-  const latestRole = roles[0];
-
-  // Sentence 1 — who they are
-  const roleLabel = latestRole?.role ?? 'software professional';
-  const expStr    = years > 0 ? ` with ${years} year${years !== 1 ? 's' : ''} of professional experience` : '';
-  sentences.push(`${name} is a ${level ? level + ' ' : ''}${roleLabel}${expStr}.`);
-
-  // Sentence 2 — what they've done most recently
-  if (latestRole?.company) {
-    const ctx = latestRole.context?.trim() ?? '';
-    if (ctx.length > 30) {
-      const ctxNormalized = ctx.endsWith('.') ? ctx : ctx + '.';
-      sentences.push(`Most recently at ${latestRole.company}, ${ctxNormalized.charAt(0).toLowerCase() + ctxNormalized.slice(1)}`);
-    } else {
-      const dur = latestRole.duration ? ` (${latestRole.duration})` : '';
-      sentences.push(`Most recently at ${latestRole.company}${dur}.`);
-    }
-  } else if (roles.length > 1) {
-    sentences.push(`Has accumulated experience across ${roles.length} professional roles.`);
-  }
-
-  // Sentence 3 — technical stack
-  if (allSkills.length > 0) {
-    const catNames = Object.keys(catSkills).filter(k => (catSkills[k]?.length ?? 0) > 0);
-    if (catNames.length >= 2) {
-      const topSkills = allSkills.slice(0, 5).join(', ');
-      sentences.push(`Technical proficiency spans ${catNames.join(', ')}, with key skills in ${topSkills}${allSkills.length > 5 ? ` and ${allSkills.length - 5} more` : ''}.`);
-    } else {
-      const top = allSkills.slice(0, 6).join(', ');
-      const rest = allSkills.length > 6 ? ` and ${allSkills.length - 6} additional technologies` : '';
-      sentences.push(`Core skills include ${top}${rest}.`);
-    }
-  }
-
-  // Sentence 4 — education
-  if (edu.length > 0) {
-    const e = edu[0];
-    const edParts = [e.degree, e.context && `in ${e.context}`, e.institution && `from ${e.institution}`, e.year].filter(Boolean);
-    if (edParts.length > 0) sentences.push(`Holds a ${edParts.join(' ')}.`);
-  }
-
-  const built = sentences.join(' ');
-  // Only fall back to stored summary if we couldn't build anything meaningful
-  return built.length > 30 ? built : (analysis.summary?.trim() ?? '');
-}
+// Shows the Claude-generated professional summary from CV parsing —
+// written as a candidate-facing "About Me" paragraph, not a recruiter profile.
 
 function AISummary({ analysis }: { analysis: CVAnalysis }) {
-  const summary = buildRecruiterSummary(analysis);
+  const summary = analysis.summary?.trim();
   if (!summary) return null;
 
   return (
@@ -440,7 +379,7 @@ export default function AtsScorePanel({ atsScore, analysis, matchedKeywords = []
         <div className="p-4">
           <div className="flex items-start gap-4">
             <ScoreRing score={atsScore} />
-            <div className="flex-1 grid grid-cols-2 gap-2">
+            <div className="flex-1 grid grid-cols-2 gap-2 items-start">
               <MetricCard
                 icon={<Star size={13} className="text-blue-300" />}
                 label="Hard Skills" category={sub.hardSkills}
