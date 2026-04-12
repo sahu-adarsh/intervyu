@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutGrid, FileText, AlertCircle, Send, X, LogOut, ChevronDown } from 'lucide-react';
+import { LayoutGrid, FileText, AlertCircle, Send, X, LogOut, ChevronDown, Github } from 'lucide-react';
 import { useSupabaseSession, signOut, getUserDisplayName, getUserAvatarUrl } from '@/lib/supabase/auth';
 import { supabase } from '@/lib/supabase/client';
 
@@ -30,6 +30,22 @@ function NavItem({ icon, label, href, active }: NavItemProps) {
         {label}
       </span>
     </Link>
+  );
+}
+
+function GitHubStarButton() {
+  return (
+    <a
+      href="https://github.com/sahu-adarsh/intervyu"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group relative w-10 h-10 rounded-xl flex items-center justify-center text-slate-500 hover:text-yellow-400 hover:bg-slate-800 transition-colors"
+    >
+      <Github size={18} />
+      <span className="absolute left-12 top-1/2 -translate-y-1/2 bg-slate-800 border border-slate-700 text-slate-200 text-xs px-2.5 py-1.5 rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-xl">
+        Star on GitHub
+      </span>
+    </a>
   );
 }
 
@@ -270,6 +286,7 @@ export default function Sidebar() {
 
       {/* Bottom */}
       <div className="flex flex-col items-center gap-3">
+        <GitHubStarButton />
         <ReportIssueButton />
         <UserAvatar />
       </div>

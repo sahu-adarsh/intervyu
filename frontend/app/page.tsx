@@ -5,6 +5,7 @@ import {
   BriefcaseBusiness,
 } from "lucide-react";
 import AuthRedirect from "@/components/AuthRedirect";
+import GitHubStarLink from "@/components/GitHubStarLink";
 
 export const metadata = {
   title: "intervyu | AI mock interviewer",
@@ -158,6 +159,7 @@ export default function HomePage() {
               <a href="#features" className="transition hover:text-slate-950">Features</a>
               <a href="#story" className="transition hover:text-slate-950">Story</a>
               <a href="#proof" className="transition hover:text-slate-950">Proof</a>
+              <GitHubStarLink />
               <Link href="/login" className="rounded-full bg-indigo-600 px-4 py-2 text-white transition hover:bg-indigo-500">
                 Try free
               </Link>
