@@ -282,52 +282,67 @@ function SuggestionCard({ item, index }: { item: StructuredSuggestion; index: nu
 
   return (
     <div
-      className="rounded-xl overflow-hidden"
-      style={{ border: `1px solid rgba(255,255,255,${open ? '0.07' : '0.04'})` }}
+      className="rounded-xl overflow-hidden transition-all duration-150"
+      style={{
+        border: `1px solid ${open ? `${cfg.color}22` : 'rgba(255,255,255,0.07)'}`,
+      }}
     >
       {/* ── Collapsed row ── */}
       <button
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left hover:bg-white/[0.02] transition-colors"
+        className="w-full flex items-start gap-3 px-3.5 py-3 text-left hover:bg-white/[0.02] transition-colors group"
       >
-        {/* Left accent bar */}
+        {/* Left accent bar — 3px, full height */}
         <div
-          className="w-0.5 self-stretch rounded-full flex-shrink-0"
-          style={{ background: cfg.color, minHeight: '14px' }}
+          className="w-[3px] self-stretch rounded-full flex-shrink-0"
+          style={{ background: cfg.color, minHeight: '16px' }}
         />
-        {/* Title — single line, truncated */}
-        <p className="flex-1 min-w-0 text-[11px] text-slate-200 font-medium leading-tight truncate">
+        {/* Title — wraps up to 2 lines so users can read it before clicking */}
+        <p className="flex-1 min-w-0 text-[11px] text-slate-300 font-medium leading-[1.45] line-clamp-2 group-hover:text-slate-200 transition-colors">
           {item.summary}
         </p>
-        {/* Impact badge */}
-        <span
-          className="text-[8px] font-black px-1.5 py-0.5 rounded flex-shrink-0 border"
-          style={{ color: cfg.color, background: cfg.dimBg, borderColor: `${cfg.color}28` }}
-        >
-          {cfg.label}
-        </span>
-        {/* Chevron */}
-        {item.details.length > 0 && (
-          <ChevronDown
-            size={11}
-            className="text-slate-600 flex-shrink-0 transition-transform duration-200"
-            style={{ transform: open ? 'rotate(180deg)' : undefined }}
-          />
-        )}
+        {/* Impact badge + chevron */}
+        <div className="flex items-center gap-1.5 flex-shrink-0 pt-0.5">
+          <span
+            className="text-[9px] font-black tracking-wide px-1.5 py-[3px] rounded-md"
+            style={{
+              color: cfg.color,
+              background: `${cfg.color}15`,
+              border: `1px solid ${cfg.color}35`,
+            }}
+          >
+            {cfg.label}
+          </span>
+          {item.details.length > 0 && (
+            <ChevronDown
+              size={12}
+              className="text-slate-500 flex-shrink-0 transition-transform duration-200"
+              style={{ transform: open ? 'rotate(180deg)' : undefined }}
+            />
+          )}
+        </div>
       </button>
 
       {/* ── Expanded description ── */}
       {open && item.details.length > 0 && (
         <div
-          className="px-3.5 pb-3 space-y-1.5"
-          style={{ borderTop: `1px solid rgba(255,255,255,0.04)`, background: cfg.dimBg }}
+          className="px-4 pb-4"
+          style={{
+            borderTop: `1px solid ${cfg.color}18`,
+            background: `${cfg.color}06`,
+          }}
         >
-          {item.details.map((d, i) => (
-            <p key={i} className="flex items-start gap-2 text-[10px] text-slate-400 leading-relaxed pt-2">
-              <span className="flex-shrink-0 mt-0.5" style={{ color: cfg.color }}>›</span>
-              {d}
-            </p>
-          ))}
+          <div className="space-y-3 pt-3">
+            {item.details.map((d, i) => (
+              <p key={i} className="flex items-start gap-2.5 text-[10.5px] text-slate-400 leading-relaxed">
+                <span
+                  className="w-[5px] h-[5px] rounded-full flex-shrink-0 mt-[5px]"
+                  style={{ background: cfg.color, opacity: 0.8 }}
+                />
+                {d}
+              </p>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -551,12 +566,12 @@ export default function AtsScorePanel({ atsResults, analysis, sessionId, jobDesc
             <div className="px-4 py-3.5">
               {/* Section header */}
               <div className="flex items-center gap-2 mb-3">
-                <Zap size={9} className="text-slate-600" />
-                <span className="text-[9px] font-bold text-slate-600 uppercase tracking-widest">
+                <Zap size={10} className="text-amber-400/50" />
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                   Suggestions
                 </span>
                 {isAiLoading && (
-                  <span className="flex items-center gap-1 text-[9px] text-slate-600">
+                  <span className="flex items-center gap-1.5 text-[9px] text-slate-600 ml-1">
                     <span className="w-2.5 h-2.5 border border-slate-700 border-t-slate-500 rounded-full animate-spin inline-block" />
                     analyzing...
                   </span>
