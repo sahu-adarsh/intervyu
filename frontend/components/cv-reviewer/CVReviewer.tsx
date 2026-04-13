@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { getCVPresignedUrl } from '@/lib/api';
-import { CVAnalysis, CVCorrections, CheckerID, CheckerResult, ScoreResult } from './types';
+import { CVAnalysis, CVCorrections, CheckerID, CheckerResult, ScoreResult, StructuredSuggestion } from './types';
 import AtsScorePanel from './AtsScorePanel';
 import CheckerSidebar from './CheckerSidebar';
 import { FileText, BarChart2, ZoomIn, ZoomOut } from 'lucide-react';
@@ -17,6 +17,8 @@ interface CVReviewerProps {
   atsResults: ScoreResult[];
   jobDescription?: string;
   localPdfFile?: File | null;
+  suggestionsCache?: Map<string, StructuredSuggestion[]>;
+  onSuggestionsCached?: (sessionId: string, items: StructuredSuggestion[]) => void;
 }
 
 export default function CVReviewer({
@@ -26,6 +28,8 @@ export default function CVReviewer({
   atsResults,
   jobDescription,
   localPdfFile,
+  suggestionsCache,
+  onSuggestionsCached,
 }: CVReviewerProps) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [mimeType, setMimeType] = useState<string | undefined>(undefined);
@@ -148,6 +152,8 @@ export default function CVReviewer({
               analysis={analysis}
               sessionId={sessionId}
               jobDescription={jobDescription}
+              suggestionsCache={suggestionsCache}
+              onSuggestionsCached={onSuggestionsCached}
             />
             <CheckerSidebar
               corrections={corrections}

@@ -56,24 +56,30 @@ Current average ATS compatibility score: {avg_score}/100
 
 Provide 3-5 highly specific, actionable suggestions to improve this resume's ATS compatibility.
 
-CRITICAL RULES:
-- Every suggestion MUST quote or reference SPECIFIC text, skills, bullet points, or sections from this resume. Never write generic advice like "add more keywords" or "quantify achievements."
-- Show the exact before/after. E.g.: "Change 'Developed microservices' → 'Designed 12 microservices handling 50K+ daily transactions, reducing latency by 40%'"
-- For keyword issues: quote the exact term present and the exact form needed from the JD.
-- For quantification: quote the specific bullet that needs a metric and suggest a realistic concrete version.
-- IMPORTANT: resume text may contain PDF extraction artifacts like #, §, fi, fl ligatures. Ignore these — treat as normal text, do NOT flag as formatting issues.
+OUTPUT RULES — follow exactly:
+- "summary": 10-12 word phrase naming the specific resume element and the problem. Quote the actual text from the resume. No full sentences.
+- "details": array of EXACTLY 3 strings. Each string must be 10-17 words long (count carefully).
+  - details[0]: exact before→after rewrite, quoting current resume text
+  - details[1]: why this specific ATS platform behavior penalises this issue
+  - details[2]: which platforms benefit and estimated score improvement in points
+- "impact": "critical" | "high" | "medium" | "low"
+- "platforms": array of platform names most affected
+
+CONTENT RULES:
+- Every suggestion must reference specific text from this resume. Never say "add more keywords" or "quantify achievements" generically.
+- PDF extraction artifacts (#, §, fi, fl ligatures) — ignore these, treat as normal text.
 
 Return ONLY valid JSON — no markdown fences, no explanation text:
 {{
   "suggestions": [
     {{
-      "summary": "10-12 word phrase (NOT a full sentence) that names the specific resume element and the problem — e.g. \"'improve analyst efficiency' bullet missing baseline volume and system scope\" or \"'~6s' notation in Intervyu project may fail Taleo parsing\"",
+      "summary": "10-12 word phrase quoting specific resume content and the problem",
       "details": [
-        "Exact change: 'current text' → 'improved version with specifics'",
-        "Why this matters for named ATS platforms with their documented parsing/matching behavior",
-        "Which platforms benefit and estimated score impact"
+        "Change 'exact current text' to 'improved version with specific metric or term'",
+        "Workday/Taleo parse this field as X; missing Y causes Z score penalty",
+        "Workday, Taleo benefit most; estimated +3-5 points on keyword match"
       ],
-      "impact": "critical|high|medium|low",
+      "impact": "high",
       "platforms": ["Workday", "Taleo"]
     }}
   ]

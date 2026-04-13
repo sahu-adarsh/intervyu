@@ -17,6 +17,9 @@ interface AtsScorePanelProps {
   analysis: CVAnalysis;
   sessionId?: string;
   jobDescription?: string;
+  // Page-level cache: keyed by sessionId so suggestions survive re-opens
+  suggestionsCache?: Map<string, StructuredSuggestion[]>;
+  onSuggestionsCached?: (sessionId: string, items: StructuredSuggestion[]) => void;
 }
 
 // ─── Count-up animation ────────────────────────────────────────────────────────
@@ -407,16 +410,20 @@ function Divider() {
 
 // ─── Root component ────────────────────────────────────────────────────────────
 
-export default function AtsScorePanel({ atsResults, analysis, sessionId, jobDescription }: AtsScorePanelProps) {
-  // Hooks must be called unconditionally
+export default function AtsScorePanel({
+  atsResults, analysis, sessionId, jobDescription,
+  suggestionsCache, onSuggestionsCached,
+}: AtsScorePanelProps) {
   const initBest =
     atsResults && atsResults.length > 0
       ? atsResults.reduce((b, r) => (r.overallScore > b.overallScore ? r : b), atsResults[0]).system
       : '';
 
   const [selected, setSelected] = useState<string>(initBest);
-  // null = loading in progress, [] = done (empty or failed), non-empty = AI suggestions ready
-  const [aiSuggestions, setAiSuggestions] = useState<StructuredSuggestion[] | null>(null);
+  // null = loading, [] = failed/empty (show deterministic), non-empty = ready
+  const [aiSuggestions, setAiSuggestions] = useState<StructuredSuggestion[] | null>(() =>
+    sessionId && suggestionsCache?.has(sessionId) ? suggestionsCache.get(sessionId)! : null
+  );
 
   useEffect(() => {
     if (!atsResults?.length) return;
@@ -424,11 +431,16 @@ export default function AtsScorePanel({ atsResults, analysis, sessionId, jobDesc
     setSelected(best.system);
   }, [atsResults]);
 
-  // Fetch AI suggestions once per sessionId
+  // Fetch AI suggestions — skip if already cached for this sessionId
   useEffect(() => {
     if (!sessionId || !atsResults?.length) return;
+    // Already have cached result — don't re-fetch
+    if (suggestionsCache?.has(sessionId)) {
+      setAiSuggestions(suggestionsCache.get(sessionId)!);
+      return;
+    }
     let cancelled = false;
-    setAiSuggestions(null); // reset to loading state
+    setAiSuggestions(null);
 
     const avg = Math.round(atsResults.reduce((s, r) => s + r.overallScore, 0) / atsResults.length);
     getCvAiSuggestions(sessionId, avg, jobDescription)
@@ -441,10 +453,11 @@ export default function AtsScorePanel({ atsResults, analysis, sessionId, jobDesc
             platforms: s.platforms ?? [],
           }));
           setAiSuggestions(items);
+          onSuggestionsCached?.(sessionId, items);
         }
       })
       .catch(() => {
-        if (!cancelled) setAiSuggestions([]); // empty = show deterministic fallback
+        if (!cancelled) setAiSuggestions([]);
       });
 
     return () => { cancelled = true; };

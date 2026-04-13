@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import DashboardLayout from '@/components/DashboardLayout';
 import { createSession, uploadCV, getCVPresignedUrl, getUserResumes, saveCVMetadata, getCVCorrections, deleteCV } from '@/lib/api';
-import type { CVCorrections } from '@/components/cv-reviewer/types';
+import type { CVCorrections, StructuredSuggestion } from '@/components/cv-reviewer/types';
 import { scoreResume, buildScoringInput } from '@/lib/ats-engine';
 import type { ScoreResult } from '@/lib/ats-engine';
 
@@ -420,6 +420,8 @@ export default function ResumePage() {
   const [activeFile, setActiveFile] = useState<File | null>(null);
   const [atsResults, setAtsResults] = useState<ScoreResult[]>([]);
   const [view, setView] = useState<View>('grid');
+  // Suggestions cache: keyed by sessionId, persists across re-opens within the same page session
+  const suggestionsCache = useRef(new Map<string, StructuredSuggestion[]>());
   const [showUploadModal, setShowUploadModal] = useState(false);
 
   useEffect(() => {
@@ -598,6 +600,8 @@ export default function ResumePage() {
               atsResults={atsResults}
               jobDescription={activeResume.jobDescription}
               localPdfFile={activeFile}
+              suggestionsCache={suggestionsCache.current}
+              onSuggestionsCached={(sid, items) => suggestionsCache.current.set(sid, items)}
             />
           </div>
         )}
