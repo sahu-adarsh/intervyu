@@ -5,7 +5,7 @@ import logging
 from typing import Dict, Any, Optional, List, Generator
 from botocore.config import Config
 from botocore.exceptions import ClientError
-from app.config import AWS_REGION, AWS_ACCESS_KEY, AWS_SECRET_ACCESS_KEY, BEDROCK_AGENT_ID, BEDROCK_AGENT_ALIAS_ID
+from app.config import AWS_REGION, AWS_ACCESS_KEY, AWS_SECRET_ACCESS_KEY, BEDROCK_AGENT_ID, BEDROCK_AGENT_ALIAS_ID, TEXTRACT_AWS_ACCESS_KEY, TEXTRACT_AWS_SECRET_ACCESS_KEY
 from app.config.interview_types import get_interview_config, INTERVIEW_PHASES
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,14 @@ class BedrockService:
             region_name=AWS_REGION,
             aws_access_key_id=AWS_ACCESS_KEY,
             aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            config=config
+        )
+        # Separate client for structured JSON calls (uses Textract creds which have Sonnet/Haiku-3.5 access)
+        self.bedrock_json_client = boto3.client(
+            'bedrock-runtime',
+            region_name=AWS_REGION,
+            aws_access_key_id=TEXTRACT_AWS_ACCESS_KEY,
+            aws_secret_access_key=TEXTRACT_AWS_SECRET_ACCESS_KEY,
             config=config
         )
         self.agent_id = BEDROCK_AGENT_ID
@@ -301,8 +309,8 @@ class BedrockService:
         Single-turn Claude call for structured JSON output. Not streaming.
         Returns the raw text response (caller parses JSON).
         """
-        response = self.bedrock_runtime_client.converse(
-            modelId="us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+        response = self.bedrock_json_client.converse(
+            modelId="us.anthropic.claude-3-5-haiku-20241022-v1:0",
             messages=[{"role": "user", "content": [{"text": prompt}]}],
             inferenceConfig={"maxTokens": max_tokens, "temperature": 0.3},
         )

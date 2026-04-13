@@ -404,21 +404,22 @@ function AISummary({ analysis }: { analysis: CVAnalysis }) {
         <div className="w-5 h-5 rounded-md bg-violet-500/20 flex items-center justify-center flex-shrink-0">
           <Bot size={10} className="text-violet-400" />
         </div>
-        <span className="text-[10px] font-bold text-violet-400/70 uppercase tracking-widest">AI Analysis</span>
+        <span className="text-[10px] font-bold text-violet-400/70 uppercase tracking-widest">Candidate Profile</span>
+        <span className="ml-auto text-[9px] text-slate-700 font-medium">For recruiters</span>
       </div>
       {/* Body */}
       <div className="px-4 py-3" style={{ background: 'rgba(8,10,20,0.85)' }}>
         {sentences.length > 1 ? (
           <div className="space-y-2">
             {sentences.map((s, i) => (
-              <p key={i} className="flex items-start gap-2.5 text-[11px] text-slate-400 leading-relaxed">
+              <p key={i} className="flex items-start gap-2.5 text-[11px] text-slate-300 leading-relaxed">
                 <span className="w-[4px] h-[4px] rounded-full bg-violet-500/50 flex-shrink-0 mt-[6px]" />
                 {s}
               </p>
             ))}
           </div>
         ) : (
-          <p className="text-[11px] text-slate-400 leading-relaxed">{text}</p>
+          <p className="text-[11px] text-slate-300 leading-relaxed">{text}</p>
         )}
       </div>
     </div>
