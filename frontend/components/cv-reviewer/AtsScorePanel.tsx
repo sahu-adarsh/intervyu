@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import type { ElementType } from 'react';
 import {
   Bot, AlertCircle, CheckCircle2, XCircle, ChevronDown,
-  Target, Zap, BookOpen, Briefcase, GraduationCap, Layout, Sparkles,
+  Target, Zap, BookOpen, Briefcase, GraduationCap, Layout,
 } from 'lucide-react';
 import type { ScoreResult, Suggestion, StructuredSuggestion } from './types';
 import type { CVAnalysis } from './types';
@@ -26,12 +26,15 @@ function useCountUp(target: number, duration = 1000) {
   useEffect(() => {
     setValue(0);
     const start = performance.now();
+    let frame: number;
     const tick = (now: number) => {
       const p = Math.min((now - start) / duration, 1);
       setValue(Math.round((1 - Math.pow(1 - p, 3)) * target));
-      if (p < 1) requestAnimationFrame(tick);
+      if (p < 1) frame = requestAnimationFrame(tick);
     };
-    requestAnimationFrame(tick);
+    frame = requestAnimationFrame(tick);
+    // Cancel stale animation when target changes or component unmounts
+    return () => cancelAnimationFrame(frame);
   }, [target, duration]);
   return value;
 }
@@ -267,36 +270,39 @@ function KeywordChips({ matched, missing, synonymMatched }: {
 // ─── Suggestion card ───────────────────────────────────────────────────────────
 
 const IMPACT_CFG: Record<string, { label: string; color: string; dimBg: string }> = {
-  critical: { label: 'Critical', color: '#f87171', dimBg: 'rgba(248,113,113,0.07)' },
-  high:     { label: 'High',     color: '#fb923c', dimBg: 'rgba(251,146,60,0.07)'  },
-  medium:   { label: 'Medium',   color: '#fbbf24', dimBg: 'rgba(251,191,36,0.06)'  },
-  low:      { label: 'Low',      color: '#64748b', dimBg: 'rgba(100,116,139,0.05)' },
+  critical: { label: 'CRITICAL', color: '#f87171', dimBg: 'rgba(248,113,113,0.07)' },
+  high:     { label: 'HIGH',     color: '#fb923c', dimBg: 'rgba(251,146,60,0.07)'  },
+  medium:   { label: 'MEDIUM',   color: '#fbbf24', dimBg: 'rgba(251,191,36,0.06)'  },
+  low:      { label: 'LOW',      color: '#64748b', dimBg: 'rgba(100,116,139,0.05)' },
 };
 
-function SuggestionCard({ item }: { item: StructuredSuggestion }) {
+function SuggestionCard({ item, index }: { item: StructuredSuggestion; index: number }) {
   const [open, setOpen] = useState(false);
   const cfg = IMPACT_CFG[item.impact] ?? IMPACT_CFG.low;
 
   return (
     <div
-      className="rounded-xl overflow-hidden transition-colors duration-150"
-      style={{ border: `1px solid rgba(255,255,255,${open ? '0.08' : '0.05'})` }}
+      className="rounded-xl overflow-hidden"
+      style={{ border: `1px solid rgba(255,255,255,${open ? '0.07' : '0.04'})` }}
     >
+      {/* ── Collapsed row ── */}
       <button
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center gap-3 px-3.5 py-3 text-left hover:bg-white/[0.02] transition-colors"
+        className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left hover:bg-white/[0.02] transition-colors"
       >
         {/* Left accent bar */}
         <div
-          className="w-0.5 rounded-full self-stretch flex-shrink-0"
-          style={{ background: cfg.color, minHeight: '16px' }}
+          className="w-0.5 self-stretch rounded-full flex-shrink-0"
+          style={{ background: cfg.color, minHeight: '14px' }}
         />
-        {/* Text */}
-        <p className="flex-1 text-[11px] text-slate-300 leading-snug font-medium">{item.summary}</p>
-        {/* Impact pill */}
+        {/* Title — single line, truncated */}
+        <p className="flex-1 min-w-0 text-[11px] text-slate-200 font-medium leading-tight truncate">
+          {item.summary}
+        </p>
+        {/* Impact badge */}
         <span
-          className="text-[9px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0"
-          style={{ color: cfg.color, background: cfg.dimBg }}
+          className="text-[8px] font-black px-1.5 py-0.5 rounded flex-shrink-0 border"
+          style={{ color: cfg.color, background: cfg.dimBg, borderColor: `${cfg.color}28` }}
         >
           {cfg.label}
         </span>
@@ -310,9 +316,10 @@ function SuggestionCard({ item }: { item: StructuredSuggestion }) {
         )}
       </button>
 
+      {/* ── Expanded description ── */}
       {open && item.details.length > 0 && (
         <div
-          className="px-3.5 pb-3 space-y-2"
+          className="px-3.5 pb-3 space-y-1.5"
           style={{ borderTop: `1px solid rgba(255,255,255,0.04)`, background: cfg.dimBg }}
         >
           {item.details.map((d, i) => (
@@ -431,12 +438,9 @@ export default function AtsScorePanel({ atsResults, analysis, sessionId, jobDesc
 
   // Use AI suggestions when loaded, fall back to deterministic
   const isAiLoading = sessionId != null && aiSuggestions === null;
-  const displaySuggestions = aiSuggestions !== null && aiSuggestions.length > 0
+  const displaySuggestions = aiSuggestions?.length
     ? aiSuggestions
-    : aiSuggestions === null
-    ? deterministicSuggestions  // show deterministic while AI is loading
-    : deterministicSuggestions; // AI returned empty, show deterministic
-  const isAiPowered = aiSuggestions !== null && aiSuggestions.length > 0;
+    : deterministicSuggestions;
 
   const hasKeywords =
     breakdown.keywordMatch.matched.length > 0 ||
@@ -480,8 +484,9 @@ export default function AtsScorePanel({ atsResults, analysis, sessionId, jobDesc
         ))}
       </div>
 
-      {/* ── Detail card ─────────────────────────────────────────────────── */}
+      {/* ── Detail card — key forces remount on platform switch ───────── */}
       <div
+        key={active.system}
         className="rounded-2xl overflow-hidden"
         style={{
           background: 'linear-gradient(160deg, rgba(10,15,30,0.98) 0%, rgba(4,8,20,1) 100%)',
@@ -544,28 +549,22 @@ export default function AtsScorePanel({ atsResults, analysis, sessionId, jobDesc
           <>
             <Divider />
             <div className="px-4 py-3.5">
-              {/* Section header with AI badge */}
+              {/* Section header */}
               <div className="flex items-center gap-2 mb-3">
                 <Zap size={9} className="text-slate-600" />
                 <span className="text-[9px] font-bold text-slate-600 uppercase tracking-widest">
                   Suggestions
                 </span>
                 {isAiLoading && (
-                  <span className="flex items-center gap-1 text-[9px] text-violet-400/70">
-                    <span className="w-2.5 h-2.5 border border-slate-700 border-t-violet-400 rounded-full animate-spin inline-block" />
-                    AI analyzing...
-                  </span>
-                )}
-                {isAiPowered && (
-                  <span className="flex items-center gap-0.5 text-[9px] font-semibold text-violet-400 bg-violet-500/10 border border-violet-500/20 px-1.5 py-0.5 rounded-md">
-                    <Sparkles size={8} />
-                    AI
+                  <span className="flex items-center gap-1 text-[9px] text-slate-600">
+                    <span className="w-2.5 h-2.5 border border-slate-700 border-t-slate-500 rounded-full animate-spin inline-block" />
+                    analyzing...
                   </span>
                 )}
               </div>
               <div className="space-y-2">
                 {displaySuggestions.map((s, i) => (
-                  <SuggestionCard key={i} item={s} />
+                  <SuggestionCard key={i} item={s} index={i} />
                 ))}
               </div>
             </div>
