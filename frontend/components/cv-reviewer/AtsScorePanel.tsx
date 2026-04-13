@@ -21,7 +21,9 @@ interface AtsScorePanelProps {
 
 // ─── Count-up animation ────────────────────────────────────────────────────────
 
-function useCountUp(target: number, duration = 1000) {
+// resetKey forces restart even when numeric target hasn't changed
+// (e.g. Workday=84 → Taleo=84 — same score, different platform)
+function useCountUp(target: number, duration = 1000, resetKey?: string) {
   const [value, setValue] = useState(0);
   useEffect(() => {
     setValue(0);
@@ -33,9 +35,9 @@ function useCountUp(target: number, duration = 1000) {
       if (p < 1) frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
-    // Cancel stale animation when target changes or component unmounts
     return () => cancelAnimationFrame(frame);
-  }, [target, duration]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, duration, resetKey]);
   return value;
 }
 
@@ -61,12 +63,12 @@ const healthTextClass = (s: number) =>
 
 // ─── Score Arc ─────────────────────────────────────────────────────────────────
 
-function ScoreArc({ score, passes, color }: { score: number; passes: boolean; color: string }) {
-  const d = useCountUp(score, 1100);
+function ScoreArc({ score, passes, color, resetKey }: { score: number; passes: boolean; color: string; resetKey: string }) {
+  const d = useCountUp(score, 1100, resetKey);
   const r = 50;
   const c = 2 * Math.PI * r;
   const offset = c - (d / 100) * c;
-  const gid = `arc-${score}-${color.replace('#', '')}`;
+  const gid = `arc-${resetKey.replace(/[^a-z0-9]/gi, '')}`;
 
   return (
     <div className="flex flex-col items-center gap-2 flex-shrink-0">
@@ -173,8 +175,8 @@ const DIM_ICONS: Partial<Record<string, ElementType>> = {
   Education:  GraduationCap,
 };
 
-function DimensionRow({ label, score }: { label: string; score: number }) {
-  const d = useCountUp(score, 1100);
+function DimensionRow({ label, score, resetKey }: { label: string; score: number; resetKey: string }) {
+  const d = useCountUp(score, 1100, resetKey);
   const Icon = DIM_ICONS[label] ?? Target;
   const color = healthColor(score);
 
@@ -290,21 +292,23 @@ function SuggestionCard({ item, index }: { item: StructuredSuggestion; index: nu
       {/* ── Collapsed row ── */}
       <button
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-start gap-3 px-3.5 py-3 text-left hover:bg-white/[0.02] transition-colors group"
+        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-white/[0.02] transition-colors group"
       >
-        {/* Left accent bar — 3px, full height */}
-        <div
-          className="w-[3px] self-stretch rounded-full flex-shrink-0"
-          style={{ background: cfg.color, minHeight: '16px' }}
-        />
-        {/* Title — wraps up to 2 lines so users can read it before clicking */}
-        <p className="flex-1 min-w-0 text-[11px] text-slate-300 font-medium leading-[1.45] line-clamp-2 group-hover:text-slate-200 transition-colors">
+        {/* Impact-coloured number circle */}
+        <span
+          className="w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9px] font-black flex-shrink-0 text-white"
+          style={{ background: cfg.color, opacity: 0.9 }}
+        >
+          {index + 1}
+        </span>
+        {/* Title — single line */}
+        <p className="flex-1 min-w-0 text-[10px] text-slate-300 font-medium leading-tight truncate group-hover:text-slate-200 transition-colors">
           {item.summary}
         </p>
         {/* Impact badge + chevron */}
-        <div className="flex items-center gap-1.5 flex-shrink-0 pt-0.5">
+        <div className="flex items-center gap-1.5 flex-shrink-0">
           <span
-            className="text-[9px] font-black tracking-wide px-1.5 py-[3px] rounded-md"
+            className="text-[8px] font-black tracking-wide px-1.5 py-[3px] rounded-md"
             style={{
               color: cfg.color,
               background: `${cfg.color}15`,
@@ -315,7 +319,7 @@ function SuggestionCard({ item, index }: { item: StructuredSuggestion; index: nu
           </span>
           {item.details.length > 0 && (
             <ChevronDown
-              size={12}
+              size={11}
               className="text-slate-500 flex-shrink-0 transition-transform duration-200"
               style={{ transform: open ? 'rotate(180deg)' : undefined }}
             />
@@ -512,16 +516,16 @@ export default function AtsScorePanel({ atsResults, analysis, sessionId, jobDesc
 
         {/* Score ring + platform info + dimension bars */}
         <div className="flex items-start gap-4 p-4">
-          <ScoreArc score={active.overallScore} passes={active.passesFilter} color={p.color} />
+          <ScoreArc score={active.overallScore} passes={active.passesFilter} color={p.color} resetKey={active.system} />
           <div className="flex-1 min-w-0 pt-0.5">
             <p className="text-sm font-bold text-white leading-none">{active.system}</p>
             <p className="text-[10px] text-slate-600 mt-0.5 mb-4">{active.vendor}</p>
             <div className="space-y-[9px]">
-              <DimensionRow label="Formatting"  score={breakdown.formatting.score} />
-              <DimensionRow label="Keywords"    score={breakdown.keywordMatch.score} />
-              <DimensionRow label="Sections"    score={breakdown.sections.score} />
-              <DimensionRow label="Experience"  score={breakdown.experience.score} />
-              <DimensionRow label="Education"   score={breakdown.education.score} />
+              <DimensionRow label="Formatting"  score={breakdown.formatting.score}  resetKey={active.system} />
+              <DimensionRow label="Keywords"    score={breakdown.keywordMatch.score} resetKey={active.system} />
+              <DimensionRow label="Sections"    score={breakdown.sections.score}     resetKey={active.system} />
+              <DimensionRow label="Experience"  score={breakdown.experience.score}   resetKey={active.system} />
+              <DimensionRow label="Education"   score={breakdown.education.score}    resetKey={active.system} />
             </div>
           </div>
         </div>
