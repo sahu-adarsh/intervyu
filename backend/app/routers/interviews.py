@@ -1,12 +1,16 @@
 import asyncio
+import json
 import logging
 from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile, File, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import Optional
 from app.limiter import limiter
 from app.models.session import TranscriptResponse, TranscriptMessage, EndSessionResponse
 from app.services.s3_service import S3Service
 from app.services.lambda_service import LambdaService
 from app.services.textract_service import TextractService, IndustrySkillExtractor
+from app.services.bedrock_service import BedrockService
 from app.dependencies.auth import CurrentUser, get_current_user
 from app.services import db_service
 from datetime import datetime, timezone
@@ -17,6 +21,65 @@ router = APIRouter(prefix="/api/interviews", tags=["interviews"])
 s3_service = S3Service()
 lambda_service = LambdaService()
 textract_service = TextractService()
+_bedrock_service: Optional[BedrockService] = None
+
+
+def _get_bedrock() -> BedrockService:
+    global _bedrock_service
+    if _bedrock_service is None:
+        _bedrock_service = BedrockService()
+    return _bedrock_service
+
+
+class CvSuggestionsRequest(BaseModel):
+    avg_score: int = 0
+    job_description: Optional[str] = None
+
+
+def _build_suggestions_prompt(raw_text: str, job_description: Optional[str], avg_score: int) -> str:
+    jd_section = (
+        f"\n<JOB_DESCRIPTION>\n{job_description[:2000]}\n</JOB_DESCRIPTION>\n\n"
+        "Evaluate keyword alignment with this specific job description. Note which required terms "
+        "are missing or in the wrong form (e.g. 'React' vs 'React.js')."
+        if job_description
+        else "\nNo job description provided. Evaluate for general ATS readiness across industries."
+    )
+
+    return f"""You are a senior talent acquisition technology analyst with hands-on experience across Workday, Taleo, iCIMS, Greenhouse, Lever, and SAP SuccessFactors.
+
+Current average ATS compatibility score: {avg_score}/100
+
+<RESUME>
+{raw_text[:3000]}
+</RESUME>
+{jd_section}
+
+Provide 3-5 highly specific, actionable suggestions to improve this resume's ATS compatibility.
+
+CRITICAL RULES:
+- Every suggestion MUST quote or reference SPECIFIC text, skills, bullet points, or sections from this resume. Never write generic advice like "add more keywords" or "quantify achievements."
+- Show the exact before/after. E.g.: "Change 'Developed microservices' → 'Designed 12 microservices handling 50K+ daily transactions, reducing latency by 40%'"
+- For keyword issues: quote the exact term present and the exact form needed from the JD.
+- For quantification: quote the specific bullet that needs a metric and suggest a realistic concrete version.
+- IMPORTANT: resume text may contain PDF extraction artifacts like #, §, fi, fl ligatures. Ignore these — treat as normal text, do NOT flag as formatting issues.
+
+Return ONLY valid JSON — no markdown fences, no explanation text:
+{{
+  "suggestions": [
+    {{
+      "summary": "one sentence that quotes or names specific resume content — the user should immediately know which part you mean",
+      "details": [
+        "Exact change: 'current text' → 'improved version with specifics'",
+        "Why this matters for named ATS platforms with their documented parsing/matching behavior",
+        "Which platforms benefit and estimated score impact"
+      ],
+      "impact": "critical|high|medium|low",
+      "platforms": ["Workday", "Taleo"]
+    }}
+  ]
+}}
+
+Return 3–5 suggestions sorted by impact (highest first). Maximum 5."""
 
 
 async def _verify_session_owner(session_id: str, user_id: str) -> dict:
@@ -346,6 +409,67 @@ async def link_resume(
         raise
     except Exception as e:
         logger.error(f"link-resume error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{session_id}/cv-suggestions")
+async def get_cv_ai_suggestions(
+    session_id: str,
+    body: CvSuggestionsRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Generate resume-aware ATS suggestions using Claude. Requires stored CV analysis."""
+    try:
+        await _verify_session_owner(session_id, current_user.user_id)
+        cv_data = await db_service.get_cv_analysis(session_id)
+        if not cv_data:
+            raise HTTPException(status_code=404, detail="CV analysis not found")
+
+        raw_text = cv_data.get("raw_text") or ""
+        if not raw_text.strip():
+            # Fall back to reconstructed text from structured analysis
+            skills_data = cv_data.get("skills", {})
+            parts = []
+            if skills_data.get("candidateName"):
+                parts.append(skills_data["candidateName"])
+            if skills_data.get("summary"):
+                parts.append(skills_data["summary"])
+            exp = skills_data.get("experience") or []
+            for e in exp:
+                parts.append(f"{e.get('role', '')} at {e.get('company', '')} — {e.get('context', '')}")
+            skills = skills_data.get("skills") or []
+            if skills:
+                parts.append("Skills: " + ", ".join(skills))
+            raw_text = "\n".join(parts)
+
+        if len(raw_text.strip()) < 50:
+            return JSONResponse(content={"suggestions": []})
+
+        prompt = _build_suggestions_prompt(raw_text, body.job_description, body.avg_score)
+        bedrock = _get_bedrock()
+
+        # Run in thread pool (boto3 is sync)
+        loop = asyncio.get_event_loop()
+        response_text = await loop.run_in_executor(
+            None, lambda: bedrock.invoke_claude_json(prompt, max_tokens=2000)
+        )
+
+        # Strip any accidental markdown fences before parsing
+        cleaned = response_text.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0]
+
+        data = json.loads(cleaned)
+        suggestions = data.get("suggestions", [])
+        return JSONResponse(content={"suggestions": suggestions})
+
+    except HTTPException:
+        raise
+    except json.JSONDecodeError as e:
+        logger.error(f"cv-suggestions JSON parse error: {e}\nRaw: {response_text[:500]}")
+        return JSONResponse(content={"suggestions": []})
+    except Exception as e:
+        logger.error(f"cv-suggestions error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

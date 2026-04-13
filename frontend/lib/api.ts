@@ -116,6 +116,19 @@ export async function deleteCV(sessionId: string) {
   return res.json();
 }
 
+export async function getCvAiSuggestions(
+  sessionId: string,
+  avgScore: number,
+  jobDescription?: string
+): Promise<{ suggestions: Array<{ summary: string; details: string[]; impact: string; platforms: string[] }> }> {
+  const res = await authFetch(`/api/interviews/${sessionId}/cv-suggestions`, {
+    method: 'POST',
+    body: JSON.stringify({ avg_score: avgScore, job_description: jobDescription ?? null }),
+  });
+  if (!res.ok) throw new Error(`Failed to fetch AI suggestions: ${res.status}`);
+  return res.json();
+}
+
 export async function getUserResumes(): Promise<{ resumes: Array<{
   session_id: string;
   filename: string;

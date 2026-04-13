@@ -597,6 +597,7 @@ export default function ResumePage() {
               analysis={activeResume.analysis}
               corrections={activeResume.corrections ?? null}
               atsResults={atsResults}
+              jobDescription={activeResume.jobDescription}
               localPdfFile={activeFile}
             />
           </div>

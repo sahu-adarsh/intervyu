@@ -1,28 +1,34 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Bot, Lightbulb, CheckCircle2, XCircle, ChevronDown } from 'lucide-react';
+import type { ElementType } from 'react';
+import {
+  Bot, AlertCircle, CheckCircle2, XCircle, ChevronDown,
+  Target, Zap, BookOpen, Briefcase, GraduationCap, Layout, Sparkles,
+} from 'lucide-react';
 import type { ScoreResult, Suggestion, StructuredSuggestion } from './types';
 import type { CVAnalysis } from './types';
+import { getCvAiSuggestions } from '@/lib/api';
 
-// ─── Props ────────────────────────────────────────────────────────────────────
+// ─── Props ─────────────────────────────────────────────────────────────────────
 
 interface AtsScorePanelProps {
   atsResults: ScoreResult[];
   analysis: CVAnalysis;
+  sessionId?: string;
+  jobDescription?: string;
 }
 
-// ─── Animation hook ───────────────────────────────────────────────────────────
+// ─── Count-up animation ────────────────────────────────────────────────────────
 
 function useCountUp(target: number, duration = 1000) {
   const [value, setValue] = useState(0);
   useEffect(() => {
     setValue(0);
-    const startTime = performance.now();
+    const start = performance.now();
     const tick = (now: number) => {
-      const p = Math.min((now - startTime) / duration, 1);
-      const eased = 1 - Math.pow(1 - p, 3);
-      setValue(Math.round(eased * target));
+      const p = Math.min((now - start) / duration, 1);
+      setValue(Math.round((1 - Math.pow(1 - p, 3)) * target));
       if (p < 1) requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -30,157 +36,196 @@ function useCountUp(target: number, duration = 1000) {
   return value;
 }
 
-// ─── Platform color palette ───────────────────────────────────────────────────
+// ─── Platform palette ──────────────────────────────────────────────────────────
 
-const PLATFORM_COLORS: Record<string, { accent: string; bg: string; ring: string; text: string }> = {
-  Workday:       { accent: '#60a5fa', bg: 'bg-blue-500/10',    ring: 'ring-blue-500/50',    text: 'text-blue-300' },
-  Taleo:         { accent: '#a78bfa', bg: 'bg-violet-500/10',  ring: 'ring-violet-500/50',  text: 'text-violet-300' },
-  SuccessFactors:{ accent: '#f97316', bg: 'bg-orange-500/10',  ring: 'ring-orange-500/50',  text: 'text-orange-300' },
-  iCIMS:         { accent: '#34d399', bg: 'bg-emerald-500/10', ring: 'ring-emerald-500/50', text: 'text-emerald-300' },
-  Greenhouse:    { accent: '#4ade80', bg: 'bg-green-500/10',   ring: 'ring-green-500/50',   text: 'text-green-300' },
-  Lever:         { accent: '#fb7185', bg: 'bg-rose-500/10',    ring: 'ring-rose-500/50',    text: 'text-rose-300' },
+const PLATFORMS: Record<string, { short: string; color: string; glow: string }> = {
+  Workday:        { short: 'Workday',    color: '#60a5fa', glow: 'rgba(96,165,250,0.14)' },
+  Taleo:          { short: 'Taleo',      color: '#a78bfa', glow: 'rgba(167,139,250,0.14)' },
+  SuccessFactors: { short: 'SAP SF',     color: '#fb923c', glow: 'rgba(251,146,60,0.14)' },
+  iCIMS:          { short: 'iCIMS',      color: '#2dd4bf', glow: 'rgba(45,212,191,0.14)' },
+  Greenhouse:     { short: 'Greenhouse', color: '#4ade80', glow: 'rgba(74,222,128,0.14)' },
+  Lever:          { short: 'Lever',      color: '#f472b6', glow: 'rgba(244,114,182,0.14)' },
 };
 
-function getPlatformColor(name: string) {
-  return PLATFORM_COLORS[name] ?? { accent: '#94a3b8', bg: 'bg-slate-500/10', ring: 'ring-slate-500/50', text: 'text-slate-300' };
-}
+const getPlatform = (name: string) =>
+  PLATFORMS[name] ?? { short: name, color: '#94a3b8', glow: 'rgba(148,163,184,0.08)' };
 
-// ─── Score Ring ───────────────────────────────────────────────────────────────
+// ─── Score health colours ──────────────────────────────────────────────────────
 
-function ScoreRing({ score, passes, accent }: { score: number; passes: boolean; accent: string }) {
-  const r = 48;
-  const circ = 2 * Math.PI * r;
-  const displayed = useCountUp(score);
-  const offset = circ - (displayed / 100) * circ;
-  const gradId = `sg-${score}-${accent.replace('#', '')}`;
+const healthColor = (s: number) => s >= 80 ? '#34d399' : s >= 60 ? '#fbbf24' : '#f87171';
+const healthTextClass = (s: number) =>
+  s >= 80 ? 'text-emerald-400' : s >= 60 ? 'text-amber-400' : 'text-red-400';
+
+// ─── Score Arc ─────────────────────────────────────────────────────────────────
+
+function ScoreArc({ score, passes, color }: { score: number; passes: boolean; color: string }) {
+  const d = useCountUp(score, 1100);
+  const r = 50;
+  const c = 2 * Math.PI * r;
+  const offset = c - (d / 100) * c;
+  const gid = `arc-${score}-${color.replace('#', '')}`;
 
   return (
-    <div className="flex flex-col items-center gap-1.5 flex-shrink-0">
-      <div className="relative w-28 h-28">
-        <svg className="w-full h-full -rotate-90" viewBox="0 0 110 110">
+    <div className="flex flex-col items-center gap-2 flex-shrink-0">
+      <div className="relative w-[118px] h-[118px]">
+        <svg className="w-full h-full -rotate-90" viewBox="0 0 116 116">
           <defs>
-            <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor={accent} stopOpacity="0.9" />
-              <stop offset="100%" stopColor={accent} stopOpacity="0.5" />
+            <linearGradient id={gid} x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor={color} stopOpacity="0.4" />
+              <stop offset="100%" stopColor={color} stopOpacity="1" />
             </linearGradient>
           </defs>
-          <circle cx="55" cy="55" r={r} fill="none" stroke="#1e293b" strokeWidth="10" />
-          <circle cx="55" cy="55" r={r} fill="none"
-            stroke={`url(#${gradId})`} strokeWidth="10"
-            strokeDasharray={circ} strokeDashoffset={offset}
-            strokeLinecap="round" opacity="0.15"
-            style={{ filter: 'blur(3px)', transition: 'stroke-dashoffset 1s cubic-bezier(0.34,1.56,0.64,1)' }}
+          {/* Track */}
+          <circle cx="58" cy="58" r={r} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="10" />
+          {/* Glow layer */}
+          <circle
+            cx="58" cy="58" r={r} fill="none"
+            stroke={color} strokeWidth="10" opacity="0.12"
+            strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round"
+            style={{ filter: `blur(4px)`, transition: 'stroke-dashoffset 1.2s cubic-bezier(0.34,1.56,0.64,1)' }}
           />
-          <circle cx="55" cy="55" r={r} fill="none"
-            stroke={`url(#${gradId})`} strokeWidth="10"
-            strokeDasharray={circ} strokeDashoffset={offset}
-            strokeLinecap="round"
-            style={{ transition: 'stroke-dashoffset 1s cubic-bezier(0.34,1.56,0.64,1)' }}
+          {/* Arc */}
+          <circle
+            cx="58" cy="58" r={r} fill="none"
+            stroke={`url(#${gid})`} strokeWidth="10"
+            strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round"
+            style={{
+              filter: `drop-shadow(0 0 6px ${color}60)`,
+              transition: 'stroke-dashoffset 1.2s cubic-bezier(0.34,1.56,0.64,1)',
+            }}
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-2xl font-black text-white leading-none tabular-nums">{displayed}</span>
-          <span className="text-[10px] text-slate-500 mt-0.5">/ 100</span>
+          <span className="text-[28px] font-black tabular-nums leading-none" style={{ color }}>{d}</span>
+          <span className="text-[9px] text-slate-600 font-medium mt-0.5">/ 100</span>
         </div>
       </div>
-      {passes ? (
-        <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-2 py-0.5">
-          <CheckCircle2 size={9} /> Passes Filter
-        </span>
-      ) : (
-        <span className="flex items-center gap-1 text-[10px] font-semibold text-red-400 bg-red-500/10 border border-red-500/30 rounded-full px-2 py-0.5">
-          <XCircle size={9} /> Filtered Out
-        </span>
-      )}
+      <span
+        className={`flex items-center gap-1 text-[10px] font-semibold rounded-full px-2.5 py-0.5 ${
+          passes
+            ? 'text-emerald-300 bg-emerald-500/10 border border-emerald-500/20'
+            : 'text-red-300 bg-red-500/10 border border-red-500/20'
+        }`}
+      >
+        {passes ? <CheckCircle2 size={9} /> : <XCircle size={9} />}
+        {passes ? 'Passes Filter' : 'Filtered Out'}
+      </span>
     </div>
   );
 }
 
-// ─── Platform Pill ────────────────────────────────────────────────────────────
+// ─── Platform Tab ──────────────────────────────────────────────────────────────
 
-function PlatformPill({
-  result,
-  isActive,
-  onClick,
-}: {
+function PlatformTab({ result, isActive, onClick }: {
   result: ScoreResult;
   isActive: boolean;
   onClick: () => void;
 }) {
-  const { bg, ring, text, accent } = getPlatformColor(result.system);
-  const displayed = useCountUp(result.overallScore, 800);
-  const shortName = result.system === 'SuccessFactors' ? 'SAP SF' : result.system;
+  const p = getPlatform(result.system);
+  const d = useCountUp(result.overallScore, 700);
 
   return (
     <button
       onClick={onClick}
-      className={`flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl border transition-all duration-150 min-w-[68px] ${
+      className="flex-1 flex flex-col items-center gap-0.5 py-2.5 rounded-xl transition-all duration-150"
+      style={
         isActive
-          ? `${bg} ring-1 ${ring} border-transparent`
-          : 'bg-slate-800/50 border-slate-700/40 hover:bg-slate-800'
-      }`}
+          ? {
+              background: `${p.color}12`,
+              border: `1px solid ${p.color}35`,
+              boxShadow: `0 0 16px ${p.glow}`,
+            }
+          : {
+              background: 'rgba(255,255,255,0.02)',
+              border: '1px solid rgba(255,255,255,0.05)',
+            }
+      }
     >
-      <span className={`text-[10px] font-semibold ${isActive ? text : 'text-slate-400'} leading-tight`}>
-        {shortName}
+      <span
+        className="text-[9px] font-bold uppercase tracking-wide"
+        style={{ color: isActive ? p.color : '#475569' }}
+      >
+        {p.short}
       </span>
       <span
-        className="text-sm font-black tabular-nums"
-        style={{ color: isActive ? accent : '#94a3b8' }}
+        className="text-[15px] font-black tabular-nums leading-snug"
+        style={{ color: isActive ? p.color : '#334155' }}
       >
-        {displayed}
+        {d}
       </span>
-      <span className={`text-[9px] ${result.passesFilter ? 'text-emerald-400' : 'text-red-400'}`}>
+      <span className={`text-[9px] font-medium ${result.passesFilter ? 'text-emerald-400' : 'text-rose-400'}`}>
         {result.passesFilter ? '✓ pass' : '✗ fail'}
       </span>
     </button>
   );
 }
 
-// ─── Dimension Bar ────────────────────────────────────────────────────────────
+// ─── Dimension Row — health-coloured bars ─────────────────────────────────────
 
-function DimensionBar({ label, score, accent }: { label: string; score: number; accent: string }) {
-  const displayed = useCountUp(score, 900);
+const DIM_ICONS: Partial<Record<string, ElementType>> = {
+  Formatting: Layout,
+  Keywords:   Target,
+  Sections:   BookOpen,
+  Experience: Briefcase,
+  Education:  GraduationCap,
+};
+
+function DimensionRow({ label, score }: { label: string; score: number }) {
+  const d = useCountUp(score, 1100);
+  const Icon = DIM_ICONS[label] ?? Target;
+  const color = healthColor(score);
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-[11px] text-slate-400">{label}</span>
-        <span className="text-[11px] font-semibold text-slate-300 tabular-nums">{displayed}</span>
-      </div>
-      <div className="h-1.5 w-full bg-slate-700/60 rounded-full overflow-hidden">
+    <div className="flex items-center gap-2.5">
+      <Icon size={10} className="text-slate-700 flex-shrink-0" />
+      <span className="text-[10px] text-slate-500 w-[76px] flex-shrink-0 leading-none">{label}</span>
+      <div className="flex-1 h-[5px] rounded-full overflow-hidden bg-white/[0.04]">
         <div
           className="h-full rounded-full transition-all duration-1000 ease-out"
-          style={{ width: `${displayed}%`, backgroundColor: accent, opacity: 0.85 }}
+          style={{
+            width: `${d}%`,
+            background: `linear-gradient(90deg, ${color}50, ${color})`,
+            boxShadow: `0 0 5px ${color}40`,
+          }}
         />
       </div>
+      <span className={`text-[10px] font-bold tabular-nums w-7 text-right flex-shrink-0 ${healthTextClass(score)}`}>
+        {d}
+      </span>
     </div>
   );
 }
 
-// ─── Keyword Section ──────────────────────────────────────────────────────────
+// ─── Section label ─────────────────────────────────────────────────────────────
 
-function KeywordSection({
-  matched,
-  missing,
-  synonymMatched,
-}: {
+function SectionLabel({ icon: Icon, label }: { icon: ElementType; label: string }) {
+  return (
+    <p className="flex items-center gap-1.5 text-[9px] font-bold text-slate-600 uppercase tracking-widest mb-3">
+      <Icon size={9} />
+      {label}
+    </p>
+  );
+}
+
+// ─── Keyword chips ─────────────────────────────────────────────────────────────
+
+function KeywordChips({ matched, missing, synonymMatched }: {
   matched: string[];
   missing: string[];
   synonymMatched: string[];
 }) {
-  const hasAny = matched.length > 0 || missing.length > 0 || synonymMatched.length > 0;
-  if (!hasAny) return null;
+  if (!matched.length && !missing.length && !synonymMatched.length) return null;
 
   return (
-    <div className="px-4 pb-4 space-y-2.5 border-t border-slate-800 pt-3">
+    <div className="space-y-3">
       {matched.length > 0 && (
         <div>
-          <p className="text-[10px] font-semibold text-emerald-400 mb-1.5 flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-            Matched ({matched.length})
+          <p className="text-[9px] font-semibold text-emerald-600 uppercase tracking-widest mb-1.5">
+            Matched · {matched.length}
           </p>
           <div className="flex flex-wrap gap-1">
-            {matched.slice(0, 15).map((k) => (
-              <span key={k} className="px-1.5 py-0.5 rounded bg-emerald-900/30 border border-emerald-800/40 text-emerald-300 text-[10px]">
+            {matched.slice(0, 14).map((k) => (
+              <span key={k} className="text-[10px] px-1.5 py-0.5 rounded-md text-emerald-300 bg-emerald-500/8 border border-emerald-500/15">
                 {k}
               </span>
             ))}
@@ -189,13 +234,12 @@ function KeywordSection({
       )}
       {synonymMatched.length > 0 && (
         <div>
-          <p className="text-[10px] font-semibold text-blue-400 mb-1.5 flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 inline-block" />
-            Synonym Match ({synonymMatched.length})
+          <p className="text-[9px] font-semibold text-sky-600 uppercase tracking-widest mb-1.5">
+            Synonym · {synonymMatched.length}
           </p>
           <div className="flex flex-wrap gap-1">
             {synonymMatched.slice(0, 8).map((k) => (
-              <span key={k} className="px-1.5 py-0.5 rounded bg-blue-900/30 border border-blue-800/40 text-blue-300 text-[10px]">
+              <span key={k} className="text-[10px] px-1.5 py-0.5 rounded-md text-sky-300 bg-sky-500/8 border border-sky-500/15">
                 ~{k}
               </span>
             ))}
@@ -204,13 +248,12 @@ function KeywordSection({
       )}
       {missing.length > 0 && (
         <div>
-          <p className="text-[10px] font-semibold text-amber-400 mb-1.5 flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
-            Missing ({missing.length})
+          <p className="text-[9px] font-semibold text-rose-600 uppercase tracking-widest mb-1.5">
+            Missing · {missing.length}
           </p>
           <div className="flex flex-wrap gap-1">
             {missing.slice(0, 10).map((k) => (
-              <span key={k} className="px-1.5 py-0.5 rounded bg-amber-900/30 border border-amber-800/40 text-amber-300 text-[10px]">
+              <span key={k} className="text-[10px] px-1.5 py-0.5 rounded-md text-rose-300 bg-rose-500/8 border border-rose-500/15">
                 {k}
               </span>
             ))}
@@ -221,49 +264,60 @@ function KeywordSection({
   );
 }
 
-// ─── Impact config ────────────────────────────────────────────────────────────
+// ─── Suggestion card ───────────────────────────────────────────────────────────
 
-const IMPACT_CONFIG = {
-  critical: { label: 'CRITICAL', badge: 'bg-red-500/20 text-red-400 border-red-500/30',    num: 'bg-red-500 text-white' },
-  high:     { label: 'HIGH',     badge: 'bg-orange-500/20 text-orange-400 border-orange-500/30', num: 'bg-orange-500 text-white' },
-  medium:   { label: 'MEDIUM',   badge: 'bg-amber-500/20 text-amber-400 border-amber-500/30',   num: 'bg-amber-500 text-white' },
-  low:      { label: 'LOW',      badge: 'bg-slate-600/40 text-slate-400 border-slate-600/40',   num: 'bg-slate-600 text-slate-300' },
-} as const;
+const IMPACT_CFG: Record<string, { label: string; color: string; dimBg: string }> = {
+  critical: { label: 'Critical', color: '#f87171', dimBg: 'rgba(248,113,113,0.07)' },
+  high:     { label: 'High',     color: '#fb923c', dimBg: 'rgba(251,146,60,0.07)'  },
+  medium:   { label: 'Medium',   color: '#fbbf24', dimBg: 'rgba(251,191,36,0.06)'  },
+  low:      { label: 'Low',      color: '#64748b', dimBg: 'rgba(100,116,139,0.05)' },
+};
 
-// ─── Suggestion Item ──────────────────────────────────────────────────────────
-
-function SuggestionItem({ item, index }: { item: StructuredSuggestion; index: number }) {
+function SuggestionCard({ item }: { item: StructuredSuggestion }) {
   const [open, setOpen] = useState(false);
-  const cfg = IMPACT_CONFIG[item.impact] ?? IMPACT_CONFIG.low;
+  const cfg = IMPACT_CFG[item.impact] ?? IMPACT_CFG.low;
 
   return (
-    <div className="rounded-xl border border-slate-700/50 overflow-hidden">
+    <div
+      className="rounded-xl overflow-hidden transition-colors duration-150"
+      style={{ border: `1px solid rgba(255,255,255,${open ? '0.08' : '0.05'})` }}
+    >
       <button
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-slate-800/60 transition-colors"
+        className="w-full flex items-center gap-3 px-3.5 py-3 text-left hover:bg-white/[0.02] transition-colors"
       >
-        {/* Number badge */}
-        <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black flex-shrink-0 ${cfg.num}`}>
-          {index + 1}
-        </span>
-        {/* Summary */}
-        <span className="text-[11px] text-slate-300 leading-snug flex-1 min-w-0">{item.summary}</span>
-        {/* Impact badge */}
-        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border flex-shrink-0 ${cfg.badge}`}>
+        {/* Left accent bar */}
+        <div
+          className="w-0.5 rounded-full self-stretch flex-shrink-0"
+          style={{ background: cfg.color, minHeight: '16px' }}
+        />
+        {/* Text */}
+        <p className="flex-1 text-[11px] text-slate-300 leading-snug font-medium">{item.summary}</p>
+        {/* Impact pill */}
+        <span
+          className="text-[9px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0"
+          style={{ color: cfg.color, background: cfg.dimBg }}
+        >
           {cfg.label}
         </span>
         {/* Chevron */}
-        <ChevronDown
-          size={11}
-          className={`text-slate-600 flex-shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
-        />
+        {item.details.length > 0 && (
+          <ChevronDown
+            size={11}
+            className="text-slate-600 flex-shrink-0 transition-transform duration-200"
+            style={{ transform: open ? 'rotate(180deg)' : undefined }}
+          />
+        )}
       </button>
 
-      {open && (
-        <div className="px-3 pb-3 pt-1 border-t border-slate-700/50 bg-slate-900/40 space-y-1.5">
+      {open && item.details.length > 0 && (
+        <div
+          className="px-3.5 pb-3 space-y-2"
+          style={{ borderTop: `1px solid rgba(255,255,255,0.04)`, background: cfg.dimBg }}
+        >
           {item.details.map((d, i) => (
-            <p key={i} className="text-[11px] text-slate-400 leading-relaxed flex items-start gap-2">
-              <span className="text-slate-600 mt-0.5 flex-shrink-0">·</span>
+            <p key={i} className="flex items-start gap-2 text-[10px] text-slate-400 leading-relaxed pt-2">
+              <span className="flex-shrink-0 mt-0.5" style={{ color: cfg.color }}>›</span>
               {d}
             </p>
           ))}
@@ -273,163 +327,256 @@ function SuggestionItem({ item, index }: { item: StructuredSuggestion; index: nu
   );
 }
 
-// ─── Suggestions List ─────────────────────────────────────────────────────────
-
-function SuggestionsList({ suggestions }: { suggestions: Suggestion[] }) {
-  if (suggestions.length === 0) return null;
-
-  // Normalise to StructuredSuggestion (handle legacy plain strings gracefully)
-  const items: StructuredSuggestion[] = suggestions.slice(0, 6).map((s) =>
-    typeof s === 'string'
-      ? { summary: s, details: [], impact: 'medium' as const, platforms: [] }
-      : s
-  );
-
-  return (
-    <div className="px-4 pb-4 border-t border-slate-800 pt-3">
-      <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
-        <Lightbulb size={10} className="text-amber-400" />
-        Suggestions
-      </p>
-      <div className="space-y-1.5">
-        {items.map((item, i) => (
-          <SuggestionItem key={i} item={item} index={i} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─── AI Summary ──────────────────────────────────────────────────────────────
+// ─── AI Summary ────────────────────────────────────────────────────────────────
 
 function AISummary({ analysis }: { analysis: CVAnalysis }) {
-  const summary = analysis.summary?.trim();
-  if (!summary) return null;
+  const text = analysis.summary?.trim();
+  if (!text) return null;
 
   return (
-    <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-4">
-      <div className="flex items-center gap-1.5 mb-2.5">
-        <Bot size={12} className="text-violet-400" />
-        <p className="text-[10px] font-semibold text-violet-400 uppercase tracking-wider">AI Summary</p>
-      </div>
-      <p className="text-xs text-slate-300 leading-relaxed">{summary}</p>
+    <div
+      className="rounded-2xl p-4"
+      style={{
+        background: 'linear-gradient(135deg, rgba(139,92,246,0.07) 0%, rgba(59,130,246,0.04) 100%)',
+        border: '1px solid rgba(139,92,246,0.15)',
+      }}
+    >
+      <p className="flex items-center gap-1.5 text-[9px] font-bold text-violet-500/80 uppercase tracking-widest mb-2.5">
+        <Bot size={9} />
+        AI Summary
+      </p>
+      <p className="text-[11px] text-slate-300 leading-relaxed">{text}</p>
     </div>
   );
 }
 
-// ─── Main export ──────────────────────────────────────────────────────────────
+// ─── Thin divider ──────────────────────────────────────────────────────────────
 
-export default function AtsScorePanel({ atsResults, analysis }: AtsScorePanelProps) {
-  // Guard: nothing to show yet
+function Divider() {
+  return <div className="h-px bg-white/[0.04] mx-4" />;
+}
+
+// ─── Root component ────────────────────────────────────────────────────────────
+
+export default function AtsScorePanel({ atsResults, analysis, sessionId, jobDescription }: AtsScorePanelProps) {
+  // Hooks must be called unconditionally
+  const initBest =
+    atsResults && atsResults.length > 0
+      ? atsResults.reduce((b, r) => (r.overallScore > b.overallScore ? r : b), atsResults[0]).system
+      : '';
+
+  const [selected, setSelected] = useState<string>(initBest);
+  // null = loading in progress, [] = done (empty or failed), non-empty = AI suggestions ready
+  const [aiSuggestions, setAiSuggestions] = useState<StructuredSuggestion[] | null>(null);
+
+  useEffect(() => {
+    if (!atsResults?.length) return;
+    const best = atsResults.reduce((b, r) => (r.overallScore > b.overallScore ? r : b), atsResults[0]);
+    setSelected(best.system);
+  }, [atsResults]);
+
+  // Fetch AI suggestions once per sessionId
+  useEffect(() => {
+    if (!sessionId || !atsResults?.length) return;
+    let cancelled = false;
+    setAiSuggestions(null); // reset to loading state
+
+    const avg = Math.round(atsResults.reduce((s, r) => s + r.overallScore, 0) / atsResults.length);
+    getCvAiSuggestions(sessionId, avg, jobDescription)
+      .then((data) => {
+        if (!cancelled) {
+          const items = (data.suggestions ?? []).map((s): StructuredSuggestion => ({
+            summary: s.summary,
+            details: s.details ?? [],
+            impact: (s.impact as StructuredSuggestion['impact']) ?? 'medium',
+            platforms: s.platforms ?? [],
+          }));
+          setAiSuggestions(items);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setAiSuggestions([]); // empty = show deterministic fallback
+      });
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
+
+  // Guard after hooks
   if (!atsResults || atsResults.length === 0) {
     return (
-      <div className="rounded-2xl border border-slate-700/50 bg-slate-800/40 p-6 flex items-center justify-center">
-        <p className="text-xs text-slate-500">No ATS scores available.</p>
+      <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-slate-800/60 p-10">
+        <AlertCircle size={18} className="text-slate-700" />
+        <p className="text-[11px] text-slate-600">No ATS scores available.</p>
       </div>
     );
   }
 
-  // Default to highest-scoring platform
-  const bestResult = atsResults.reduce((best, r) =>
-    r.overallScore > best.overallScore ? r : best
-  , atsResults[0]);
-
-  const [selectedSystem, setSelectedSystem] = useState(bestResult.system);
-
-  // Re-default when results change (e.g. new resume loaded)
-  useEffect(() => {
-    const best = atsResults.reduce((b, r) => r.overallScore > b.overallScore ? r : b, atsResults[0]);
-    setSelectedSystem(best.system);
-  }, [atsResults]);
-
-  const activeResult = atsResults.find((r) => r.system === selectedSystem) ?? atsResults[0];
-  const { accent } = getPlatformColor(activeResult.system);
-  const { breakdown } = activeResult;
+  const active = atsResults.find((r) => r.system === selected) ?? atsResults[0];
+  const p = getPlatform(active.system);
+  const { breakdown } = active;
 
   const passCount = atsResults.filter((r) => r.passesFilter).length;
+  const avg = Math.round(atsResults.reduce((s, r) => s + r.overallScore, 0) / atsResults.length);
+
+  // Normalise suggestions and sort by priority: critical → high → medium → low
+  const PRIORITY: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+  // Deterministic fallback suggestions (per active platform)
+  const deterministicSuggestions: StructuredSuggestion[] = (active.suggestions ?? [])
+    .slice(0, 6)
+    .map((s): StructuredSuggestion =>
+      typeof s === 'string' ? { summary: s, details: [], impact: 'medium', platforms: [] } : s
+    )
+    .sort((a, b) => (PRIORITY[a.impact] ?? 2) - (PRIORITY[b.impact] ?? 2));
+
+  // Use AI suggestions when loaded, fall back to deterministic
+  const isAiLoading = sessionId != null && aiSuggestions === null;
+  const displaySuggestions = aiSuggestions !== null && aiSuggestions.length > 0
+    ? aiSuggestions
+    : aiSuggestions === null
+    ? deterministicSuggestions  // show deterministic while AI is loading
+    : deterministicSuggestions; // AI returned empty, show deterministic
+  const isAiPowered = aiSuggestions !== null && aiSuggestions.length > 0;
+
+  const hasKeywords =
+    breakdown.keywordMatch.matched.length > 0 ||
+    breakdown.keywordMatch.missing.length > 0 ||
+    breakdown.keywordMatch.synonymMatched.length > 0;
 
   return (
     <div className="space-y-3">
 
-      {/* ── Header summary ── */}
-      <div className="flex items-center justify-between">
+      {/* ── Header ─────────────────────────────────────────────────────── */}
+      <div className="flex items-end justify-between px-0.5">
         <div>
-          <p className="text-xs font-bold text-slate-200">ATS Compatibility</p>
-          <p className="text-[10px] text-slate-500 mt-0.5">
+          <p className="text-xs font-bold text-slate-100 tracking-tight">ATS Compatibility</p>
+          <p
+            className={`text-[10px] mt-0.5 font-medium ${
+              passCount === atsResults.length
+                ? 'text-emerald-400'
+                : passCount >= 4
+                ? 'text-amber-400'
+                : 'text-rose-400'
+            }`}
+          >
             {passCount}/{atsResults.length} platforms pass
           </p>
         </div>
         <div className="text-right">
-          <p className="text-[10px] text-slate-500">Avg score</p>
-          <p className="text-sm font-black text-slate-200 tabular-nums">
-            {Math.round(atsResults.reduce((s, r) => s + r.overallScore, 0) / atsResults.length)}
-          </p>
+          <p className="text-[9px] text-slate-600 uppercase tracking-wider mb-0.5">Avg score</p>
+          <p className={`text-xl font-black tabular-nums leading-none ${healthTextClass(avg)}`}>{avg}</p>
         </div>
       </div>
 
-      {/* ── Platform pills ── */}
-      <div className="flex gap-1.5 flex-wrap">
+      {/* ── Platform tabs ───────────────────────────────────────────────── */}
+      <div className="flex gap-1.5">
         {atsResults.map((r) => (
-          <PlatformPill
+          <PlatformTab
             key={r.system}
             result={r}
-            isActive={r.system === selectedSystem}
-            onClick={() => setSelectedSystem(r.system)}
+            isActive={r.system === selected}
+            onClick={() => setSelected(r.system)}
           />
         ))}
       </div>
 
-      {/* ── Active platform detail card ── */}
-      <div className="rounded-2xl border border-slate-700/50 overflow-hidden"
-        style={{ background: 'linear-gradient(135deg, rgb(15,23,42) 0%, rgb(20,27,48) 50%, rgb(15,23,42) 100%)' }}>
+      {/* ── Detail card ─────────────────────────────────────────────────── */}
+      <div
+        className="rounded-2xl overflow-hidden"
+        style={{
+          background: 'linear-gradient(160deg, rgba(10,15,30,0.98) 0%, rgba(4,8,20,1) 100%)',
+          border: `1px solid ${p.color}28`,
+          boxShadow: `0 0 28px ${p.glow}`,
+        }}
+      >
 
-        {/* Platform header */}
-        <div className="p-4 flex items-start gap-4 border-b border-slate-800">
-          <ScoreRing
-            score={activeResult.overallScore}
-            passes={activeResult.passesFilter}
-            accent={accent}
-          />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-white">{activeResult.system}</p>
-            <p className="text-[10px] text-slate-500 mt-0.5 mb-3">{activeResult.vendor}</p>
-
-            {/* Dimension bars */}
-            <div className="space-y-2">
-              <DimensionBar label="Formatting"  score={breakdown.formatting.score}  accent={accent} />
-              <DimensionBar label="Keywords"    score={breakdown.keywordMatch.score} accent={accent} />
-              <DimensionBar label="Sections"    score={breakdown.sections.score}     accent={accent} />
-              <DimensionBar label="Experience"  score={breakdown.experience.score}   accent={accent} />
-              <DimensionBar label="Education"   score={breakdown.education.score}    accent={accent} />
+        {/* Score ring + platform info + dimension bars */}
+        <div className="flex items-start gap-4 p-4">
+          <ScoreArc score={active.overallScore} passes={active.passesFilter} color={p.color} />
+          <div className="flex-1 min-w-0 pt-0.5">
+            <p className="text-sm font-bold text-white leading-none">{active.system}</p>
+            <p className="text-[10px] text-slate-600 mt-0.5 mb-4">{active.vendor}</p>
+            <div className="space-y-[9px]">
+              <DimensionRow label="Formatting"  score={breakdown.formatting.score} />
+              <DimensionRow label="Keywords"    score={breakdown.keywordMatch.score} />
+              <DimensionRow label="Sections"    score={breakdown.sections.score} />
+              <DimensionRow label="Experience"  score={breakdown.experience.score} />
+              <DimensionRow label="Education"   score={breakdown.education.score} />
             </div>
           </div>
         </div>
 
         {/* Keywords */}
-        <KeywordSection
-          matched={breakdown.keywordMatch.matched}
-          missing={breakdown.keywordMatch.missing}
-          synonymMatched={breakdown.keywordMatch.synonymMatched}
-        />
+        {hasKeywords && (
+          <>
+            <Divider />
+            <div className="px-4 py-3.5">
+              <SectionLabel icon={Target} label="Keywords" />
+              <KeywordChips
+                matched={breakdown.keywordMatch.matched}
+                missing={breakdown.keywordMatch.missing}
+                synonymMatched={breakdown.keywordMatch.synonymMatched}
+              />
+            </div>
+          </>
+        )}
 
-        {/* Formatting issues (when present) */}
+        {/* Formatting issues */}
         {breakdown.formatting.issues.length > 0 && (
-          <div className="px-4 pb-3 border-t border-slate-800 pt-3 space-y-1">
-            <p className="text-[10px] font-semibold text-amber-400 uppercase tracking-wider mb-1">Formatting Issues</p>
-            {breakdown.formatting.issues.map((issue, i) => (
-              <p key={i} className="text-[11px] text-amber-300/80 flex items-start gap-1.5">
-                <span className="text-amber-500 mt-0.5">·</span>{issue}
-              </p>
-            ))}
-          </div>
+          <>
+            <Divider />
+            <div className="px-4 py-3.5">
+              <SectionLabel icon={AlertCircle} label="Formatting Issues" />
+              <div className="space-y-1.5">
+                {breakdown.formatting.issues.map((iss, i) => (
+                  <p key={i} className="text-[10px] text-amber-400/80 flex items-start gap-2">
+                    <span className="text-amber-600 flex-shrink-0 mt-0.5">›</span>
+                    {iss}
+                  </p>
+                ))}
+              </div>
+            </div>
+          </>
         )}
 
         {/* Suggestions */}
-        <SuggestionsList suggestions={activeResult.suggestions} />
+        {(displaySuggestions.length > 0 || isAiLoading) && (
+          <>
+            <Divider />
+            <div className="px-4 py-3.5">
+              {/* Section header with AI badge */}
+              <div className="flex items-center gap-2 mb-3">
+                <Zap size={9} className="text-slate-600" />
+                <span className="text-[9px] font-bold text-slate-600 uppercase tracking-widest">
+                  Suggestions
+                </span>
+                {isAiLoading && (
+                  <span className="flex items-center gap-1 text-[9px] text-violet-400/70">
+                    <span className="w-2.5 h-2.5 border border-slate-700 border-t-violet-400 rounded-full animate-spin inline-block" />
+                    AI analyzing...
+                  </span>
+                )}
+                {isAiPowered && (
+                  <span className="flex items-center gap-0.5 text-[9px] font-semibold text-violet-400 bg-violet-500/10 border border-violet-500/20 px-1.5 py-0.5 rounded-md">
+                    <Sparkles size={8} />
+                    AI
+                  </span>
+                )}
+              </div>
+              <div className="space-y-2">
+                {displaySuggestions.map((s, i) => (
+                  <SuggestionCard key={i} item={s} />
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
       </div>
 
-      {/* ── AI Summary ── */}
+      {/* ── AI Summary ─────────────────────────────────────────────────── */}
       <AISummary analysis={analysis} />
+
     </div>
   );
 }

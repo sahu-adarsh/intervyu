@@ -295,3 +295,15 @@ class BedrockService:
         except Exception as e:
             logger.error(f"invoke_claude_stream error: {e}")
             raise
+
+    def invoke_claude_json(self, prompt: str, max_tokens: int = 2000) -> str:
+        """
+        Single-turn Claude call for structured JSON output. Not streaming.
+        Returns the raw text response (caller parses JSON).
+        """
+        response = self.bedrock_runtime_client.converse(
+            modelId="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            inferenceConfig={"maxTokens": max_tokens, "temperature": 0.3},
+        )
+        return response["output"]["message"]["content"][0]["text"]

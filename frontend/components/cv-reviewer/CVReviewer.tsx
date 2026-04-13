@@ -15,6 +15,7 @@ interface CVReviewerProps {
   analysis: CVAnalysis;
   corrections: CVCorrections | null;
   atsResults: ScoreResult[];
+  jobDescription?: string;
   localPdfFile?: File | null;
 }
 
@@ -23,6 +24,7 @@ export default function CVReviewer({
   analysis,
   corrections,
   atsResults,
+  jobDescription,
   localPdfFile,
 }: CVReviewerProps) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -144,6 +146,8 @@ export default function CVReviewer({
             <AtsScorePanel
               atsResults={atsResults}
               analysis={analysis}
+              sessionId={sessionId}
+              jobDescription={jobDescription}
             />
             <CheckerSidebar
               corrections={corrections}
