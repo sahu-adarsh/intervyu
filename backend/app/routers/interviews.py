@@ -67,7 +67,7 @@ Return ONLY valid JSON — no markdown fences, no explanation text:
 {{
   "suggestions": [
     {{
-      "summary": "one sentence that quotes or names specific resume content — the user should immediately know which part you mean",
+      "summary": "10-12 word phrase (NOT a full sentence) that names the specific resume element and the problem — e.g. \"'improve analyst efficiency' bullet missing baseline volume and system scope\" or \"'~6s' notation in Intervyu project may fail Taleo parsing\"",
       "details": [
         "Exact change: 'current text' → 'improved version with specifics'",
         "Why this matters for named ATS platforms with their documented parsing/matching behavior",

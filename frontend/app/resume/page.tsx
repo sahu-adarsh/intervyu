@@ -553,7 +553,6 @@ export default function ResumePage() {
                 const hasCheckers = (activeResume.corrections?.checkers?.length ?? 0) > 0;
                 const passCount = atsResults.filter((r) => r.passesFilter).length;
                 return (<>
-                  <span className={`text-sm font-bold ${col}`}>{avgScore}/100 ATS</span>
                   {atsResults.length > 0 && (
                     <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold bg-slate-700/60 text-slate-400">
                       {passCount}/{atsResults.length} pass

@@ -165,6 +165,23 @@ function PlatformTab({ result, isActive, onClick }: {
   );
 }
 
+// ─── Platform weights lookup (for weight indicator on each bar) ───────────────
+
+type DimKey = 'formatting' | 'keywords' | 'sections' | 'experience' | 'education';
+const PLATFORM_WEIGHTS: Record<string, Record<DimKey, number>> = {
+  Workday:        { formatting: 0.25, keywords: 0.30, sections: 0.15, experience: 0.15, education: 0.10 },
+  Taleo:          { formatting: 0.20, keywords: 0.35, sections: 0.15, experience: 0.20, education: 0.10 },
+  SuccessFactors: { formatting: 0.20, keywords: 0.30, sections: 0.15, experience: 0.20, education: 0.15 },
+  iCIMS:          { formatting: 0.15, keywords: 0.30, sections: 0.15, experience: 0.25, education: 0.15 },
+  Greenhouse:     { formatting: 0.10, keywords: 0.25, sections: 0.10, experience: 0.25, education: 0.10 },
+  Lever:          { formatting: 0.08, keywords: 0.22, sections: 0.10, experience: 0.30, education: 0.10 },
+};
+
+const DIM_KEY_MAP: Record<string, DimKey> = {
+  Formatting: 'formatting', Keywords: 'keywords', Sections: 'sections',
+  Experience: 'experience', Education: 'education',
+};
+
 // ─── Dimension Row — health-coloured bars ─────────────────────────────────────
 
 const DIM_ICONS: Partial<Record<string, ElementType>> = {
@@ -175,10 +192,11 @@ const DIM_ICONS: Partial<Record<string, ElementType>> = {
   Education:  GraduationCap,
 };
 
-function DimensionRow({ label, score, resetKey }: { label: string; score: number; resetKey: string }) {
+function DimensionRow({ label, score, resetKey, system }: { label: string; score: number; resetKey: string; system: string }) {
   const d = useCountUp(score, 1100, resetKey);
   const Icon = DIM_ICONS[label] ?? Target;
   const color = healthColor(score);
+  const weight = PLATFORM_WEIGHTS[system]?.[DIM_KEY_MAP[label] ?? 'formatting'];
 
   return (
     <div className="flex items-center gap-2.5">
@@ -194,9 +212,14 @@ function DimensionRow({ label, score, resetKey }: { label: string; score: number
           }}
         />
       </div>
-      <span className={`text-[10px] font-bold tabular-nums w-7 text-right flex-shrink-0 ${healthTextClass(score)}`}>
+      <span className={`text-[10px] font-bold tabular-nums w-6 text-right flex-shrink-0 ${healthTextClass(score)}`}>
         {d}
       </span>
+      {weight != null && (
+        <span className="text-[8px] text-slate-700 w-7 text-right flex-shrink-0 font-medium tabular-nums">
+          {Math.round(weight * 100)}%
+        </span>
+      )}
     </div>
   );
 }
@@ -521,11 +544,11 @@ export default function AtsScorePanel({ atsResults, analysis, sessionId, jobDesc
             <p className="text-sm font-bold text-white leading-none">{active.system}</p>
             <p className="text-[10px] text-slate-600 mt-0.5 mb-4">{active.vendor}</p>
             <div className="space-y-[9px]">
-              <DimensionRow label="Formatting"  score={breakdown.formatting.score}  resetKey={active.system} />
-              <DimensionRow label="Keywords"    score={breakdown.keywordMatch.score} resetKey={active.system} />
-              <DimensionRow label="Sections"    score={breakdown.sections.score}     resetKey={active.system} />
-              <DimensionRow label="Experience"  score={breakdown.experience.score}   resetKey={active.system} />
-              <DimensionRow label="Education"   score={breakdown.education.score}    resetKey={active.system} />
+              <DimensionRow label="Formatting"  score={breakdown.formatting.score}  resetKey={active.system} system={active.system} />
+              <DimensionRow label="Keywords"    score={breakdown.keywordMatch.score} resetKey={active.system} system={active.system} />
+              <DimensionRow label="Sections"    score={breakdown.sections.score}     resetKey={active.system} system={active.system} />
+              <DimensionRow label="Experience"  score={breakdown.experience.score}   resetKey={active.system} system={active.system} />
+              <DimensionRow label="Education"   score={breakdown.education.score}    resetKey={active.system} system={active.system} />
             </div>
           </div>
         </div>
