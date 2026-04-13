@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile, File, Request
+from fastapi import APIRouter, Body, Depends, Form, HTTPException, UploadFile, File, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
@@ -215,29 +215,46 @@ async def upload_cv(
     session_id: str,
     current_user: CurrentUser = Depends(get_current_user),
     file: UploadFile = File(...),
+    extracted_text: Optional[str] = Form(None),
 ):
-    """Upload and analyze candidate CV with PDF/DOCX support"""
+    """Upload and analyze candidate CV with PDF/DOCX support.
+
+    The frontend extracts text client-side (pdfjs-dist / mammoth) and sends it
+    as the optional `extracted_text` field. When present and substantial we skip
+    pdfplumber / Textract entirely, saving ~400 ms and AWS Textract costs.
+    Textract is still used automatically when the client sends no text (scanned
+    PDFs, unsupported browsers, DOCX mammoth failure, etc.).
+    """
     try:
         session_data = await _verify_session_owner(session_id, current_user.user_id)
 
         content = await file.read()
         file_extension = file.filename.lower().split('.')[-1]
 
-        cv_text = ""
-        if file_extension == 'pdf':
-            cv_text = textract_service.extract_text_from_pdf(content)
-        elif file_extension in ['doc', 'docx']:
-            cv_text = textract_service.extract_text_from_pdf(content)
-        elif file_extension == 'txt':
-            try:
-                cv_text = content.decode('utf-8')
-            except Exception:
-                raise HTTPException(status_code=400, detail="Unable to decode text file")
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported file type: {file_extension}. Supported: PDF, DOCX, TXT",
+        # Use client-extracted text when the frontend sends it (>200 chars check
+        # is done on the client; we re-validate here with a slightly lower bar).
+        if extracted_text and len(extracted_text.strip()) > 100:
+            cv_text = extracted_text.strip()
+            logger.info(
+                f"Using client-extracted text for session {session_id} "
+                f"({len(cv_text)} chars, skipping server-side extraction)"
             )
+        else:
+            cv_text = ""
+            if file_extension == 'pdf':
+                cv_text = textract_service.extract_text_from_pdf(content)
+            elif file_extension in ['doc', 'docx']:
+                cv_text = textract_service.extract_text_from_pdf(content)
+            elif file_extension == 'txt':
+                try:
+                    cv_text = content.decode('utf-8')
+                except Exception:
+                    raise HTTPException(status_code=400, detail="Unable to decode text file")
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported file type: {file_extension}. Supported: PDF, DOCX, TXT",
+                )
 
         if not cv_text.strip():
             raise HTTPException(status_code=400, detail="No text extracted from file")

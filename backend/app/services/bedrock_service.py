@@ -310,7 +310,7 @@ class BedrockService:
         Returns the raw text response (caller parses JSON).
         """
         response = self.bedrock_json_client.converse(
-            modelId="us.anthropic.claude-3-5-haiku-20241022-v1:0",
+            modelId="us.anthropic.claude-sonnet-4-6",
             messages=[{"role": "user", "content": [{"text": prompt}]}],
             inferenceConfig={"maxTokens": max_tokens, "temperature": 0.3},
         )

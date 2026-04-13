@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload, FileText, X, Loader2 } from 'lucide-react';
 import { posthog } from '@/lib/posthog';
+import { extractTextFromFile } from '@/lib/cv-extractor';
 
 interface CVUploadProps {
   sessionId: string;
@@ -13,6 +14,7 @@ interface CVUploadProps {
 
 export default function CVUpload({ sessionId, onUploadSuccess, onUploadError }: CVUploadProps) {
   const [uploading, setUploading] = useState(false);
+  const [extracting, setExtracting] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
@@ -20,11 +22,23 @@ export default function CVUpload({ sessionId, onUploadSuccess, onUploadError }: 
 
     const file = acceptedFiles[0];
     setUploadedFile(file);
+
+    // Extract text client-side before uploading so the backend can skip
+    // pdfplumber / Textract for standard (non-scanned) files.
+    setExtracting(true);
+    const extractedText = await extractTextFromFile(file);
+    setExtracting(false);
+
     setUploading(true);
 
     try {
       const formData = new FormData();
       formData.append('file', file);
+      // Only send pre-extracted text if it's substantial (>200 chars).
+      // For scanned PDFs pdfjs returns nothing — backend will fall back to Textract.
+      if (extractedText.trim().length > 200) {
+        formData.append('extracted_text', extractedText);
+      }
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/interviews/${sessionId}/upload-cv`, {
         method: 'POST',
@@ -58,7 +72,7 @@ export default function CVUpload({ sessionId, onUploadSuccess, onUploadError }: 
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx']
     },
     maxFiles: 1,
-    disabled: uploading
+    disabled: uploading || extracting
   });
 
   const removeFile = () => {
@@ -82,10 +96,12 @@ export default function CVUpload({ sessionId, onUploadSuccess, onUploadError }: 
         >
           <input {...getInputProps()} />
 
-          {uploading ? (
+          {extracting || uploading ? (
             <div className="flex flex-col items-center">
               <Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-4" />
-              <p className="text-gray-600 font-medium">Analyzing your CV...</p>
+              <p className="text-gray-600 font-medium">
+                {extracting ? 'Reading file...' : 'Analyzing your CV...'}
+              </p>
             </div>
           ) : (
             <div className="flex flex-col items-center">
