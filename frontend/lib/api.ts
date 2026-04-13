@@ -140,6 +140,7 @@ export async function getUserResumes(): Promise<{ resumes: Array<{
   ats_score?: number;
   matched_keywords?: string[];
   missing_keywords?: string[];
+  ai_suggestions?: Array<{ summary: string; details: string[]; impact: string; platforms: string[] }>;
 }> }> {
   const res = await authFetch('/api/interviews/resumes');
   if (!res.ok) throw new Error(`Failed to get resumes: ${res.status}`);

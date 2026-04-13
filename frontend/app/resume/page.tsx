@@ -427,6 +427,17 @@ export default function ResumePage() {
   useEffect(() => {
     getUserResumes()
       .then(({ resumes: data }) => {
+        // Seed in-memory suggestions cache from DB so panel skips re-fetch on first open
+        data.forEach(r => {
+          if (r.session_id && r.ai_suggestions?.length) {
+            suggestionsCache.current.set(r.session_id, r.ai_suggestions.map(s => ({
+              summary: s.summary,
+              details: s.details ?? [],
+              impact: (s.impact as StructuredSuggestion['impact']) ?? 'medium',
+              platforms: s.platforms ?? [],
+            })));
+          }
+        });
         setResumes(data.map(r => ({
           id: r.session_id,
           sessionId: r.session_id,

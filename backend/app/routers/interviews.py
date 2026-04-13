@@ -467,6 +467,11 @@ async def get_cv_ai_suggestions(
 
         data = json.loads(cleaned)
         suggestions = data.get("suggestions", [])
+
+        # Persist to DB so suggestions survive logout/login
+        if suggestions:
+            asyncio.create_task(db_service.update_cv_ai_suggestions(session_id, suggestions))
+
         return JSONResponse(content={"suggestions": suggestions})
 
     except HTTPException:

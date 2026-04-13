@@ -493,6 +493,23 @@ async def update_cv_corrections(session_id: str, corrections: dict) -> None:
         )
 
 
+async def update_cv_ai_suggestions(session_id: str, ai_suggestions: list) -> None:
+    """Merge ai_suggestions into structured_data without overwriting corrections.
+    Uses JSONB || operator to merge at the top level."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE cv_analysis
+            SET structured_data = COALESCE(structured_data, '{}'::jsonb) || $2::jsonb,
+                updated_at = NOW()
+            WHERE session_id = $1::uuid
+            """,
+            session_id,
+            json.dumps({"ai_suggestions": ai_suggestions}),
+        )
+
+
 async def get_cv_analysis(session_id: str) -> Optional[dict]:
     """Fetch CV analysis for a session."""
     pool = await get_pool()
@@ -546,6 +563,8 @@ async def get_user_cv_analyses(user_id: str) -> list:
     for row in rows:
         skills = json.loads(row["skills"]) if row.get("skills") else {}
         structured = json.loads(row["structured_data"]) if row.get("structured_data") else {}
+        # Pull out ai_suggestions before returning corrections (so corrections stays clean)
+        ai_suggestions = structured.pop("ai_suggestions", None)
         # Extract job metadata stored under _job* keys, leave rest as analysis
         job_metadata = {
             "job_title": skills.pop("_jobTitle", None),
@@ -560,6 +579,7 @@ async def get_user_cv_analyses(user_id: str) -> list:
             "uploaded_at": row["uploaded_at"].isoformat() if row.get("uploaded_at") else None,
             "analysis": skills,
             "corrections": structured,
+            "ai_suggestions": ai_suggestions,
             **job_metadata,
         })
     return result

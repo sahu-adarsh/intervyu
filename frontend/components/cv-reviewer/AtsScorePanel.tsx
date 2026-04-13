@@ -307,6 +307,9 @@ const IMPACT_CFG: Record<string, { label: string; color: string; dimBg: string }
 function SuggestionCard({ item, index }: { item: StructuredSuggestion; index: number }) {
   const [open, setOpen] = useState(false);
   const cfg = IMPACT_CFG[item.impact] ?? IMPACT_CFG.low;
+  // Hard-cap title at 12 words regardless of LLM output
+  const words = item.summary.split(' ');
+  const title = words.length > 12 ? words.slice(0, 12).join(' ') + '...' : item.summary;
 
   return (
     <div
@@ -327,9 +330,9 @@ function SuggestionCard({ item, index }: { item: StructuredSuggestion; index: nu
         >
           {index + 1}
         </span>
-        {/* Title — single line */}
+        {/* Title — single line, max 12 words */}
         <p className="flex-1 min-w-0 text-[10px] text-slate-300 font-medium leading-tight truncate group-hover:text-slate-200 transition-colors">
-          {item.summary}
+          {title}
         </p>
         {/* Impact badge + chevron */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -385,19 +388,39 @@ function AISummary({ analysis }: { analysis: CVAnalysis }) {
   const text = analysis.summary?.trim();
   if (!text) return null;
 
+  // Split into sentences for structured visual presentation
+  const sentences = text.split(/(?<=[.!?])\s+/).filter((s) => s.length > 10);
+
   return (
-    <div
-      className="rounded-2xl p-4"
-      style={{
-        background: 'linear-gradient(135deg, rgba(139,92,246,0.07) 0%, rgba(59,130,246,0.04) 100%)',
-        border: '1px solid rgba(139,92,246,0.15)',
-      }}
-    >
-      <p className="flex items-center gap-1.5 text-[9px] font-bold text-violet-500/80 uppercase tracking-widest mb-2.5">
-        <Bot size={9} />
-        AI Summary
-      </p>
-      <p className="text-[11px] text-slate-300 leading-relaxed">{text}</p>
+    <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(139,92,246,0.12)' }}>
+      {/* Header bar */}
+      <div
+        className="flex items-center gap-2 px-4 py-2.5"
+        style={{
+          background: 'linear-gradient(135deg, rgba(139,92,246,0.10) 0%, rgba(59,130,246,0.05) 100%)',
+          borderBottom: '1px solid rgba(139,92,246,0.08)',
+        }}
+      >
+        <div className="w-5 h-5 rounded-md bg-violet-500/20 flex items-center justify-center flex-shrink-0">
+          <Bot size={10} className="text-violet-400" />
+        </div>
+        <span className="text-[10px] font-bold text-violet-400/70 uppercase tracking-widest">AI Analysis</span>
+      </div>
+      {/* Body */}
+      <div className="px-4 py-3" style={{ background: 'rgba(8,10,20,0.85)' }}>
+        {sentences.length > 1 ? (
+          <div className="space-y-2">
+            {sentences.map((s, i) => (
+              <p key={i} className="flex items-start gap-2.5 text-[11px] text-slate-400 leading-relaxed">
+                <span className="w-[4px] h-[4px] rounded-full bg-violet-500/50 flex-shrink-0 mt-[6px]" />
+                {s}
+              </p>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[11px] text-slate-400 leading-relaxed">{text}</p>
+        )}
+      </div>
     </div>
   );
 }
