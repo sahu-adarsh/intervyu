@@ -85,7 +85,7 @@ Return this exact JSON structure:
   "candidateName": "full name or null",
   "email": "email address or null",
   "phone": "phone number or null",
-  "summary": "3-4 sentence professional summary written in first person that the candidate could paste directly into their resume. Cover: current role/level, years of experience, key technical strengths, and a notable achievement or focus area. Be specific — mention actual companies, technologies, and domains from the CV. Do not fabricate details not present in the CV.",
+  "summary": "2-3 sentence professional profile written in third person for a recruiter or hiring manager. Lead with seniority level, years of experience, and primary domain. Follow with 2-3 key technical specialisations. Close with the most notable quantified achievement or distinguishing credential. Example style: 'Senior Software Engineer with 5 years of experience specialising in distributed systems and cloud-native architecture. Proven track record in Python, Go, and AWS, with deep expertise in microservices and real-time data pipelines. Reduced infrastructure costs by 40% at Acme Corp by migrating a monolithic platform to Kubernetes.' Be specific — use actual companies, technologies, and metrics from the CV. Do not fabricate.",
   "totalYearsExperience": <number, calculate from work history dates, 0 if unclear>,
   "skills": ["list", "of", "technical", "skills", "extracted"],
   "technologies": ["same", "as", "skills"],

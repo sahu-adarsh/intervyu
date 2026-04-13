@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { getCVPresignedUrl } from '@/lib/api';
-import { CVAnalysis, CVCorrections, CheckerID, CheckerResult } from './types';
+import { CVAnalysis, CVCorrections, CheckerID, CheckerResult, ScoreResult } from './types';
 import AtsScorePanel from './AtsScorePanel';
 import CheckerSidebar from './CheckerSidebar';
 import { FileText, BarChart2, ZoomIn, ZoomOut } from 'lucide-react';
@@ -14,9 +14,7 @@ interface CVReviewerProps {
   sessionId: string;
   analysis: CVAnalysis;
   corrections: CVCorrections | null;
-  atsScore: number;
-  matchedKeywords?: string[];
-  missingKeywords?: string[];
+  atsResults: ScoreResult[];
   localPdfFile?: File | null;
 }
 
@@ -24,9 +22,7 @@ export default function CVReviewer({
   sessionId,
   analysis,
   corrections,
-  atsScore,
-  matchedKeywords,
-  missingKeywords,
+  atsResults,
   localPdfFile,
 }: CVReviewerProps) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -74,8 +70,11 @@ export default function CVReviewer({
   }, []);
 
   const totalIssues = corrections?.checkers?.reduce((s, c) => s + c.needsFix.length, 0) ?? 0;
-  const scoreColor = atsScore >= 80 ? 'text-emerald-400' : atsScore >= 60 ? 'text-violet-400' : 'text-amber-400';
-  const scoreDot = atsScore >= 80 ? 'bg-emerald-400' : atsScore >= 60 ? 'bg-violet-400' : 'bg-amber-400';
+  const bestScore = atsResults.length > 0
+    ? Math.max(...atsResults.map((r) => r.overallScore))
+    : 0;
+  const scoreColor = bestScore >= 80 ? 'text-emerald-400' : bestScore >= 60 ? 'text-violet-400' : 'text-amber-400';
+  const scoreDot = bestScore >= 80 ? 'bg-emerald-400' : bestScore >= 60 ? 'bg-violet-400' : 'bg-amber-400';
 
   return (
     <div className="flex h-full w-full flex-col bg-slate-950 overflow-hidden">
@@ -143,10 +142,8 @@ export default function CVReviewer({
         <div className={`${mobileTab === 'analysis' ? 'flex' : 'hidden'} sm:flex flex-col w-full sm:w-[48%] bg-slate-900/30 overflow-hidden`}>
           <div className="flex-1 overflow-auto p-4 space-y-4">
             <AtsScorePanel
-              atsScore={atsScore}
+              atsResults={atsResults}
               analysis={analysis}
-              matchedKeywords={matchedKeywords}
-              missingKeywords={missingKeywords}
             />
             <CheckerSidebar
               corrections={corrections}

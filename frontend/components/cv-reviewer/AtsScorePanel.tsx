@@ -1,19 +1,20 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Sparkles, TrendingUp, GraduationCap, Star, User, ChevronDown, Bot } from 'lucide-react';
-import { CVAnalysis } from './types';
+import { Bot, Lightbulb, CheckCircle2, XCircle, ChevronDown } from 'lucide-react';
+import type { ScoreResult, Suggestion, StructuredSuggestion } from './types';
+import type { CVAnalysis } from './types';
+
+// ─── Props ────────────────────────────────────────────────────────────────────
 
 interface AtsScorePanelProps {
-  atsScore: number;
+  atsResults: ScoreResult[];
   analysis: CVAnalysis;
-  matchedKeywords?: string[];
-  missingKeywords?: string[];
 }
 
 // ─── Animation hook ───────────────────────────────────────────────────────────
 
-function useCountUp(target: number, duration = 1200) {
+function useCountUp(target: number, duration = 1000) {
   const [value, setValue] = useState(0);
   useEffect(() => {
     setValue(0);
@@ -29,321 +30,277 @@ function useCountUp(target: number, duration = 1200) {
   return value;
 }
 
-// ─── Scoring engine ───────────────────────────────────────────────────────────
-// Each category has named sub-metrics with defined max points.
-// Scores are computed deterministically from parsed CV data — no LLM guesswork.
+// ─── Platform color palette ───────────────────────────────────────────────────
 
-export interface SubMetric {
-  label: string;
-  value: number;   // 0–max
-  max: number;
-  note: string;    // short description of what was found
-}
+const PLATFORM_COLORS: Record<string, { accent: string; bg: string; ring: string; text: string }> = {
+  Workday:       { accent: '#60a5fa', bg: 'bg-blue-500/10',    ring: 'ring-blue-500/50',    text: 'text-blue-300' },
+  Taleo:         { accent: '#a78bfa', bg: 'bg-violet-500/10',  ring: 'ring-violet-500/50',  text: 'text-violet-300' },
+  SuccessFactors:{ accent: '#f97316', bg: 'bg-orange-500/10',  ring: 'ring-orange-500/50',  text: 'text-orange-300' },
+  iCIMS:         { accent: '#34d399', bg: 'bg-emerald-500/10', ring: 'ring-emerald-500/50', text: 'text-emerald-300' },
+  Greenhouse:    { accent: '#4ade80', bg: 'bg-green-500/10',   ring: 'ring-green-500/50',   text: 'text-green-300' },
+  Lever:         { accent: '#fb7185', bg: 'bg-rose-500/10',    ring: 'ring-rose-500/50',    text: 'text-rose-300' },
+};
 
-export interface CategoryScore {
-  score: number;   // 0–100
-  subs: SubMetric[];
-}
-
-export interface SubScores {
-  hardSkills: CategoryScore;
-  experience: CategoryScore;
-  education: CategoryScore;
-  profile: CategoryScore;
-}
-
-const SENIORITY_KEYWORDS = ['senior', 'lead', 'principal', 'staff', 'director', 'vp', 'head of', 'manager', 'architect'];
-const IMPACT_PATTERNS = /\b(\d+[%x]|\d+\s*(users|customers|requests|ms|seconds|million|billion|k\b|times|hours|days|weeks))\b/i;
-const DEGREE_LEVELS: Array<{ keywords: string[]; score: number; label: string }> = [
-  { keywords: ['phd', 'ph.d', 'doctorate', 'doctor of'], score: 100, label: 'PhD' },
-  { keywords: ['master', 'm.tech', 'm.s.', 'mba', 'msc', 'm.sc', 'me '], score: 80, label: 'Masters' },
-  { keywords: ['bachelor', 'b.tech', 'b.e.', 'b.s.', 'bsc', 'b.sc', 'undergraduate', 'honours'], score: 60, label: 'Bachelors' },
-  { keywords: ['diploma', 'associate', 'higher national'], score: 30, label: 'Diploma' },
-];
-const TECHNICAL_FIELDS = ['computer', 'software', 'information', 'data', 'engineering', 'electronics', 'mathematics', 'statistics', 'physics', 'cybersecurity', 'ai', 'machine learning'];
-const MODERN_TECH = ['docker', 'kubernetes', 'aws', 'azure', 'gcp', 'react', 'nextjs', 'next.js', 'typescript', 'fastapi', 'graphql', 'terraform', 'ci/cd', 'llm', 'genai', 'bedrock', 'langchain', 'redis', 'kafka', 'spark'];
-
-function computeSubScores(analysis: CVAnalysis): SubScores {
-  const allSkills = [...new Set([...(analysis.skills ?? []), ...(analysis.technologies ?? [])])];
-  const catSkills = analysis.categorized_skills ?? {};
-  const experience = analysis.experience ?? [];
-  const education = analysis.education ?? [];
-  const years = analysis.totalYearsExperience ?? 0;
-
-  // ── Hard Skills ─────────────────────────────────────────────────────────────
-  // Sub 1 — Skill count (max 45): 1 pt/skill up to 30, then tapering
-  const skillCountRaw = Math.min(45, allSkills.length <= 30
-    ? allSkills.length * 1.5
-    : 45 - (allSkills.length - 30) * 0.2);
-  const skillCountScore = Math.round(skillCountRaw);
-
-  // Sub 2 — Stack diversity (max 35): languages + frameworks + DBs + tools each = 8-9pts
-  const catKeys = Object.keys(catSkills).filter(k => (catSkills[k]?.length ?? 0) > 0);
-  const diversityScore = Math.min(35, catKeys.length * 9);
-
-  // Sub 3 — Modern tech presence (max 20)
-  const skillsLower = allSkills.map(s => s.toLowerCase());
-  const modernCount = MODERN_TECH.filter(t => skillsLower.some(s => s.includes(t))).length;
-  const modernScore = Math.min(20, modernCount * 5);
-
-  const hardSkillsTotal = skillCountScore + diversityScore + modernScore;
-
-  // ── Experience ──────────────────────────────────────────────────────────────
-  // Sub 1 — Years (max 50): 0=0, 1=15, 2=25, 3=35, 5=43, 8=48, 10+=50
-  const yearsScore = years === 0 ? 0
-    : years < 1 ? 10
-    : years < 2 ? 20
-    : years < 3 ? 30
-    : years < 5 ? 38
-    : years < 8 ? 44
-    : years < 10 ? 48
-    : 50;
-
-  // Sub 2 — Role count + seniority (max 30)
-  const roleCountScore = Math.min(15, experience.length * 5);
-  const contextAll = experience.map(e => `${e.role ?? ''} ${e.context ?? ''}`).join(' ').toLowerCase();
-  const hasSeniority = SENIORITY_KEYWORDS.some(k => contextAll.includes(k));
-  const seniorityScore = hasSeniority ? 15 : 0;
-
-  // Sub 3 — Quantified impact (max 20)
-  const impactMatches = experience.filter(e => IMPACT_PATTERNS.test(e.context ?? '')).length;
-  const impactScore = Math.min(20, impactMatches * 7);
-
-  const experienceTotal = yearsScore + roleCountScore + seniorityScore + impactScore;
-
-  // ── Education ───────────────────────────────────────────────────────────────
-  // Sub 1 — Highest degree level (max 60)
-  const allEduText = education.map(e => `${e.degree ?? ''} ${e.context ?? ''} ${e.institution ?? ''}`).join(' ').toLowerCase();
-  let degreeScore = 0;
-  let degreeLabel = 'Not detected';
-  for (const tier of DEGREE_LEVELS) {
-    if (tier.keywords.some(k => allEduText.includes(k))) {
-      degreeScore = tier.score * 0.6; // scale to max 60
-      degreeLabel = tier.label;
-      break;
-    }
-  }
-
-  // Sub 2 — Field relevance (max 25)
-  const isTechnical = TECHNICAL_FIELDS.some(f => allEduText.includes(f));
-  const fieldScore = isTechnical ? 25 : (education.length > 0 ? 10 : 0);
-
-  // Sub 3 — Additional credentials (max 15): extra entries beyond primary degree
-  const extraCredScore = Math.min(15, Math.max(0, education.length - 1) * 8);
-
-  const educationTotal = Math.round(degreeScore) + fieldScore + extraCredScore;
-
-  // ── Profile ─────────────────────────────────────────────────────────────────
-  // Sub 1 — Contact info (max 45): name=20, email=15, phone=10
-  const nameScore = analysis.candidateName ? 20 : 0;
-  const emailScore = analysis.email ? 15 : 0;
-  const phoneScore = analysis.phone ? 10 : 0;
-
-  // Sub 2 — Professional summary quality (max 35): present=15, length=10, specificity=10
-  const summaryLen = (analysis.summary ?? '').trim().length;
-  const summaryPresent = summaryLen > 0 ? 15 : 0;
-  const summaryLength = summaryLen > 100 ? 10 : summaryLen > 50 ? 5 : 0;
-  const summarySpecific = /\d+/.test(analysis.summary ?? '') ? 10 : 0; // has numbers = specific
-
-  // Sub 3 — Online presence hints (max 20): GitHub/LinkedIn mentioned in any field
-  const allText = JSON.stringify(analysis).toLowerCase();
-  const hasGitHub = allText.includes('github') ? 10 : 0;
-  const hasLinkedIn = allText.includes('linkedin') ? 10 : 0;
-
-  const profileTotal = nameScore + emailScore + phoneScore + summaryPresent + summaryLength + summarySpecific + hasGitHub + hasLinkedIn;
-
-  return {
-    hardSkills: {
-      score: Math.min(100, hardSkillsTotal),
-      subs: [
-        { label: 'Skill count', value: skillCountScore, max: 45, note: `${allSkills.length} unique skills` },
-        { label: 'Stack diversity', value: diversityScore, max: 35, note: catKeys.length > 0 ? catKeys.join(', ') : 'No categories detected' },
-        { label: 'Modern tech', value: modernScore, max: 20, note: modernCount > 0 ? `${modernCount} modern tools` : 'No modern stack detected' },
-      ],
-    },
-    experience: {
-      score: Math.min(100, experienceTotal),
-      subs: [
-        { label: 'Years of experience', value: yearsScore, max: 50, note: years > 0 ? `${years} years` : 'Not detected' },
-        { label: 'Role count + seniority', value: roleCountScore + seniorityScore, max: 30, note: `${experience.length} role${experience.length !== 1 ? 's' : ''}${hasSeniority ? ' · Senior title detected' : ''}` },
-        { label: 'Quantified impact', value: impactScore, max: 20, note: impactMatches > 0 ? `${impactMatches} role${impactMatches !== 1 ? 's' : ''} with metrics` : 'No numbers/metrics found' },
-      ],
-    },
-    education: {
-      score: Math.min(100, educationTotal),
-      subs: [
-        { label: 'Degree level', value: Math.round(degreeScore), max: 60, note: degreeLabel },
-        { label: 'Field relevance', value: fieldScore, max: 25, note: isTechnical ? 'Technical field' : (education.length > 0 ? 'Non-technical field' : 'No education found') },
-        { label: 'Extra credentials', value: extraCredScore, max: 15, note: education.length > 1 ? `${education.length - 1} additional entr${education.length > 2 ? 'ies' : 'y'}` : 'None' },
-      ],
-    },
-    profile: {
-      score: Math.min(100, profileTotal),
-      subs: [
-        { label: 'Contact info', value: nameScore + emailScore + phoneScore, max: 45, note: [analysis.candidateName && 'name', analysis.email && 'email', analysis.phone && 'phone'].filter(Boolean).join(', ') || 'Missing' },
-        { label: 'Summary quality', value: summaryPresent + summaryLength + summarySpecific, max: 35, note: summaryLen > 0 ? `${summaryLen} chars${summarySpecific ? ' · has metrics' : ''}` : 'No summary' },
-        { label: 'Online presence', value: hasGitHub + hasLinkedIn, max: 20, note: [hasGitHub && 'GitHub', hasLinkedIn && 'LinkedIn'].filter(Boolean).join(', ') || 'Not detected' },
-      ],
-    },
-  };
-}
-
-function getScoreLabel(score: number) {
-  if (score >= 85) return { label: 'Excellent', color: 'text-emerald-400' };
-  if (score >= 70) return { label: 'Strong', color: 'text-violet-400' };
-  if (score >= 55) return { label: 'Good', color: 'text-blue-400' };
-  if (score >= 40) return { label: 'Fair', color: 'text-amber-400' };
-  return { label: 'Needs Work', color: 'text-red-400' };
-}
-
-function getScoreAdvice(scores: SubScores): string {
-  const weakest = Object.entries({
-    'Hard Skills': scores.hardSkills.score,
-    'Experience': scores.experience.score,
-    'Education': scores.education.score,
-    'Profile': scores.profile.score,
-  }).sort((a, b) => a[1] - b[1]);
-
-  const tips: string[] = [];
-  const [worstKey, worstScore] = weakest[0];
-
-  if (worstKey === 'Hard Skills' && worstScore < 70) {
-    const hasDiversity = scores.hardSkills.subs[1].value < 20;
-    tips.push(hasDiversity ? 'Add skills across languages, frameworks, databases, and tools.' : 'List more specific technologies and modern stack tools.');
-  } else if (worstKey === 'Experience' && worstScore < 70) {
-    const noImpact = scores.experience.subs[2].value === 0;
-    tips.push(noImpact ? 'Add quantified achievements (e.g. "reduced latency by 40%").' : 'Highlight senior-level contributions or expand role descriptions.');
-  } else if (worstKey === 'Education' && worstScore < 60) {
-    tips.push('Add certifications, online courses, or clarify your degree field.');
-  } else if (worstKey === 'Profile' && worstScore < 70) {
-    const noOnline = scores.profile.subs[2].value === 0;
-    tips.push(noOnline ? 'Add your GitHub and LinkedIn to boost discoverability.' : 'Complete your contact details and write a stronger summary.');
-  }
-
-  if (tips.length === 0) return 'Well-structured resume. Tailor keywords to each job description for best ATS match.';
-  return tips[0];
+function getPlatformColor(name: string) {
+  return PLATFORM_COLORS[name] ?? { accent: '#94a3b8', bg: 'bg-slate-500/10', ring: 'ring-slate-500/50', text: 'text-slate-300' };
 }
 
 // ─── Score Ring ───────────────────────────────────────────────────────────────
 
-function ScoreRing({ score }: { score: number }) {
-  const r = 54;
+function ScoreRing({ score, passes, accent }: { score: number; passes: boolean; accent: string }) {
+  const r = 48;
   const circ = 2 * Math.PI * r;
-  const offset = circ - (score / 100) * circ;
   const displayed = useCountUp(score);
-  const { label, color } = getScoreLabel(score);
-  const gradId = `score-grad-${score}`;
-  const isStrong = score >= 70;
-  const isFair = score >= 50;
+  const offset = circ - (displayed / 100) * circ;
+  const gradId = `sg-${score}-${accent.replace('#', '')}`;
 
   return (
-    <div className="flex flex-col items-center gap-2">
-      <div className="relative w-36 h-36">
-        <svg className="w-full h-full -rotate-90" viewBox="0 0 124 124">
+    <div className="flex flex-col items-center gap-1.5 flex-shrink-0">
+      <div className="relative w-28 h-28">
+        <svg className="w-full h-full -rotate-90" viewBox="0 0 110 110">
           <defs>
             <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor={isStrong ? '#8b5cf6' : isFair ? '#f59e0b' : '#f87171'} />
-              <stop offset="100%" stopColor={isStrong ? '#6366f1' : isFair ? '#d97706' : '#ef4444'} />
+              <stop offset="0%" stopColor={accent} stopOpacity="0.9" />
+              <stop offset="100%" stopColor={accent} stopOpacity="0.5" />
             </linearGradient>
           </defs>
-          <circle cx="62" cy="62" r={r} fill="none" stroke="#1e293b" strokeWidth="11" />
-          <circle cx="62" cy="62" r={r} fill="none"
-            stroke={`url(#${gradId})`} strokeWidth="11"
+          <circle cx="55" cy="55" r={r} fill="none" stroke="#1e293b" strokeWidth="10" />
+          <circle cx="55" cy="55" r={r} fill="none"
+            stroke={`url(#${gradId})`} strokeWidth="10"
             strokeDasharray={circ} strokeDashoffset={offset}
-            strokeLinecap="round" opacity="0.2"
-            style={{ filter: 'blur(4px)', transition: 'stroke-dashoffset 1.2s cubic-bezier(0.34,1.56,0.64,1)' }}
+            strokeLinecap="round" opacity="0.15"
+            style={{ filter: 'blur(3px)', transition: 'stroke-dashoffset 1s cubic-bezier(0.34,1.56,0.64,1)' }}
           />
-          <circle cx="62" cy="62" r={r} fill="none"
-            stroke={`url(#${gradId})`} strokeWidth="11"
+          <circle cx="55" cy="55" r={r} fill="none"
+            stroke={`url(#${gradId})`} strokeWidth="10"
             strokeDasharray={circ} strokeDashoffset={offset}
             strokeLinecap="round"
-            style={{ transition: 'stroke-dashoffset 1.2s cubic-bezier(0.34,1.56,0.64,1)' }}
+            style={{ transition: 'stroke-dashoffset 1s cubic-bezier(0.34,1.56,0.64,1)' }}
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-3xl font-black text-white leading-none tabular-nums">{displayed}</span>
-          <span className="text-xs text-slate-500 mt-0.5">/ 100</span>
+          <span className="text-2xl font-black text-white leading-none tabular-nums">{displayed}</span>
+          <span className="text-[10px] text-slate-500 mt-0.5">/ 100</span>
         </div>
       </div>
-      <span className={`text-sm font-bold tracking-wide ${color}`}>{label}</span>
+      {passes ? (
+        <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-2 py-0.5">
+          <CheckCircle2 size={9} /> Passes Filter
+        </span>
+      ) : (
+        <span className="flex items-center gap-1 text-[10px] font-semibold text-red-400 bg-red-500/10 border border-red-500/30 rounded-full px-2 py-0.5">
+          <XCircle size={9} /> Filtered Out
+        </span>
+      )}
     </div>
   );
 }
 
-// ─── Metric Card with expandable sub-metrics ──────────────────────────────────
-// Expansion is controlled by the parent to prevent concurrent opens (accordion).
+// ─── Platform Pill ────────────────────────────────────────────────────────────
 
-interface MetricCardProps {
-  icon: React.ReactNode;
-  label: string;
-  category: CategoryScore;
-  accentColor: string;
-  bgColor: string;
-  iconBg: string;
-  isExpanded: boolean;
-  onToggle: () => void;
-}
-
-function MetricCard({ icon, label, category, accentColor, bgColor, iconBg, isExpanded, onToggle }: MetricCardProps) {
-  const displayed = useCountUp(category.score, 900);
+function PlatformPill({
+  result,
+  isActive,
+  onClick,
+}: {
+  result: ScoreResult;
+  isActive: boolean;
+  onClick: () => void;
+}) {
+  const { bg, ring, text, accent } = getPlatformColor(result.system);
+  const displayed = useCountUp(result.overallScore, 800);
+  const shortName = result.system === 'SuccessFactors' ? 'SAP SF' : result.system;
 
   return (
-    <div className={`rounded-xl border border-white/5 ${bgColor} overflow-hidden`}>
-      <button
-        className="w-full flex items-center gap-2.5 p-2.5 text-left"
-        onClick={(e) => { e.stopPropagation(); onToggle(); }}
+    <button
+      onClick={onClick}
+      className={`flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl border transition-all duration-150 min-w-[68px] ${
+        isActive
+          ? `${bg} ring-1 ${ring} border-transparent`
+          : 'bg-slate-800/50 border-slate-700/40 hover:bg-slate-800'
+      }`}
+    >
+      <span className={`text-[10px] font-semibold ${isActive ? text : 'text-slate-400'} leading-tight`}>
+        {shortName}
+      </span>
+      <span
+        className="text-sm font-black tabular-nums"
+        style={{ color: isActive ? accent : '#94a3b8' }}
       >
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${iconBg}`}>
-          {icon}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] text-slate-500 leading-none mb-0.5">{label}</p>
-          <div className="flex items-baseline gap-1">
-            <span className="text-sm font-bold text-slate-200 tabular-nums">{displayed}</span>
-            <span className="text-[10px] text-slate-500">%</span>
-          </div>
-          <div className="h-0.5 w-full bg-slate-700/60 rounded-full mt-1.5 overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all duration-1000"
-              style={{ width: `${displayed}%`, background: accentColor }}
-            />
-          </div>
-        </div>
-        <ChevronDown
-          size={12}
-          className={`text-slate-600 flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-        />
-      </button>
+        {displayed}
+      </span>
+      <span className={`text-[9px] ${result.passesFilter ? 'text-emerald-400' : 'text-red-400'}`}>
+        {result.passesFilter ? '✓ pass' : '✗ fail'}
+      </span>
+    </button>
+  );
+}
 
-      {isExpanded && (
-        <div className="px-2.5 pb-2.5 space-y-1.5 border-t border-white/5 pt-2">
-          {category.subs.map((sub) => {
-            const pct = Math.round((sub.value / sub.max) * 100);
-            return (
-              <div key={sub.label}>
-                <div className="flex items-center justify-between mb-0.5">
-                  <span className="text-[10px] text-slate-500">{sub.label}</span>
-                  <span className="text-[10px] text-slate-400 tabular-nums">{sub.value}/{sub.max}</span>
-                </div>
-                <div className="h-1 w-full bg-slate-700/60 rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full"
-                    style={{ width: `${pct}%`, background: accentColor, opacity: 0.7 }}
-                  />
-                </div>
-                <p className="text-[9px] text-slate-600 mt-0.5 truncate">{sub.note}</p>
-              </div>
-            );
-          })}
+// ─── Dimension Bar ────────────────────────────────────────────────────────────
+
+function DimensionBar({ label, score, accent }: { label: string; score: number; accent: string }) {
+  const displayed = useCountUp(score, 900);
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[11px] text-slate-400">{label}</span>
+        <span className="text-[11px] font-semibold text-slate-300 tabular-nums">{displayed}</span>
+      </div>
+      <div className="h-1.5 w-full bg-slate-700/60 rounded-full overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-1000 ease-out"
+          style={{ width: `${displayed}%`, backgroundColor: accent, opacity: 0.85 }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── Keyword Section ──────────────────────────────────────────────────────────
+
+function KeywordSection({
+  matched,
+  missing,
+  synonymMatched,
+}: {
+  matched: string[];
+  missing: string[];
+  synonymMatched: string[];
+}) {
+  const hasAny = matched.length > 0 || missing.length > 0 || synonymMatched.length > 0;
+  if (!hasAny) return null;
+
+  return (
+    <div className="px-4 pb-4 space-y-2.5 border-t border-slate-800 pt-3">
+      {matched.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold text-emerald-400 mb-1.5 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+            Matched ({matched.length})
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {matched.slice(0, 15).map((k) => (
+              <span key={k} className="px-1.5 py-0.5 rounded bg-emerald-900/30 border border-emerald-800/40 text-emerald-300 text-[10px]">
+                {k}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {synonymMatched.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold text-blue-400 mb-1.5 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 inline-block" />
+            Synonym Match ({synonymMatched.length})
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {synonymMatched.slice(0, 8).map((k) => (
+              <span key={k} className="px-1.5 py-0.5 rounded bg-blue-900/30 border border-blue-800/40 text-blue-300 text-[10px]">
+                ~{k}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {missing.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold text-amber-400 mb-1.5 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
+            Missing ({missing.length})
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {missing.slice(0, 10).map((k) => (
+              <span key={k} className="px-1.5 py-0.5 rounded bg-amber-900/30 border border-amber-800/40 text-amber-300 text-[10px]">
+                {k}
+              </span>
+            ))}
+          </div>
         </div>
       )}
     </div>
   );
 }
 
+// ─── Impact config ────────────────────────────────────────────────────────────
+
+const IMPACT_CONFIG = {
+  critical: { label: 'CRITICAL', badge: 'bg-red-500/20 text-red-400 border-red-500/30',    num: 'bg-red-500 text-white' },
+  high:     { label: 'HIGH',     badge: 'bg-orange-500/20 text-orange-400 border-orange-500/30', num: 'bg-orange-500 text-white' },
+  medium:   { label: 'MEDIUM',   badge: 'bg-amber-500/20 text-amber-400 border-amber-500/30',   num: 'bg-amber-500 text-white' },
+  low:      { label: 'LOW',      badge: 'bg-slate-600/40 text-slate-400 border-slate-600/40',   num: 'bg-slate-600 text-slate-300' },
+} as const;
+
+// ─── Suggestion Item ──────────────────────────────────────────────────────────
+
+function SuggestionItem({ item, index }: { item: StructuredSuggestion; index: number }) {
+  const [open, setOpen] = useState(false);
+  const cfg = IMPACT_CONFIG[item.impact] ?? IMPACT_CONFIG.low;
+
+  return (
+    <div className="rounded-xl border border-slate-700/50 overflow-hidden">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-slate-800/60 transition-colors"
+      >
+        {/* Number badge */}
+        <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black flex-shrink-0 ${cfg.num}`}>
+          {index + 1}
+        </span>
+        {/* Summary */}
+        <span className="text-[11px] text-slate-300 leading-snug flex-1 min-w-0">{item.summary}</span>
+        {/* Impact badge */}
+        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border flex-shrink-0 ${cfg.badge}`}>
+          {cfg.label}
+        </span>
+        {/* Chevron */}
+        <ChevronDown
+          size={11}
+          className={`text-slate-600 flex-shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {open && (
+        <div className="px-3 pb-3 pt-1 border-t border-slate-700/50 bg-slate-900/40 space-y-1.5">
+          {item.details.map((d, i) => (
+            <p key={i} className="text-[11px] text-slate-400 leading-relaxed flex items-start gap-2">
+              <span className="text-slate-600 mt-0.5 flex-shrink-0">·</span>
+              {d}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Suggestions List ─────────────────────────────────────────────────────────
+
+function SuggestionsList({ suggestions }: { suggestions: Suggestion[] }) {
+  if (suggestions.length === 0) return null;
+
+  // Normalise to StructuredSuggestion (handle legacy plain strings gracefully)
+  const items: StructuredSuggestion[] = suggestions.slice(0, 6).map((s) =>
+    typeof s === 'string'
+      ? { summary: s, details: [], impact: 'medium' as const, platforms: [] }
+      : s
+  );
+
+  return (
+    <div className="px-4 pb-4 border-t border-slate-800 pt-3">
+      <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+        <Lightbulb size={10} className="text-amber-400" />
+        Suggestions
+      </p>
+      <div className="space-y-1.5">
+        {items.map((item, i) => (
+          <SuggestionItem key={i} item={item} index={i} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── AI Summary ──────────────────────────────────────────────────────────────
-// Shows the Claude-generated professional summary from CV parsing —
-// written as a candidate-facing "About Me" paragraph, not a recruiter profile.
 
 function AISummary({ analysis }: { analysis: CVAnalysis }) {
   const summary = analysis.summary?.trim();
@@ -360,92 +317,119 @@ function AISummary({ analysis }: { analysis: CVAnalysis }) {
   );
 }
 
-// ─── Main export ─────────────────────────────────────────────────────────────
+// ─── Main export ──────────────────────────────────────────────────────────────
 
-export default function AtsScorePanel({ atsScore, analysis, matchedKeywords = [], missingKeywords = [] }: AtsScorePanelProps) {
-  const sub = computeSubScores(analysis);
-  const advice = getScoreAdvice(sub);
-  const [expandedCard, setExpandedCard] = useState<string | null>(null);
-
-  function toggleCard(id: string) {
-    setExpandedCard(prev => prev === id ? null : id);
+export default function AtsScorePanel({ atsResults, analysis }: AtsScorePanelProps) {
+  // Guard: nothing to show yet
+  if (!atsResults || atsResults.length === 0) {
+    return (
+      <div className="rounded-2xl border border-slate-700/50 bg-slate-800/40 p-6 flex items-center justify-center">
+        <p className="text-xs text-slate-500">No ATS scores available.</p>
+      </div>
+    );
   }
+
+  // Default to highest-scoring platform
+  const bestResult = atsResults.reduce((best, r) =>
+    r.overallScore > best.overallScore ? r : best
+  , atsResults[0]);
+
+  const [selectedSystem, setSelectedSystem] = useState(bestResult.system);
+
+  // Re-default when results change (e.g. new resume loaded)
+  useEffect(() => {
+    const best = atsResults.reduce((b, r) => r.overallScore > b.overallScore ? r : b, atsResults[0]);
+    setSelectedSystem(best.system);
+  }, [atsResults]);
+
+  const activeResult = atsResults.find((r) => r.system === selectedSystem) ?? atsResults[0];
+  const { accent } = getPlatformColor(activeResult.system);
+  const { breakdown } = activeResult;
+
+  const passCount = atsResults.filter((r) => r.passesFilter).length;
 
   return (
     <div className="space-y-3">
-      {/* Hero Score Card */}
-      <div className="rounded-2xl overflow-hidden border border-slate-700/50"
-        style={{ background: 'linear-gradient(135deg, rgb(15,23,42) 0%, rgb(23,30,51) 50%, rgb(15,23,42) 100%)' }}>
-        <div className="p-4">
-          <div className="flex items-start gap-4">
-            <ScoreRing score={atsScore} />
-            <div className="flex-1 grid grid-cols-2 gap-2 items-start">
-              <MetricCard
-                icon={<Star size={13} className="text-blue-300" />}
-                label="Hard Skills" category={sub.hardSkills}
-                accentColor="#93c5fd" iconBg="bg-blue-500/15 text-blue-300" bgColor="bg-slate-800/60"
-                isExpanded={expandedCard === 'hardSkills'} onToggle={() => toggleCard('hardSkills')}
-              />
-              <MetricCard
-                icon={<TrendingUp size={13} className="text-violet-300" />}
-                label="Experience" category={sub.experience}
-                accentColor="#c4b5fd" iconBg="bg-violet-500/15 text-violet-300" bgColor="bg-slate-800/60"
-                isExpanded={expandedCard === 'experience'} onToggle={() => toggleCard('experience')}
-              />
-              <MetricCard
-                icon={<GraduationCap size={13} className="text-emerald-300" />}
-                label="Education" category={sub.education}
-                accentColor="#6ee7b7" iconBg="bg-emerald-500/15 text-emerald-300" bgColor="bg-slate-800/60"
-                isExpanded={expandedCard === 'education'} onToggle={() => toggleCard('education')}
-              />
-              <MetricCard
-                icon={<User size={13} className="text-amber-300" />}
-                label="Profile" category={sub.profile}
-                accentColor="#fcd34d" iconBg="bg-amber-500/15 text-amber-300" bgColor="bg-slate-800/60"
-                isExpanded={expandedCard === 'profile'} onToggle={() => toggleCard('profile')}
-              />
-            </div>
-          </div>
-          <p className="text-xs text-slate-400 leading-relaxed mt-3 pt-3 border-t border-slate-700/50">
-            {advice}
+
+      {/* ── Header summary ── */}
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs font-bold text-slate-200">ATS Compatibility</p>
+          <p className="text-[10px] text-slate-500 mt-0.5">
+            {passCount}/{atsResults.length} platforms pass
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] text-slate-500">Avg score</p>
+          <p className="text-sm font-black text-slate-200 tabular-nums">
+            {Math.round(atsResults.reduce((s, r) => s + r.overallScore, 0) / atsResults.length)}
           </p>
         </div>
       </div>
 
-      {/* AI Summary */}
-      <AISummary analysis={analysis} />
+      {/* ── Platform pills ── */}
+      <div className="flex gap-1.5 flex-wrap">
+        {atsResults.map((r) => (
+          <PlatformPill
+            key={r.system}
+            result={r}
+            isActive={r.system === selectedSystem}
+            onClick={() => setSelectedSystem(r.system)}
+          />
+        ))}
+      </div>
 
-      {/* Keywords */}
-      {(matchedKeywords.length > 0 || missingKeywords.length > 0) && (
-        <div className="rounded-2xl border border-slate-700/50 bg-slate-800/40 p-4 space-y-3">
-          {matchedKeywords.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-emerald-400 mb-2 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-                Matched Keywords ({matchedKeywords.length})
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {matchedKeywords.slice(0, 10).map((k) => (
-                  <span key={k} className="px-2 py-0.5 rounded-md bg-emerald-900/30 border border-emerald-800/50 text-emerald-300 text-xs">{k}</span>
-                ))}
-              </div>
+      {/* ── Active platform detail card ── */}
+      <div className="rounded-2xl border border-slate-700/50 overflow-hidden"
+        style={{ background: 'linear-gradient(135deg, rgb(15,23,42) 0%, rgb(20,27,48) 50%, rgb(15,23,42) 100%)' }}>
+
+        {/* Platform header */}
+        <div className="p-4 flex items-start gap-4 border-b border-slate-800">
+          <ScoreRing
+            score={activeResult.overallScore}
+            passes={activeResult.passesFilter}
+            accent={accent}
+          />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-white">{activeResult.system}</p>
+            <p className="text-[10px] text-slate-500 mt-0.5 mb-3">{activeResult.vendor}</p>
+
+            {/* Dimension bars */}
+            <div className="space-y-2">
+              <DimensionBar label="Formatting"  score={breakdown.formatting.score}  accent={accent} />
+              <DimensionBar label="Keywords"    score={breakdown.keywordMatch.score} accent={accent} />
+              <DimensionBar label="Sections"    score={breakdown.sections.score}     accent={accent} />
+              <DimensionBar label="Experience"  score={breakdown.experience.score}   accent={accent} />
+              <DimensionBar label="Education"   score={breakdown.education.score}    accent={accent} />
             </div>
-          )}
-          {missingKeywords.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-amber-400 mb-2 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
-                Missing Keywords ({missingKeywords.length})
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {missingKeywords.slice(0, 10).map((k) => (
-                  <span key={k} className="px-2 py-0.5 rounded-md bg-amber-900/30 border border-amber-800/50 text-amber-300 text-xs">{k}</span>
-                ))}
-              </div>
-            </div>
-          )}
+          </div>
         </div>
-      )}
+
+        {/* Keywords */}
+        <KeywordSection
+          matched={breakdown.keywordMatch.matched}
+          missing={breakdown.keywordMatch.missing}
+          synonymMatched={breakdown.keywordMatch.synonymMatched}
+        />
+
+        {/* Formatting issues (when present) */}
+        {breakdown.formatting.issues.length > 0 && (
+          <div className="px-4 pb-3 border-t border-slate-800 pt-3 space-y-1">
+            <p className="text-[10px] font-semibold text-amber-400 uppercase tracking-wider mb-1">Formatting Issues</p>
+            {breakdown.formatting.issues.map((issue, i) => (
+              <p key={i} className="text-[11px] text-amber-300/80 flex items-start gap-1.5">
+                <span className="text-amber-500 mt-0.5">·</span>{issue}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {/* Suggestions */}
+        <SuggestionsList suggestions={activeResult.suggestions} />
+      </div>
+
+      {/* ── AI Summary ── */}
+      <AISummary analysis={analysis} />
     </div>
   );
 }

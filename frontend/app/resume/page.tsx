@@ -9,6 +9,8 @@ import {
 import DashboardLayout from '@/components/DashboardLayout';
 import { createSession, uploadCV, getCVPresignedUrl, getUserResumes, saveCVMetadata, getCVCorrections, deleteCV } from '@/lib/api';
 import type { CVCorrections } from '@/components/cv-reviewer/types';
+import { scoreResume, buildScoringInput } from '@/lib/ats-engine';
+import type { ScoreResult } from '@/lib/ats-engine';
 
 const CVReviewer = dynamic(() => import('@/components/cv-reviewer/CVReviewer'), { ssr: false });
 const PDFThumbnail = dynamic(() => import('@/components/cv-reviewer/PDFThumbnail'), { ssr: false });
@@ -55,62 +57,23 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-// Weights: hardSkills 30%, experience 35%, education 20%, profile 15%
-// + up to 15 bonus pts for JD keyword match
-function computeAtsScore(analysis: CVAnalysis, jdText?: string): {
-  score: number; matched: string[]; missing: string[];
+// Computes 6-platform ATS results using the real ATS engine.
+// Returns results for the panel + a single avg score and Workday keywords for DB storage.
+function computeAtsResults(analysis: CVAnalysis, jobDescription?: string): {
+  results: ScoreResult[];
+  atsScore: number;
+  matched: string[];
+  missing: string[];
 } {
-  const allSkills = [...new Set([...(analysis.skills ?? []), ...(analysis.technologies ?? [])])];
-
-  // Hard Skills (max 30)
-  const skillPts = Math.min(18, allSkills.length * 0.6);
-  const catKeys = Object.keys(analysis.categorized_skills ?? {}).filter(k => (analysis.categorized_skills?.[k]?.length ?? 0) > 0);
-  const diversityPts = Math.min(7, catKeys.length * 2);
-  const modernTech = ['docker','kubernetes','aws','azure','gcp','react','typescript','fastapi','terraform','llm','redis','kafka'];
-  const modernPts = Math.min(5, modernTech.filter(t => allSkills.some(s => s.toLowerCase().includes(t))).length * 1.5);
-  const hardSkillsScore = skillPts + diversityPts + modernPts;
-
-  // Experience (max 35)
-  const years = analysis.totalYearsExperience ?? 0;
-  const yearsPts = years === 0 ? 0 : years < 2 ? 8 : years < 4 ? 14 : years < 7 ? 20 : 22;
-  const rolesPts = Math.min(8, (analysis.experience?.length ?? 0) * 3);
-  const impactPattern = /\b(\d+[%x]|\d+\s*(users|ms|seconds|million|billion|k\b|times))\b/i;
-  const impactPts = Math.min(5, (analysis.experience ?? []).filter(e => impactPattern.test(e.context ?? '')).length * 2);
-  const experienceScore = yearsPts + rolesPts + impactPts;
-
-  // Education (max 20)
-  const eduText = (analysis.education ?? []).map(e => `${e.degree} ${e.context} ${e.institution ?? ''}`).join(' ').toLowerCase();
-  const degreePts = /phd|ph\.d|doctorate/.test(eduText) ? 14
-    : /master|m\.tech|mba|msc/.test(eduText) ? 12
-    : /bachelor|b\.tech|b\.e\.|b\.s\.|bsc/.test(eduText) ? 10
-    : (analysis.education?.length ?? 0) > 0 ? 5 : 0;
-  const techFieldPts = /computer|software|information|engineering|data|mathematics/.test(eduText) ? 6 : 0;
-  const educationScore = degreePts + techFieldPts;
-
-  // Profile (max 15)
-  const profileScore =
-    (analysis.candidateName ? 5 : 0) +
-    (analysis.email ? 4 : 0) +
-    (analysis.phone ? 2 : 0) +
-    ((analysis.summary?.length ?? 0) > 50 ? 4 : 0);
-
-  let score = hardSkillsScore + experienceScore + educationScore + profileScore;
-
-  // JD keyword match bonus (max 15)
-  let matched: string[] = [];
-  let missing: string[] = [];
-  if (jdText && jdText.trim().length > 20) {
-    const stopWords = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'are', 'you', 'will', 'have', 'from', 'our', 'your', 'their', 'into', 'must', 'able', 'also', 'been', 'more', 'new', 'can', 'not', 'its', 'any', 'all', 'who', 'was', 'had']);
-    const jdKeywords = Array.from(new Set(
-      jdText.toLowerCase().match(/\b[a-z][a-z0-9+#.]{2,}\b/g) ?? []
-    )).filter(w => !stopWords.has(w) && w.length > 3);
-    const cvLower = allSkills.map(s => s.toLowerCase());
-    matched = jdKeywords.filter(kw => cvLower.some(s => s.includes(kw) || kw.includes(s))).slice(0, 12);
-    missing = jdKeywords.filter(kw => !cvLower.some(s => s.includes(kw) || kw.includes(s))).slice(0, 10);
-    score += Math.round((matched.length / Math.min(jdKeywords.length, 20)) * 15);
-  }
-
-  return { score: Math.min(100, Math.round(score)), matched, missing };
+  const results = scoreResume(buildScoringInput(analysis, jobDescription));
+  const atsScore = results.length > 0
+    ? Math.round(results.reduce((sum, r) => sum + r.overallScore, 0) / results.length)
+    : 0;
+  // Use Workday (strictest, most common) for matched/missing stored to DB
+  const workday = results.find((r) => r.system === 'Workday') ?? results[0];
+  const matched = workday?.breakdown.keywordMatch.matched ?? [];
+  const missing = workday?.breakdown.keywordMatch.missing ?? [];
+  return { results, atsScore, matched, missing };
 }
 
 // ─── Resume Card (for grid view) ─────────────────────────────────────────────
@@ -232,7 +195,7 @@ function PastResumesGrid({ resumes, onView, onNew, onDelete }: {
 // ─── Upload Phase ─────────────────────────────────────────────────────────────
 
 function UploadPhase({ onComplete, compact }: {
-  onComplete: (resume: StoredResume, file: File, sessionId: string) => void;
+  onComplete: (resume: StoredResume, file: File, sessionId: string, results: ScoreResult[]) => void;
   compact?: boolean;
 }) {
   const [file, setFile] = useState<File | null>(null);
@@ -272,7 +235,7 @@ function UploadPhase({ onComplete, compact }: {
 
       if (!data.success || !data.analysis) throw new Error('Analysis did not return results');
 
-      const { score, matched, missing } = computeAtsScore(data.analysis, jobDescription);
+      const { results, atsScore: score, matched, missing } = computeAtsResults(data.analysis, jobDescription);
 
       const newResume: StoredResume = {
         id: Date.now().toString(),
@@ -280,7 +243,7 @@ function UploadPhase({ onComplete, compact }: {
         filename: file.name,
         uploadedAt: new Date().toISOString(),
         analysis: data.analysis,
-        corrections: null,
+        corrections: undefined,
         jobTitle: jobTitle.trim() || undefined,
         jobDescription: jobDescription.trim() || undefined,
         atsScore: score,
@@ -297,7 +260,7 @@ function UploadPhase({ onComplete, compact }: {
         missing_keywords: missing,
       }).catch(() => {});
 
-      onComplete(newResume, file, session_id);
+      onComplete(newResume, file, session_id, results);
     } catch (err) {
       setError((err as Error).message || 'Something went wrong. Please try again.');
     } finally {
@@ -455,6 +418,7 @@ export default function ResumePage() {
   const [resumes, setResumes] = useState<StoredResume[]>([]);
   const [activeResume, setActiveResume] = useState<StoredResume | null>(null);
   const [activeFile, setActiveFile] = useState<File | null>(null);
+  const [atsResults, setAtsResults] = useState<ScoreResult[]>([]);
   const [view, setView] = useState<View>('grid');
   const [showUploadModal, setShowUploadModal] = useState(false);
 
@@ -484,10 +448,11 @@ export default function ResumePage() {
       });
   }, []);
 
-  const handleComplete = (resume: StoredResume, file: File, sessionId: string) => {
+  const handleComplete = (resume: StoredResume, file: File, sessionId: string, results: ScoreResult[]) => {
     setResumes(prev => [resume, ...prev]);
     setActiveResume(resume);
     setActiveFile(file);
+    setAtsResults(results);
     setShowUploadModal(false);
     setView('review');
 
@@ -513,12 +478,16 @@ export default function ResumePage() {
     setActiveResume(r);
     setActiveFile(null);
     setView('review');
+    // Recompute 6-platform ATS scores client-side from stored analysis + jobDescription
+    const { results } = computeAtsResults(r.analysis, r.jobDescription);
+    setAtsResults(results);
   };
 
   const handleBack = () => {
     setView('grid');
     setActiveResume(null);
     setActiveFile(null);
+    setAtsResults([]);
   };
 
   const handleDelete = (id: string) => {
@@ -576,12 +545,20 @@ export default function ResumePage() {
           {view === 'review' && activeResume ? (
             <div className="flex items-center gap-2 shrink-0">
               {(() => {
-                const s = activeResume.atsScore ?? 0;
-                const col = s >= 80 ? 'text-emerald-400' : s >= 60 ? 'text-violet-400' : 'text-amber-400';
+                const avgScore = atsResults.length > 0
+                  ? Math.round(atsResults.reduce((s, r) => s + r.overallScore, 0) / atsResults.length)
+                  : (activeResume.atsScore ?? 0);
+                const col = avgScore >= 80 ? 'text-emerald-400' : avgScore >= 60 ? 'text-violet-400' : 'text-amber-400';
                 const issues = activeResume.corrections?.checkers?.reduce((n, c) => n + c.needsFix.length, 0) ?? 0;
                 const hasCheckers = (activeResume.corrections?.checkers?.length ?? 0) > 0;
+                const passCount = atsResults.filter((r) => r.passesFilter).length;
                 return (<>
-                  <span className={`text-sm font-bold ${col}`}>{s}/100 ATS</span>
+                  <span className={`text-sm font-bold ${col}`}>{avgScore}/100 ATS</span>
+                  {atsResults.length > 0 && (
+                    <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold bg-slate-700/60 text-slate-400">
+                      {passCount}/{atsResults.length} pass
+                    </span>
+                  )}
                   {hasCheckers && (
                     <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${issues === 0 ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'}`}>
                       {issues === 0 ? 'No issues' : `${issues} issue${issues !== 1 ? 's' : ''}`}
@@ -619,9 +596,7 @@ export default function ResumePage() {
               sessionId={activeResume.sessionId ?? ''}
               analysis={activeResume.analysis}
               corrections={activeResume.corrections ?? null}
-              atsScore={activeResume.atsScore ?? 0}
-              matchedKeywords={activeResume.matchedKeywords}
-              missingKeywords={activeResume.missingKeywords}
+              atsResults={atsResults}
               localPdfFile={activeFile}
             />
           </div>

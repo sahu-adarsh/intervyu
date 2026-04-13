@@ -43,3 +43,7 @@ export interface CVAnalysis {
   industry?: string;
   file_type?: string;
 }
+
+// ATS engine re-exports — allows cv-reviewer components to co-locate their type imports
+export type { ScoreResult, ScoreBreakdown, Suggestion, StructuredSuggestion } from '@/lib/ats-engine';
+export type { ScoreResult as ATSScoreResult } from '@/lib/ats-engine';
