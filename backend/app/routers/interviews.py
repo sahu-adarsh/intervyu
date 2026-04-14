@@ -38,54 +38,46 @@ class CvSuggestionsRequest(BaseModel):
 
 def _build_suggestions_prompt(raw_text: str, job_description: Optional[str], avg_score: int) -> str:
     jd_section = (
-        f"\n<JOB_DESCRIPTION>\n{job_description[:2000]}\n</JOB_DESCRIPTION>\n\n"
-        "Evaluate keyword alignment with this specific job description. Note which required terms "
-        "are missing or in the wrong form (e.g. 'React' vs 'React.js')."
+        f"\n<JOB_DESCRIPTION>\n{job_description[:3000]}\n</JOB_DESCRIPTION>\n"
         if job_description
-        else "\nNo job description provided. Evaluate for general ATS readiness across industries."
+        else ""
     )
 
-    return f"""You are a senior talent acquisition technology analyst with hands-on experience across Workday, Taleo, iCIMS, Greenhouse, Lever, and SAP SuccessFactors.
+    return f"""You are a resume optimization specialist who understands how enterprise ATS platforms work internally.
 
-Current average ATS compatibility score: {avg_score}/100
+Current average ATS score: {avg_score}/100
 
-<RESUME>
-{raw_text[:3000]}
-</RESUME>
+<RESUME_EXCERPT>
+{raw_text[:2500]}
+</RESUME_EXCERPT>
 {jd_section}
+Provide specific, actionable suggestions to improve this resume's ATS compatibility. Each suggestion must reference WHY it matters for ATS parsing/matching.
 
-Provide 3-5 highly specific, actionable suggestions to improve this resume's ATS compatibility.
+Rules:
+- max 7 suggestions, sorted by impact (highest first)
+- be SPECIFIC: "add 'Kubernetes' and 'K8s' to your experience bullets describing container orchestration work" not "add more keywords"
+- include BOTH abbreviated and full forms advice (critical for Taleo's literal matching)
+- if formatting issues detected, mention which specific platforms they break (Workday and Taleo are strictest)
+- consider the industry context. don't suggest healthcare certifications for a software engineer
+- suggest quantifying achievements with specific numbers where bullets lack metrics
+- focus on what's missing from the JD that could reasonably be added based on the candidate's apparent experience
+- PDF extraction artifacts (#, §, fi, fl ligatures) — ignore these, treat as normal text
 
-OUTPUT RULES — follow exactly:
-- "summary": 10-12 word phrase naming the specific resume element and the problem. Quote the actual text from the resume. No full sentences.
-- "details": array of EXACTLY 3 strings. Each string must be 10-17 words long (count carefully).
-  - details[0]: exact before→after rewrite, quoting current resume text
-  - details[1]: why this specific ATS platform behavior penalises this issue
-  - details[2]: which platforms benefit and estimated score improvement in points
-- "impact": "critical" | "high" | "medium" | "low"
-- "platforms": array of platform names most affected
-
-CONTENT RULES:
-- Every suggestion must reference specific text from this resume. Never say "add more keywords" or "quantify achievements" generically.
-- PDF extraction artifacts (#, §, fi, fl ligatures) — ignore these, treat as normal text.
-
-Return ONLY valid JSON — no markdown fences, no explanation text:
+Return ONLY valid JSON, no markdown fences:
 {{
   "suggestions": [
     {{
-      "summary": "10-12 word phrase quoting specific resume content and the problem",
+      "summary": "short phrase naming the specific resume element and the problem",
       "details": [
-        "Change 'exact current text' to 'improved version with specific metric or term'",
-        "Workday/Taleo parse this field as X; missing Y causes Z score penalty",
-        "Workday, Taleo benefit most; estimated +3-5 points on keyword match"
+        "Exact before→after change quoting current resume text",
+        "Why this specific ATS platform behavior penalizes this issue",
+        "Which platforms benefit most and estimated score improvement"
       ],
       "impact": "high",
       "platforms": ["Workday", "Taleo"]
     }}
   ]
 }}
-
-Return 3–5 suggestions sorted by impact (highest first). Maximum 5."""
 
 
 async def _verify_session_owner(session_id: str, user_id: str) -> dict:

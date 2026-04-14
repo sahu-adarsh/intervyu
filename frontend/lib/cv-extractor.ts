@@ -6,13 +6,10 @@
  *
  * Returns the extracted text, or '' on failure (backend then falls back to
  * pdfplumber / Textract as before).
+ *
+ * All heavy imports are dynamic so this module is safe to import in
+ * 'use client' components without breaking Next.js static export prerendering.
  */
-
-import * as pdfjsLib from 'pdfjs-dist';
-import type { TextItem } from 'pdfjs-dist/types/src/display/api';
-
-// Worker is copied to /public by the postinstall script
-pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
 export async function extractTextFromFile(file: File): Promise<string> {
   const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
@@ -31,6 +28,9 @@ export async function extractTextFromFile(file: File): Promise<string> {
 
 async function extractFromPDF(file: File): Promise<string> {
   try {
+    const pdfjsLib = await import('pdfjs-dist');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+
     const buffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
     const allLines: string[] = [];
@@ -41,13 +41,11 @@ async function extractFromPDF(file: File): Promise<string> {
 
       // Collect positioned text items
       const items = content.items
-        .filter((item): item is TextItem => 'str' in item && !!item.str.trim())
-        .map((item) => ({
-          text: item.str,
-          x: item.transform[4],
-          y: item.transform[5],
-          width: item.width,
-        }));
+        .filter((item) => 'str' in item && !!(item as { str: string }).str.trim())
+        .map((item) => {
+          const t = item as { str: string; transform: number[]; width: number };
+          return { text: t.str, x: t.transform[4], y: t.transform[5], width: t.width };
+        });
 
       if (items.length === 0) continue;
 
