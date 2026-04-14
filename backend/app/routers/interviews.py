@@ -77,7 +77,7 @@ Return ONLY valid JSON, no markdown fences:
       "platforms": ["Workday", "Taleo"]
     }}
   ]
-}}
+}}"""
 
 
 async def _verify_session_owner(session_id: str, user_id: str) -> dict:
