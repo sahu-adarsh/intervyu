@@ -1,6 +1,9 @@
 # Claude Code local config (may contain secrets)
 .claude/
 
+# Graphify build cache (regenerates locally)
+graphify-out/cache/
+
 # SAM build artifacts
 lambda-tools/.aws-sam/
 
