@@ -80,15 +80,19 @@ CRITICAL RULES:
 - PDF extraction artifacts (#, §, fi, fl ligatures, unicode combining chars) are font rendering noise — do NOT flag as formatting issues
 - Sort by impact: critical → high → medium → low
 
+LENGTH CONSTRAINTS (strictly enforced):
+- "summary": max 8 words — ultra-concise label, no filler (e.g. "Embed skills inside experience bullets")
+- Each "details" item: max 15 words — one tight sentence, no padding
+
 Return ONLY valid JSON, no markdown fences:
 {{
   "suggestions": [
     {{
-      "summary": "one sentence referencing the specific resume element and its problem",
+      "summary": "max 8 words identifying the specific problem",
       "details": [
-        "Change '[exact current text]' to '[improved version with specifics]'",
-        "Why this specific ATS platform behavior penalizes this",
-        "Which platforms benefit and estimated score impact"
+        "Before→after rewrite in max 15 words",
+        "Why this ATS behavior matters, max 15 words",
+        "Which platforms benefit, max 15 words"
       ],
       "impact": "critical | high | medium | low",
       "platforms": ["Workday", "Taleo"]
