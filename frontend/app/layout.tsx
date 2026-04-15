@@ -41,7 +41,7 @@ export const metadata: Metadata = {
     siteName: "intervyu.io",
     images: [
       {
-        url: "/favicon-64.png",
+        url: "/white-tune.png",
         width: 64,
         height: 64,
         alt: "intervyu.io logo",
@@ -56,10 +56,10 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/favicon-64.png", sizes: "64x64", type: "image/png" },
+      { url: "/white-tune.png", sizes: "64x64", type: "image/png" },
     ],
-    shortcut: "/favicon-64.png",
-    apple: "/favicon-64.png",
+    shortcut: "/white-tune.png",
+    apple: "/white-tune.png",
   },
   robots: {
     index: true,
