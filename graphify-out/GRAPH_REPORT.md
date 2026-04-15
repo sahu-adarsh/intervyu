@@ -1,7 +1,7 @@
 # Graph Report - .  (2026-04-15)
 
 ## Corpus Check
-- 203 files · ~267,931 words
+- 203 files · ~270,627 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -1596,10 +1596,10 @@ Nodes (1): [2026-03-26] GitHub Actions CI Fix — VAD Assets + env vars
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `ConfigNamespace` connect `Community 7` to `Community 0`, `Community 8`, `Community 2`, `Community 28`?**
-  _High betweenness centrality (0.046) - this node is a cross-community bridge._
+  _High betweenness centrality (0.060) - this node is a cross-community bridge._
 - **Why does `TemplateNamespace` connect `Community 9` to `Community 0`, `Community 2`, `Community 6`, `Community 15`, `Community 16`?**
-  _High betweenness centrality (0.027) - this node is a cross-community bridge._
-- **Why does `warn()` connect `Community 1` to `Community 0`, `Community 2`, `Community 3`, `Community 4`, `Community 6`, `Community 8`, `Community 11`, `Community 13`, `Community 15`, `Community 16`?**
+  _High betweenness centrality (0.041) - this node is a cross-community bridge._
+- **Why does `shadow()` connect `Community 1` to `Community 0`, `Community 2`, `Community 3`, `Community 4`, `Community 6`, `Community 8`, `Community 10`, `Community 11`, `Community 76`, `Community 16`, `Community 28`?**
   _High betweenness centrality (0.020) - this node is a cross-community bridge._
 - **What connects `Migrate session data from S3 JSON blobs to Supabase PostgreSQL.`, `Call Claude Sonnet 4.6 to generate a genuine, transcript-grounded evaluation.`, `Rule-based fallback used only when LLM is unavailable.` to the rest of the system?**
   _215 weakly-connected nodes found - possible documentation gaps or missing edges._
