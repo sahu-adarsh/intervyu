@@ -483,7 +483,7 @@ async def get_cv_ai_suggestions(
         # Run in thread pool (boto3 is sync)
         loop = asyncio.get_event_loop()
         response_text = await loop.run_in_executor(
-            None, lambda: bedrock.invoke_claude_json(prompt, max_tokens=2000)
+            None, lambda: bedrock.invoke_claude_json(prompt, max_tokens=4096)
         )
 
         # Strip any accidental markdown fences before parsing
