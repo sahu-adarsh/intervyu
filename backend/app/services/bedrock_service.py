@@ -309,7 +309,7 @@ class BedrockService:
         Single-turn Claude call for structured JSON output. Not streaming.
         Returns the raw text response (caller parses JSON).
         """
-        response = self.bedrock_json_client.converse(
+        response = self.bedrock_runtime_client.converse(
             modelId="us.anthropic.claude-haiku-4-5-20251001-v1:0",
             messages=[{"role": "user", "content": [{"text": prompt}]}],
             inferenceConfig={"maxTokens": max_tokens, "temperature": 0.3},
