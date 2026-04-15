@@ -38,12 +38,12 @@ class CvSuggestionsRequest(BaseModel):
 
 def _build_suggestions_prompt(raw_text: str, job_description: Optional[str], avg_score: int) -> str:
     jd_section = (
-        f"\n<JOB_DESCRIPTION>\n{job_description[:3000]}\n</JOB_DESCRIPTION>\n\nMODE: targeted scoring — match the resume against this specific job description. extract required and preferred skills from the JD. suggestions must reflect actual overlap (or gaps) between resume content and JD requirements.\n"
+        f"\n<JOB_DESCRIPTION>\n{job_description[:3000]}\n</JOB_DESCRIPTION>\n\nMODE: targeted — match against this JD. Extract required and preferred skills. Suggestions must address actual gaps between the resume and JD requirements.\n"
         if job_description
-        else "\nMODE: general ATS readiness — no job description provided. evaluate formatting, structure, and professional keyword density for general ATS compatibility. assess how well this resume would parse and surface in recruiter keyword searches for roles matching the candidate's apparent experience level and field.\n"
+        else "\nMODE: general ATS readiness — no JD provided. Focus on formatting, structure, keyword density, and terminology quality for the candidate's apparent field.\n"
     )
 
-    return f"""You are a senior talent acquisition technology analyst who has worked hands-on with all 6 of these enterprise ATS/HCMS platforms. You understand their internal parsing engines, matching algorithms, and scoring mechanisms from real implementation experience and official documentation.
+    return f"""You are a resume optimization specialist with deep knowledge of how these 6 enterprise ATS platforms actually parse and score resumes.
 
 Current average ATS score: {avg_score}/100
 
@@ -51,48 +51,48 @@ Current average ATS score: {avg_score}/100
 {raw_text[:2500]}
 </RESUME>
 {jd_section}
-## ATS PLATFORM REFERENCE (actual documented behavior)
+## ATS PLATFORM PARSING REALITIES
 
-**WORKDAY** (37% of Fortune 500): proprietary parser. ~30% of resumes flagged unparseable due to formatting. BREAKS on: multi-column layouts (columns merge into garbled lines), tables (scramble job chronology), headers/footers (contact info there is SKIPPED ENTIRELY), text boxes, non-standard fonts. Skills sections not reliably parsed — skills must appear inside experience bullets. HiredScore (semantic ML) weights quantified achievements and relationship clusters ("cross-functional collaboration" + "stakeholder alignment" together > repeating "project management" 5x).
+**WORKDAY** (37% Fortune 500): ~30% of resumes flagged unparseable. Contact info in headers/footers is SKIPPED ENTIRELY. Multi-column layouts, tables, text boxes scramble content. Skills MUST appear inside experience bullets — a standalone skills section is unreliably parsed. HiredScore (semantic ML) weights quantified achievements and contextual skill clusters over keyword repetition.
 
-**TALEO** (legacy enterprise): OCR-based, notoriously fragile. LITERAL EXACT KEYWORD MATCH — "project manager" and "project management" are entirely different terms. "CPA" ≠ "Certified Public Accountant". Tense variations ("managed" vs "managing") don't match. Req Rank % score visible to recruiters — low % = immediate dismissal. Disqualification questions cause INSTANT AUTO-REJECTION. STRICTEST of all six.
+**TALEO** (legacy enterprise, OCR-based): LITERAL EXACT KEYWORD MATCH ONLY — "project manager" ≠ "project management"; "CPA" ≠ "Certified Public Accountant"; tense variants don't match. Req Rank % is visible to recruiters — low % = instant dismissal. Dates placed before employer names have caused entire experience sections to vanish.
 
-**iCIMS** (#1 ATS by count): HireAbility ALEX grammar-based NLP — assigns meaning from context, not just pattern matching. Keyword-density counts frequency AND placement. Semantic ML ensemble trained on 4,000+ customers. Related skills and contextual evidence count (past hires data). NYC AEDT bias-audit compliant — AI is advisory, no auto-reject.
+**iCIMS** (#1 ATS by count): HireAbility ALEX grammar-based NLP reads context, not just patterns. Keyword density counts frequency AND placement — title/summary mentions score higher than body text. Auto-generates a skills list from the full resume text, so skills buried in bullets count. Semantic ML ensemble trained on 4,000+ customers.
 
-**GREENHOUSE** (popular with tech companies): LLM-based modular parser (most modern). Semantic embedding matching — "software engineer" and "web developer" recognized as related. Historically NO auto-scoring by design. New Talent Matching (2024–2025) categorizes as Strong/Good/Partial/Limited. Human interview scorecards remain primary. No auto-reject — biggest risk is recruiter stopping after first batch.
+**GREENHOUSE** (popular with tech): LLM-based parser — most modern and resilient. Semantic embedding matching recognizes related terms ("software engineer" ≈ "web developer"). No auto-scoring; candidates surface via recruiter keyword search and Talent Matching (2024). Biggest risk: recruiter stops reviewing after the first batch of strong candidates.
 
-**LEVER** (startups): proprietary parser, handles some columns/tables. Word stemming — "collaborating" matches "collaborate/collaboration". BUT abbreviation-blind: "CPA" ≠ "Certified Public Accountant", "PM" ≠ "Project Manager". NO scoring or ranking whatsoever — entirely dependent on recruiter search behavior.
+**LEVER** (startups): Word stemming — "collaborating" matches "collaborate/collaboration". CANNOT identify abbreviations — "PM" ≠ "Project Manager", "ML" ≠ "Machine Learning". No scoring or ranking at all; visibility depends entirely on recruiter keyword search.
 
-**SUCCESSFACTORS** (13% of Fortune 500): Textkernel parser (officially documented), 95%+ accuracy. Taxonomy normalization — "Software Engineer", "Application Developer", "Backend Developer" map to same concept. Joule AI for skills extraction. Scanned/image PDFs will NOT parse.
+**SUCCESSFACTORS** (13% Fortune 500): Textkernel/RChilli parser with taxonomy normalization — "Software Engineer", "Application Developer", "Backend Developer" map to the same concept. Scanned/image PDFs will NOT parse.
 
 ## YOUR TASK
 
-Generate 3–7 specific, high-impact suggestions to improve this resume's ATS performance. Each suggestion must identify a concrete problem with a specific element of THIS resume and explain exactly how to fix it.
+Generate 3–5 unique, high-impact suggestions to improve this resume's ATS performance. Deduplicate across platforms — one suggestion can help multiple ATS systems; tag which platforms benefit most. Each suggestion must pinpoint a concrete, specific issue in THIS resume and give the exact fix.
 
-CRITICAL RULES:
-- NEVER give generic suggestions like "add more keywords" or "quantify your achievements" — always say WHICH bullet, WHICH skill, WHICH section
-- Every suggestion must quote or reference SPECIFIC text from the resume — the user should immediately know which part you mean
-- "details" must include a before→after rewrite quoting the actual resume text, e.g. "Change 'Improved system performance' to 'Improved system performance by 40%, reducing p99 latency from 800ms to 480ms'"
-- Explain WHY it matters using the platform's ACTUAL behavior (e.g., "Taleo's literal matcher won't equate 'React' with 'React.js'")
-- Tag "impact" as "critical" only for issues that cause auto-rejection or near-zero parsing (missing contact info in header, disqualification triggers); use "high" for significant score improvements; "medium" and "low" for polish
-- Tag "platforms" with which ATS systems specifically benefit from this fix
-- If no JD provided, focus on general ATS robustness across all six platforms
-- PDF extraction artifacts (#, §, fi, fl ligatures, unicode combining chars) are font rendering noise — do NOT flag as formatting issues
+RULES:
+- Think "change X to Y" — give the exact rewrite, not "consider improving X"
+- Quote or reference SPECIFIC text, skills, bullet points, or section names from this resume
+- Include BOTH abbreviated and full forms where relevant (critical for Taleo and Lever literal matching)
+- NEVER give generic advice — always name WHICH bullet, WHICH skill, WHICH section
+- If a JD is provided, focus on actual keyword gaps between the resume and JD
+- If no JD, focus on general robustness: formatting, missing standard sections, keyword density, and abbreviation/full-form pairs
+- "critical" = causes auto-rejection or near-zero parsing (contact info in header, hard disqualifiers); "high" = significant score lift; "medium"/"low" = polish
+- PDF extraction artifacts (§, fi, fl ligatures, unicode chars) are font noise — do NOT flag as formatting issues
 - Sort by impact: critical → high → medium → low
 
 LENGTH CONSTRAINTS (strictly enforced):
-- "summary": max 8 words — ultra-concise label, no filler (e.g. "Embed skills inside experience bullets")
-- Each "details" item: max 15 words — one tight sentence, no padding
+- "summary": max 8 words — imperative action label, e.g. "Move contact info out of header"
+- Each "details" bullet: max 15 words — one tight sentence, "change X to Y" style
 
 Return ONLY valid JSON, no markdown fences:
 {{
   "suggestions": [
     {{
-      "summary": "max 8 words identifying the specific problem",
+      "summary": "max 8 words — imperative, specific to this resume",
       "details": [
-        "Before→after rewrite in max 15 words",
-        "Why this ATS behavior matters, max 15 words",
-        "Which platforms benefit, max 15 words"
+        "Change '[exact resume text]' to '[improved version]'",
+        "Why this specific parser behavior penalizes this",
+        "Which platforms benefit most from this fix"
       ],
       "impact": "critical | high | medium | low",
       "platforms": ["Workday", "Taleo"]
