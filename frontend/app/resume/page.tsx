@@ -461,15 +461,7 @@ export default function ResumePage() {
       });
   }, []);
 
-  const handleComplete = (resume: StoredResume, file: File, sessionId: string, results: ScoreResult[]) => {
-    setResumes(prev => [resume, ...prev]);
-    setActiveResume(resume);
-    setActiveFile(file);
-    setAtsResults(results);
-    setShowUploadModal(false);
-    setView('review');
-
-    // Poll for Sonnet corrections in background — update state when ready
+  const pollCorrections = useCallback((sessionId: string) => {
     const poll = async () => {
       for (let i = 0; i < 20; i++) {
         await new Promise(r => setTimeout(r, 3000));
@@ -485,6 +477,16 @@ export default function ResumePage() {
       }
     };
     poll();
+  }, []);
+
+  const handleComplete = (resume: StoredResume, file: File, sessionId: string, results: ScoreResult[]) => {
+    setResumes(prev => [resume, ...prev]);
+    setActiveResume(resume);
+    setActiveFile(file);
+    setAtsResults(results);
+    setShowUploadModal(false);
+    setView('review');
+    pollCorrections(sessionId);
   };
 
   const handleViewResume = (r: StoredResume) => {
@@ -494,6 +496,10 @@ export default function ResumePage() {
     // Recompute 6-platform ATS scores client-side from stored analysis + jobDescription
     const { results } = computeAtsResults(r.analysis, r.jobDescription);
     setAtsResults(results);
+    // If corrections not yet available, poll for them
+    if (!r.corrections?.checkers?.length && r.sessionId) {
+      pollCorrections(r.sessionId);
+    }
   };
 
   const handleBack = () => {
