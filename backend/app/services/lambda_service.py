@@ -7,7 +7,11 @@ import boto3
 import json
 import logging
 from typing import Dict, Any, Optional
-from app.config import AWS_REGION, AWS_ACCESS_KEY, AWS_SECRET_ACCESS_KEY
+from app.config import (
+    AWS_REGION, AWS_ACCESS_KEY, AWS_SECRET_ACCESS_KEY,
+    LAMBDA_CODE_EXECUTOR, LAMBDA_CV_ANALYZER,
+    LAMBDA_PERFORMANCE_EVALUATOR, LAMBDA_ENDPOINT_URL
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +21,8 @@ class LambdaService:
             'lambda',
             region_name=AWS_REGION,
             aws_access_key_id=AWS_ACCESS_KEY,
-            aws_secret_access_key=AWS_SECRET_ACCESS_KEY
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            endpoint_url=LAMBDA_ENDPOINT_URL
         )
 
     def invoke_code_executor(
@@ -46,7 +51,7 @@ class LambdaService:
             "functionName": function_name
         }
 
-        return self._invoke_lambda("prepai-code-executor", payload)
+        return self._invoke_lambda(LAMBDA_CODE_EXECUTOR, payload)
 
     def invoke_cv_analyzer(
         self,
@@ -79,7 +84,7 @@ class LambdaService:
         else:
             raise ValueError("Either cv_text or s3_bucket+s3_key must be provided")
 
-        return self._invoke_lambda("prepai-cv-analyzer", payload)
+        return self._invoke_lambda(LAMBDA_CV_ANALYZER, payload)
 
     def invoke_cv_corrections(self, cv_text: str) -> Dict[str, Any]:
         """
@@ -87,7 +92,7 @@ class LambdaService:
         Returns the 9-dimension corrections checklist.
         """
         payload = {"cvText": cv_text, "mode": "corrections"}
-        return self._invoke_lambda("prepai-cv-analyzer", payload)
+        return self._invoke_lambda(LAMBDA_CV_ANALYZER, payload)
 
     def invoke_performance_evaluator(
         self,
@@ -124,7 +129,7 @@ class LambdaService:
             "saveToS3": save_to_s3
         }
 
-        return self._invoke_lambda("prepai-performance-evaluator", payload)
+        return self._invoke_lambda(LAMBDA_PERFORMANCE_EVALUATOR, payload)
 
     def _invoke_lambda(self, function_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         """

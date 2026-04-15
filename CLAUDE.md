@@ -135,6 +135,7 @@ intervyu/
   `SyntaxError: Unexpected token '<'` (404 HTML served as JS) → entire page JS broken →
   buttons do nothing, PostHog never initialises. Always force-upload HTML + txt after build.
 - **Lambda deploy**: `cd lambda-tools && sam build && sam deploy`
+- **Lambda local dev**: `cd lambda-tools && sam build && sam local start-lambda --port 3001` — then uncomment `LAMBDA_ENDPOINT_URL=http://127.0.0.1:3001` in `backend/.env`. Unset/absent = real AWS.
 
 ## Key APIs
 
@@ -237,6 +238,10 @@ cd database && docker-compose up -d
 
 # Lambda (deploy to AWS)
 cd lambda-tools && sam build && sam deploy
+
+# Lambda (local dev — no deploy needed)
+cd lambda-tools && sam build && sam local start-lambda --port 3001
+# Then uncomment LAMBDA_ENDPOINT_URL=http://127.0.0.1:3001 in backend/.env
 ```
 
 ## Database Schema (Supabase PostgreSQL — active)

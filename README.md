@@ -109,12 +109,20 @@ npm run dev
 # → http://localhost:3000
 ```
 
-### Lambda Functions (deploy to AWS)
+### Lambda Functions
 
+**Deploy to AWS:**
 ```bash
 cd lambda-tools
 sam build && sam deploy
 ```
+
+**Local dev (no deploy needed):**
+```bash
+cd lambda-tools
+sam build && sam local start-lambda --port 3001
+```
+Then uncomment `LAMBDA_ENDPOINT_URL=http://127.0.0.1:3001` in `backend/.env`. The backend will route all Lambda invocations to the local emulator. Remove/comment it out to switch back to real AWS.
 
 ---
 
@@ -162,6 +170,7 @@ AZURE_SPEECH_REGION=eastus
 LAMBDA_CODE_EXECUTOR=prepai-code-executor
 LAMBDA_CV_ANALYZER=prepai-cv-analyzer
 LAMBDA_PERFORMANCE_EVALUATOR=prepai-performance-evaluator
+# LAMBDA_ENDPOINT_URL=http://127.0.0.1:3001  # uncomment for sam local
 
 CORS_ORIGINS=http://localhost:3000,https://intervyu.io
 HOST=0.0.0.0

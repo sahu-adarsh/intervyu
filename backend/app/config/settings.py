@@ -36,5 +36,11 @@ SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
+# Lambda Configuration
+LAMBDA_CODE_EXECUTOR = os.getenv("LAMBDA_CODE_EXECUTOR", "prepai-code-executor")
+LAMBDA_CV_ANALYZER = os.getenv("LAMBDA_CV_ANALYZER", "prepai-cv-analyzer")
+LAMBDA_PERFORMANCE_EVALUATOR = os.getenv("LAMBDA_PERFORMANCE_EVALUATOR", "prepai-performance-evaluator")
+LAMBDA_ENDPOINT_URL = os.getenv("LAMBDA_ENDPOINT_URL", None)  # None = use real AWS; set to http://127.0.0.1:3001 for sam local
+
 # WebSocket Configuration
 WS_CONNECTION_TIMEOUT = int(os.getenv("WS_CONNECTION_TIMEOUT", "900"))  # 15 minutes
