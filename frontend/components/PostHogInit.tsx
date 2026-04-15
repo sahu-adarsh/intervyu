@@ -9,6 +9,7 @@ function PostHogPageView() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   useEffect(() => {
+    if (!process.env.NEXT_PUBLIC_POSTHOG_KEY) return;
     try {
       posthog.capture('$pageview', { $current_url: window.location.href });
     } catch {}
@@ -19,6 +20,7 @@ function PostHogPageView() {
 function PostHogIdentify() {
   const { user } = useSupabaseSession();
   useEffect(() => {
+    if (!process.env.NEXT_PUBLIC_POSTHOG_KEY) return;
     try {
       if (user) {
         posthog.identify(user.id, {
