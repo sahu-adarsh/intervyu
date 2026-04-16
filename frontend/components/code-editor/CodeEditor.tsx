@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import { Play, RotateCcw, Save, Loader2, CheckCircle, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { authFetch } from '@/lib/api';
 
 interface TestCase {
   input: string;
@@ -82,11 +83,8 @@ export default function CodeEditor({
 
     try {
       // Call backend API to execute code
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/code/execute`, {
+      const response = await authFetch('/api/code/execute', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           sessionId,
           code,
