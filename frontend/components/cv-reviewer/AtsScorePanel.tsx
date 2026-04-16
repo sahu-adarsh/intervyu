@@ -331,7 +331,7 @@ function SuggestionCard({ item, index }: { item: StructuredSuggestion; index: nu
           {index + 1}
         </span>
         {/* Title — single line, max 12 words */}
-        <p className="flex-1 min-w-0 text-[10px] text-slate-300 font-medium leading-tight truncate group-hover:text-slate-200 transition-colors">
+        <p className="flex-1 min-w-0 text-[10px] text-slate-300 font-medium leading-tight group-hover:text-slate-200 transition-colors">
           {title}
         </p>
         {/* Impact badge + chevron */}
