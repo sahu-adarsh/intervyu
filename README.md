@@ -10,6 +10,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat&logo=typescript)
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat&logo=python)
 ![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?style=flat&logo=supabase)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
 ---
 
@@ -169,7 +170,3 @@ sam build && sam deploy          # deploy to AWS
 sam build && sam local start-lambda --port 3001
 # then set LAMBDA_ENDPOINT_URL=http://127.0.0.1:3001 in backend/.env
 ```
-
----
-
-🌐 **[intervyu.io](https://intervyu.io)**
