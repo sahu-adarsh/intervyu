@@ -7,8 +7,6 @@
 ![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat&logo=next.js)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=flat&logo=fastapi)
 ![AWS Bedrock](https://img.shields.io/badge/AWS-Bedrock-FF9900?style=flat&logo=amazon-aws)
-![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat&logo=typescript)
-![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat&logo=python)
 ![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?style=flat&logo=supabase)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
@@ -75,6 +73,18 @@ Claude Haiku 4.5 via AWS bedrock-runtime `converse_stream` starts returning toke
 As tokens stream in, the backend splits at sentence/clause boundaries and fires Azure Cognitive Services (`en-IN-NeerjaNeural`, MP3) concurrently for each chunk, using a pool of 3 persistent `SpeechSynthesizer` instances. An `asyncio.Queue` sender pushes each MP3 chunk to the browser the moment it's ready.
 
 **Result: ~1.7s speech_end → first audio. ~2.9–4.0s for a full response.**
+
+---
+
+**Voice pipeline latency breakdown**
+
+![Voice Pipeline Latency Flow](frontend/public/intervyu-latency-flow.png)
+
+---
+
+**WebSocket message sequence across a full interview turn**
+
+![WebSocket Message Sequence](frontend/public/intervyu-message-sequence.png)
 
 ---
 
