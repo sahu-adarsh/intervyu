@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import { Play, RotateCcw, Save, Loader2, CheckCircle, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
-import { authFetch } from '@/lib/api';
+import { executeCode } from '@/lib/api';
 
 interface TestCase {
   input: string;
@@ -83,25 +83,16 @@ export default function CodeEditor({
 
     try {
       // Call backend API to execute code
-      const response = await authFetch('/api/code/execute', {
-        method: 'POST',
-        body: JSON.stringify({
-          sessionId,
-          code,
-          language: currentLanguage,
-          testCases: testCases.map(tc => ({
-            input: tc.input,
-            expected: tc.expected
-          })),
-          functionName: 'solution'
-        }),
+      const result: TestResult = await executeCode({
+        sessionId,
+        code,
+        language: currentLanguage,
+        testCases: testCases.map(tc => ({
+          input: tc.input,
+          expected: tc.expected
+        })),
+        functionName: 'solution',
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to execute code');
-      }
-
-      const result: TestResult = await response.json();
       setTestResults(result);
       setTestResultsExpanded(true);
       onCodeSubmit?.(code, result, currentLanguage);
