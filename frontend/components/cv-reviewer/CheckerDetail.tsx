@@ -7,9 +7,14 @@ import { ChevronDown, ChevronRight, ArrowLeft, Lightbulb, CheckCircle2, AlertCir
 interface CheckerDetailProps {
   checker: CheckerResult;
   onBack: () => void;
+  onHighlight?: (text: string) => void;
 }
 
-function CorrectionCard({ item, variant }: { item: CorrectionItem; variant: 'fix' | 'good' }) {
+function CorrectionCard({ item, variant, onHighlight }: {
+  item: CorrectionItem;
+  variant: 'fix' | 'good';
+  onHighlight?: (text: string) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const isFix = variant === 'fix';
 
@@ -20,7 +25,7 @@ function CorrectionCard({ item, variant }: { item: CorrectionItem; variant: 'fix
           ? 'border-rose-800/40 bg-rose-950/20 hover:bg-rose-950/30'
           : 'border-emerald-800/40 bg-emerald-950/20 hover:bg-emerald-950/30'
       }`}
-      onClick={() => setExpanded((p) => !p)}
+      onClick={() => { setExpanded((p) => !p); onHighlight?.(item.text); }}
     >
       <div className="flex items-start gap-2.5 p-3">
         <div className={`mt-0.5 shrink-0 ${isFix ? 'text-rose-400' : 'text-emerald-400'}`}>
@@ -53,7 +58,7 @@ function CorrectionCard({ item, variant }: { item: CorrectionItem; variant: 'fix
   );
 }
 
-export default function CheckerDetail({ checker, onBack }: CheckerDetailProps) {
+export default function CheckerDetail({ checker, onBack, onHighlight }: CheckerDetailProps) {
   const [showGood, setShowGood] = useState(false);
   const allGood = checker.needsFix.length === 0;
 
@@ -97,7 +102,7 @@ export default function CheckerDetail({ checker, onBack }: CheckerDetailProps) {
           ) : (
             <div className="space-y-2">
               {checker.needsFix.map((item, i) => (
-                <CorrectionCard key={i} item={item} variant="fix" />
+                <CorrectionCard key={i} item={item} variant="fix" onHighlight={onHighlight} />
               ))}
             </div>
           )}
@@ -120,7 +125,7 @@ export default function CheckerDetail({ checker, onBack }: CheckerDetailProps) {
             {showGood && (
               <div className="space-y-2">
                 {checker.good.map((item, i) => (
-                  <CorrectionCard key={i} item={item} variant="good" />
+                  <CorrectionCard key={i} item={item} variant="good" onHighlight={onHighlight} />
                 ))}
               </div>
             )}

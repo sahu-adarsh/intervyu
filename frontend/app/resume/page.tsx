@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import {
   FileText, Upload, X, Sparkles, AlertCircle, CheckCircle2,
@@ -8,7 +8,8 @@ import {
 } from 'lucide-react';
 import DashboardLayout from '@/components/DashboardLayout';
 import { createSession, uploadCV, getCVPresignedUrl, getUserResumes, saveCVMetadata, getCVCorrections, deleteCV } from '@/lib/api';
-import type { CVCorrections, StructuredSuggestion } from '@/components/cv-reviewer/types';
+import type { CVCorrections, CheckerResult, StructuredSuggestion } from '@/components/cv-reviewer/types';
+import { runClientCheckers, mergeCorrections } from '@/lib/cv-checkers';
 import { scoreResume, buildScoringInput } from '@/lib/ats-engine';
 import type { ScoreResult } from '@/lib/ats-engine';
 
@@ -420,6 +421,8 @@ export default function ResumePage() {
   const [activeFile, setActiveFile] = useState<File | null>(null);
   const [atsResults, setAtsResults] = useState<ScoreResult[]>([]);
   const [view, setView] = useState<View>('grid');
+  // Client-side checkers (5 of 9) — computed instantly from structured analysis
+  const [clientCorrections, setClientCorrections] = useState<CheckerResult[]>([]);
   // Suggestions cache: keyed by sessionId, persists across re-opens within the same page session
   const suggestionsCache = useRef(new Map<string, StructuredSuggestion[]>());
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -461,9 +464,14 @@ export default function ResumePage() {
       });
   }, []);
 
+  const runAndSetClientCheckers = useCallback((analysis: CVAnalysis) => {
+    const results = runClientCheckers(analysis as Parameters<typeof runClientCheckers>[0]);
+    setClientCorrections(results);
+  }, []);
+
   const pollCorrections = useCallback((sessionId: string) => {
     const poll = async () => {
-      for (let i = 0; i < 20; i++) {
+      for (let i = 0; i < 40; i++) {
         await new Promise(r => setTimeout(r, 3000));
         try {
           const res = await getCVCorrections(sessionId);
@@ -475,6 +483,9 @@ export default function ResumePage() {
           }
         } catch { /* non-fatal, keep polling */ }
       }
+      // Polling exhausted — clear the spinner with an empty corrections object
+      const empty = { checkers: [] } as unknown as CVCorrections;
+      setActiveResume(prev => prev ? { ...prev, corrections: empty } : prev);
     };
     poll();
   }, []);
@@ -486,6 +497,7 @@ export default function ResumePage() {
     setAtsResults(results);
     setShowUploadModal(false);
     setView('review');
+    runAndSetClientCheckers(resume.analysis);
     pollCorrections(sessionId);
   };
 
@@ -496,7 +508,9 @@ export default function ResumePage() {
     // Recompute 6-platform ATS scores client-side from stored analysis + jobDescription
     const { results } = computeAtsResults(r.analysis, r.jobDescription);
     setAtsResults(results);
-    // If corrections not yet available, poll for them
+    // Run 5 client-side checkers immediately — no spinner wait for these
+    runAndSetClientCheckers(r.analysis);
+    // Poll for 4 AI-only checkers if not yet cached
     if (!r.corrections?.checkers?.length && r.sessionId) {
       pollCorrections(r.sessionId);
     }
@@ -507,6 +521,7 @@ export default function ResumePage() {
     setActiveResume(null);
     setActiveFile(null);
     setAtsResults([]);
+    setClientCorrections([]);
   };
 
   const handleDelete = (id: string) => {
@@ -613,7 +628,7 @@ export default function ResumePage() {
             <CVReviewer
               sessionId={activeResume.sessionId ?? ''}
               analysis={activeResume.analysis}
-              corrections={activeResume.corrections ?? null}
+              corrections={mergeCorrections(clientCorrections, activeResume.corrections?.checkers ?? [])}
               atsResults={atsResults}
               jobDescription={activeResume.jobDescription}
               localPdfFile={activeFile}

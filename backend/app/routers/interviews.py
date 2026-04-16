@@ -81,21 +81,21 @@ RULES:
 - Sort by impact: critical → high → medium → low
 
 LENGTH CONSTRAINTS (strictly enforced):
-- "summary": max 8 words — imperative action label, e.g. "Move contact info out of header"
-- Each "details" bullet: max 15 words — one tight sentence, "change X to Y" style
+- "summary": max 13 words — imperative action label, e.g. "Embed key skills from your 'Technical Skills' section within your experience bullet points."
+- Each "details" bullet: max 13 words — one tight sentence, "change X to Y" style
 
 Return ONLY valid JSON, no markdown fences:
 {{
   "suggestions": [
     {{
-      "summary": "max 8 words — imperative, specific to this resume",
+      "summary": "max 13 words — imperative, specific to this resume",
       "details": [
         "Change '[exact resume text]' to '[improved version]'",
         "Why this specific parser behavior penalizes this",
         "Which platforms benefit most from this fix"
       ],
       "impact": "critical | high | medium | low",
-      "platforms": ["Workday", "Taleo"]
+      "platforms": ["Workday", "Taleo", "iCIMS", "Greenhouse", "Lever", "SuccessFactors"]
     }}
   ]
 }}"""

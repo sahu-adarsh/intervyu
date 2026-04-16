@@ -75,6 +75,12 @@ export default function CVReviewer({
     setHighlightTexts([]);
   }, []);
 
+  // Highlight a single item's text when clicking a specific CorrectionCard
+  const handleItemHighlight = useCallback((text: string) => {
+    setHighlightTexts([text]);
+    setMobileTab('cv');
+  }, []);
+
   const totalIssues = corrections?.checkers?.reduce((s, c) => s + c.needsFix.length, 0) ?? 0;
   const bestScore = atsResults.length > 0
     ? Math.max(...atsResults.map((r) => r.overallScore))
@@ -160,6 +166,7 @@ export default function CVReviewer({
               activeChecker={activeChecker}
               onSelect={handleCheckerSelect}
               onDeselect={handleCheckerDeselect}
+              onItemHighlight={handleItemHighlight}
             />
           </div>
         </div>

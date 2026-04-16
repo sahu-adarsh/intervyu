@@ -33,6 +33,7 @@ interface CheckerSidebarProps {
   activeChecker: CheckerID | null;
   onSelect: (id: CheckerID) => void;
   onDeselect: () => void;
+  onItemHighlight?: (text: string) => void;
 }
 
 function CheckerBox({ checker, onClick, dimmed }: {
@@ -103,7 +104,7 @@ function CheckerBox({ checker, onClick, dimmed }: {
   );
 }
 
-export default function CheckerSidebar({ corrections, activeChecker, onSelect, onDeselect }: CheckerSidebarProps) {
+export default function CheckerSidebar({ corrections, activeChecker, onSelect, onDeselect, onItemHighlight }: CheckerSidebarProps) {
   const isLoading = corrections === null;
   const checkers = corrections?.checkers?.length ? corrections.checkers : FALLBACK_CHECKERS;
   const active = activeChecker ? checkers.find((c) => c.id === activeChecker) : null;
@@ -114,7 +115,7 @@ export default function CheckerSidebar({ corrections, activeChecker, onSelect, o
   if (active) {
     return (
       <div className="flex-1 overflow-auto">
-        <CheckerDetail checker={active} onBack={onDeselect} />
+        <CheckerDetail checker={active} onBack={onDeselect} onHighlight={onItemHighlight} />
       </div>
     );
   }
