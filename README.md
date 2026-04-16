@@ -82,7 +82,7 @@ As tokens stream in, the backend splits at sentence/clause boundaries and fires 
 
 ---
 
-**WebSocket message sequence across a full interview turn**
+**WebSocket message sequence: full interview turn**
 
 ![WebSocket Message Sequence](frontend/public/intervyu-message-sequence.png)
 
@@ -96,7 +96,7 @@ Browser (Next.js 15)
 │  WAV audio blob ──────────────────────────────────────┐
 │  JSON control messages (speech_start, speech_end)     │
 │  REST calls: Authorization: Bearer <supabase_jwt>     │
-│                                                        ▼
+│                                                       ▼
 │                                    FastAPI  ·  EC2 t3.small  ·  port 8000
 │                                    ├── WebSocket /ws/interview/{id}?token=<jwt>
 │                                    │     ├── Deepgram Nova-2  (STT, persistent httpx)
