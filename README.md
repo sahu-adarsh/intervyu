@@ -180,3 +180,9 @@ sam build && sam deploy          # deploy to AWS
 sam build && sam local start-lambda --port 3001
 # then set LAMBDA_ENDPOINT_URL=http://127.0.0.1:3001 in backend/.env
 ```
+
+---
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.
