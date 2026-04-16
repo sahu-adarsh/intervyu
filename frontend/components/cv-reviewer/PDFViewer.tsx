@@ -19,8 +19,7 @@ type TextItems = Array<{ str: string }>;
 
 const EMPTY_SET = new Set<number>();
 
-const MARK_STYLE =
-  'background:rgba(251,191,36,0.4);border-radius:3px;padding:0 2px;box-shadow:0 0 0 1px rgba(251,191,36,0.3);';
+const MARK_STYLE = 'background:rgba(251,191,36,0.45);border-radius:2px;';
 
 /**
  * Given all text items for a page and phrases to find, returns the set of item

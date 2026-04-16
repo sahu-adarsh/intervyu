@@ -7,26 +7,19 @@ import {
   Layout, Star, RefreshCw, SpellCheck,
 } from 'lucide-react';
 
-const CHECKER_META: Record<CheckerID, { icon: React.ReactNode; short: string }> = {
-  quantification: { icon: <BarChart2 size={14} />, short: 'Quantification' },
-  bullet_length:  { icon: <AlignLeft size={14} />,   short: 'Bullet Length'  },
-  bullet_improver:{ icon: <TrendingUp size={14} />,  short: 'Bullet Impact'  },
-  verb_tense:     { icon: <Clock size={14} />,        short: 'Verb Tense'     },
-  weak_verb:      { icon: <Zap size={14} />,          short: 'Weak Verbs'     },
-  section_checker:{ icon: <Layout size={14} />,       short: 'Sections'       },
-  skill_checker:  { icon: <Star size={14} />,         short: 'Skills'         },
-  repetition:     { icon: <RefreshCw size={14} />,    short: 'Repetition'     },
-  spelling:       { icon: <SpellCheck size={14} />,   short: 'Spelling'       },
+const CHECKER_META: Record<CheckerID, { icon: React.ReactNode; short: string; ai: boolean }> = {
+  quantification: { icon: <BarChart2 size={14} />, short: 'Quantification', ai: true  },
+  bullet_length:  { icon: <AlignLeft size={14} />,  short: 'Bullet Length',  ai: false },
+  bullet_improver:{ icon: <TrendingUp size={14} />, short: 'Bullet Impact',  ai: true  },
+  verb_tense:     { icon: <Clock size={14} />,       short: 'Verb Tense',    ai: false },
+  weak_verb:      { icon: <Zap size={14} />,         short: 'Weak Verbs',    ai: false },
+  section_checker:{ icon: <Layout size={14} />,      short: 'Sections',      ai: true  },
+  skill_checker:  { icon: <Star size={14} />,        short: 'Skills',        ai: true  },
+  repetition:     { icon: <RefreshCw size={14} />,   short: 'Repetition',    ai: false },
+  spelling:       { icon: <SpellCheck size={14} />,  short: 'Spelling',      ai: false },
 };
 
-const FALLBACK_CHECKERS: CheckerResult[] = (Object.keys(CHECKER_META) as CheckerID[]).map(id => ({
-  id,
-  label: CHECKER_META[id].short,
-  description: '',
-  needsFix: [],
-  good: [],
-  score: 0,
-}));
+const CHECKER_IDS = Object.keys(CHECKER_META) as CheckerID[];
 
 interface CheckerSidebarProps {
   corrections: CVCorrections | null;
@@ -36,16 +29,18 @@ interface CheckerSidebarProps {
   onItemHighlight?: (text: string) => void;
 }
 
-function CheckerBox({ checker, onClick, dimmed }: {
-  checker: CheckerResult;
+function CheckerBox({ id, checker, onClick, dimmed, pending }: {
+  id: CheckerID;
+  checker: CheckerResult | null;
   onClick?: () => void;
   dimmed?: boolean;
+  pending?: boolean;
 }) {
-  const issueCount = checker.needsFix.length;
-  const hasData = checker.score > 0 || issueCount > 0 || checker.good.length > 0;
+  const meta = CHECKER_META[id];
+  const issueCount = checker?.needsFix.length ?? 0;
+  const hasData = checker != null && (checker.score > 0 || issueCount > 0 || checker.good.length > 0);
   const allGood = hasData && issueCount === 0;
-  const meta = CHECKER_META[checker.id];
-  const scoreColor = allGood ? '#10b981' : checker.score > 50 ? '#f59e0b' : '#f87171';
+  const scoreColor = allGood ? '#10b981' : (checker?.score ?? 0) > 50 ? '#f59e0b' : '#f87171';
 
   return (
     <button
@@ -53,7 +48,8 @@ function CheckerBox({ checker, onClick, dimmed }: {
       disabled={!onClick}
       className={`group relative flex flex-col items-center gap-2 p-3 rounded-xl transition-all duration-150 text-center
         ${onClick ? 'hover:bg-slate-700/40 cursor-pointer' : 'cursor-default'}
-        ${dimmed ? 'opacity-35' : ''}`}
+        ${dimmed ? 'opacity-35' : ''}
+        ${pending ? 'opacity-50' : ''}`}
       style={{
         background: 'rgba(255,255,255,0.025)',
         border: '1px solid rgba(255,255,255,0.06)',
@@ -76,7 +72,12 @@ function CheckerBox({ checker, onClick, dimmed }: {
       </span>
 
       {/* Status badge */}
-      {hasData && (
+      {pending ? (
+        <span className="flex items-center gap-1 text-[9px] font-semibold text-slate-600 bg-slate-800/60 border border-slate-700/40 px-1.5 py-0.5 rounded-md">
+          <span className="w-1.5 h-1.5 rounded-full border border-slate-600 border-t-slate-400 animate-spin inline-block" />
+          AI
+        </span>
+      ) : hasData ? (
         allGood ? (
           <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-md">
             ✓ Good
@@ -89,14 +90,14 @@ function CheckerBox({ checker, onClick, dimmed }: {
             {issueCount} fix{issueCount !== 1 ? 'es' : ''}
           </span>
         )
-      )}
+      ) : null}
 
       {/* Score bar at bottom */}
       {hasData && (
         <div className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full overflow-hidden bg-white/[0.04]">
           <div
             className="h-full rounded-full transition-all duration-700"
-            style={{ width: `${checker.score}%`, background: scoreColor, opacity: 0.6 }}
+            style={{ width: `${checker?.score ?? 0}%`, background: scoreColor, opacity: 0.6 }}
           />
         </div>
       )}
@@ -105,12 +106,15 @@ function CheckerBox({ checker, onClick, dimmed }: {
 }
 
 export default function CheckerSidebar({ corrections, activeChecker, onSelect, onDeselect, onItemHighlight }: CheckerSidebarProps) {
+  // corrections === null  → everything still loading (just uploaded)
+  // corrections !== null  → at least client checkers are done; AI ones may be missing
   const isLoading = corrections === null;
-  const checkers = corrections?.checkers?.length ? corrections.checkers : FALLBACK_CHECKERS;
-  const active = activeChecker ? checkers.find((c) => c.id === activeChecker) : null;
+  const byId = new Map(corrections?.checkers?.map(c => [c.id, c]) ?? []);
 
-  const totalIssues = checkers.reduce((sum, c) => sum + c.needsFix.length, 0);
-  const hasData = (corrections?.checkers?.length ?? 0) > 0;
+  const active = activeChecker ? byId.get(activeChecker) ?? null : null;
+
+  const totalIssues = corrections?.checkers?.reduce((sum, c) => sum + c.needsFix.length, 0) ?? 0;
+  const hasAnyData = (corrections?.checkers?.length ?? 0) > 0;
 
   if (active) {
     return (
@@ -146,7 +150,7 @@ export default function CheckerSidebar({ corrections, activeChecker, onSelect, o
             <span className="w-2.5 h-2.5 border border-slate-700 border-t-violet-500 rounded-full animate-spin" />
             Analysing...
           </span>
-        ) : hasData ? (
+        ) : hasAnyData ? (
           <span
             className={`text-[9px] font-bold px-2 py-[3px] rounded-md ${
               totalIssues === 0
@@ -159,19 +163,25 @@ export default function CheckerSidebar({ corrections, activeChecker, onSelect, o
         ) : null}
       </div>
 
-      {/* Checker boxes grid */}
+      {/* Checker boxes grid — always all 9 */}
       <div
         className="grid grid-cols-3 gap-2 p-3"
         style={{ background: 'rgba(8,10,20,0.85)' }}
       >
-        {checkers.map((c) => (
-          <CheckerBox
-            key={c.id}
-            checker={c}
-            onClick={isLoading ? undefined : () => onSelect(c.id)}
-            dimmed={isLoading}
-          />
-        ))}
+        {CHECKER_IDS.map((id) => {
+          const checker = byId.get(id) ?? null;
+          const isPending = !isLoading && checker === null; // corrections arrived but this AI checker isn't ready
+          return (
+            <CheckerBox
+              key={id}
+              id={id}
+              checker={checker}
+              onClick={checker != null ? () => onSelect(id) : undefined}
+              dimmed={isLoading}
+              pending={isPending}
+            />
+          );
+        })}
       </div>
     </div>
   );
