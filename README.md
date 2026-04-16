@@ -29,38 +29,33 @@ Eight interview types (Google SDE, Amazon SDE, AWS/Azure/GCP Solutions Architect
 
 ## Preview
 
-<!-- Dashboard -->
-> **Dashboard: pick your interview type and track past sessions**
+**Dashboard: pick your interview type and track past sessions**
 
-_[screenshot]_
-
----
-
-<!-- Live Interview -->
-> **Live voice interview: speak naturally, Neerja responds in ~1.7s**
-
-_[screenshot]_
+![Dashboard](frontend/public/intervyu-dashboard.png)
 
 ---
 
-<!-- Code Editor -->
-> **In-interview code editor: Monaco + sandboxed execution + live test results**
+**Live voice interview: speak naturally, Neerja responds in ~1.7s**
 
-_[screenshot]_
-
----
-
-<!-- CV Upload -->
-> **CV upload & analysis: upload once, Neerja references it throughout**
-
-_[screenshot]_
+![Live Interview](frontend/public/intervyu-live-interview.png)
 
 ---
 
-<!-- Performance Report -->
-> **Performance report: 5-dimension scores, HIRE/NO_HIRE, percentile benchmarks**
+**In-interview code editor: Monaco + sandboxed execution + live test results**
 
-_[screenshot]_
+![Code Editor](frontend/public/intervyu-code-editor.png)
+
+---
+
+**CV upload & analysis: upload once, Neerja references it throughout**
+
+![CV Upload](frontend/public/intervyu-cv-upload.png)
+
+---
+
+**Performance report: 5-dimension scores, HIRE/NO_HIRE, percentile benchmarks**
+
+![Performance Report](frontend/public/intervyu-performance-report.png)
 
 ---
 
@@ -138,7 +133,7 @@ Browser (Next.js 15)
 
 ---
 
-## 🚀 Installation
+## Installation
 
 ### Prerequisites
 - Python 3.11+, Node.js 18+
