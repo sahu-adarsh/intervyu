@@ -4,36 +4,51 @@
  * DOCX → mammoth
  * TXT  → FileReader
  *
- * Returns the extracted text, or '' on failure (backend then falls back to
- * pdfplumber / Textract as before).
+ * Returns ExtractedCV with both rawText (for backend) and structured lines
+ * (for client-side checkers). Lines carry x/y/isBulletChar metadata so the
+ * checker can detect indented bullets that have no explicit bullet character.
  *
  * All heavy imports are dynamic so this module is safe to import in
  * 'use client' components without breaking Next.js static export prerendering.
  */
 
-export async function extractTextFromFile(file: File): Promise<string> {
+export interface ExtractedLine {
+  text: string;
+  x: number;          // leftmost x of the line (px)
+  y: number;          // y position (px)
+  isBulletChar: boolean; // first non-space char was •-*▸◦▪►‣·
+}
+
+export interface ExtractedCV {
+  rawText: string;       // joined text — sent to backend as 'extracted_text'
+  lines: ExtractedLine[]; // structured lines — used by client-side checkers
+}
+
+export async function extractTextFromFile(file: File): Promise<ExtractedCV> {
   const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
 
   if (ext === 'txt') {
-    return file.text();
+    const rawText = await file.text();
+    return { rawText, lines: [] };
   }
   if (ext === 'pdf') {
     return extractFromPDF(file);
   }
   if (ext === 'docx' || ext === 'doc') {
-    return extractFromDOCX(file);
+    const rawText = await extractFromDOCX(file);
+    return { rawText, lines: [] };
   }
-  return '';
+  return { rawText: '', lines: [] };
 }
 
-async function extractFromPDF(file: File): Promise<string> {
+async function extractFromPDF(file: File): Promise<ExtractedCV> {
   try {
     const pdfjsLib = await import('pdfjs-dist');
     pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
     const buffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-    const allLines: string[] = [];
+    const allLines: ExtractedLine[] = [];
 
     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
       const page = await pdf.getPage(pageNum);
@@ -55,34 +70,42 @@ async function extractFromPDF(file: File): Promise<string> {
       );
 
       // Group items on the same line (y within 3px)
-      let currentLine = [items[0]];
-      const pageLines: string[] = [];
+      let currentGroup = [items[0]];
 
       for (let i = 1; i < items.length; i++) {
         const item = items[i];
-        const prev = currentLine[currentLine.length - 1];
+        const prev = currentGroup[currentGroup.length - 1];
         if (Math.abs(item.y - prev.y) <= 3) {
-          currentLine.push(item);
+          currentGroup.push(item);
         } else {
-          pageLines.push(mergeLine(currentLine));
-          currentLine = [item];
+          const line = buildLine(currentGroup);
+          if (line) allLines.push(line);
+          currentGroup = [item];
         }
       }
-      pageLines.push(mergeLine(currentLine));
-
-      allLines.push(...pageLines.filter((l) => l.trim()));
+      const last = buildLine(currentGroup);
+      if (last) allLines.push(last);
     }
 
-    return allLines.join('\n');
+    const rawText = allLines.map((l) => l.text).join('\n');
+    return { rawText, lines: allLines };
   } catch (e) {
     console.warn('[cv-extractor] PDF extraction failed:', e);
-    return '';
+    return { rawText: '', lines: [] };
   }
 }
 
-// Merges text items on the same y-line, inserting a space at significant gaps
-function mergeLine(items: { text: string; x: number; width: number }[]): string {
-  if (items.length === 0) return '';
+const BULLET_CHARS = /^[•\-\*▸◦▪►‣·]/;
+
+/**
+ * Merge a group of same-y text items into a single ExtractedLine.
+ * Records the leftmost x and whether the line starts with a bullet char.
+ */
+function buildLine(
+  items: { text: string; x: number; y: number; width: number }[]
+): ExtractedLine | null {
+  if (items.length === 0) return null;
+
   const sorted = [...items].sort((a, b) => a.x - b.x);
   let result = sorted[0].text;
   for (let i = 1; i < sorted.length; i++) {
@@ -90,7 +113,16 @@ function mergeLine(items: { text: string; x: number; width: number }[]): string 
     if (gap > 4) result += ' ';
     result += sorted[i].text;
   }
-  return result;
+
+  const trimmed = result.trim();
+  if (!trimmed) return null;
+
+  return {
+    text: trimmed,
+    x: sorted[0].x,
+    y: items[0].y,
+    isBulletChar: BULLET_CHARS.test(trimmed),
+  };
 }
 
 async function extractFromDOCX(file: File): Promise<string> {

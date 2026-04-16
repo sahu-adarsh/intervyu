@@ -1,11 +1,14 @@
 /**
  * Client-side CV correction checkers.
  * 5 of 9 checkers run entirely in the browser (<100 ms).
- * Prefers raw CV text for accurate bullet extraction; falls back to
- * structured CVAnalysis.experience[].context if raw text is unavailable.
+ * Prefers structured ExtractedLine[] for accurate bullet extraction:
+ *   - x-position indentation detection (bullets without explicit •)
+ *   - section-aware filtering (only Experience / Projects sections)
+ * Falls back to raw text string parsing, then to structured CVAnalysis.experience[].context.
  */
 
 import type { CVAnalysis, CheckerResult, CVCorrections } from '@/components/cv-reviewer/types';
+import type { ExtractedCV, ExtractedLine } from '@/lib/cv-extractor';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -143,18 +146,93 @@ const CLIENT_SIDE_IDS = new Set<CheckerResult['id']>([
   'bullet_length', 'weak_verb', 'verb_tense', 'repetition', 'spelling',
 ]);
 
-// ─── Bullet extraction ────────────────────────────────────────────────────────
+// ─── Line classification patterns ─────────────────────────────────────────────
 
-// Section-header patterns — skip these lines, they're not bullets
+// Section-header patterns — used to track which section we're in
 const SECTION_HEADERS = /^(work\s+experience|experience|education|skills|projects?|certifications?|awards?|publications?|summary|objective|profile|contact|references?|volunteer|activities|interests?|languages?|honors?)\s*$/i;
 
-// Lines that look like metadata (company, date, location)
-const METADATA_LINE = /^\d{4}|present|remote|bangalore|mumbai|delhi|hyderabad|pune|chennai|kolkata|london|new york|san francisco|^[A-Z][a-z]+,\s+[A-Z]{2}$/i;
+// Sections where bullets are meaningful for checkers
+const BULLET_SECTIONS = /^(work\s+experience|experience|projects?)\s*$/i;
+
+// Metadata lines: year ranges, locations, role titles without sentence structure.
+// Narrowed from original ^\d{4} which incorrectly dropped lines like "2024: Built..."
+const METADATA_LINE = /^\d{4}\s*[-–—]\s*(\d{4}|present|current|now|ongoing)|^(remote|bangalore|mumbai|delhi|hyderabad|pune|chennai|kolkata|london|new york|san francisco)|^[A-Z][a-z]+,\s+[A-Z]{2}$/i;
+
+const BULLET_CHAR_RE = /^[•\-\*▸◦▪►‣·]\s*/;
+
+// ─── Bullet extraction — structured lines (primary path) ─────────────────────
 
 /**
- * Extract individual bullet points from raw CV text.
- * Handles common bullet characters (•, -, *, ▸, ◦, ▪, ►).
- * Falls back gracefully to structured analysis if raw text is empty.
+ * Extract bullets from structured ExtractedLine[] produced by cv-extractor.ts.
+ * Uses:
+ *  1. Section tracking — only collects from Experience / Projects sections.
+ *  2. x-position indentation — lines indented vs left margin are bullets
+ *     even without an explicit bullet character.
+ *  3. Explicit bullet char — isBulletChar flag set by cv-extractor.ts.
+ *
+ * Falls back to any explicit-bullet-char line if section-aware pass finds nothing
+ * (handles CVs with no recognisable section headers).
+ */
+function extractBulletsFromLines(lines: ExtractedLine[]): string[] {
+  if (lines.length === 0) return [];
+
+  // Compute document left margin: min x of lines with enough text to matter
+  const significant = lines.filter((l) => l.text.trim().length > 10);
+  if (significant.length === 0) return [];
+  const leftMargin = Math.min(...significant.map((l) => l.x));
+  // Lines indented by more than 12px relative to left margin are likely bullets
+  const INDENT_THRESHOLD = 12;
+
+  const bullets: string[] = [];
+  let inBulletSection = false;
+
+  for (const line of lines) {
+    const text = line.text.trim();
+    if (!text) continue;
+
+    // Detect section header → update tracking
+    if (SECTION_HEADERS.test(text)) {
+      inBulletSection = BULLET_SECTIONS.test(text);
+      continue;
+    }
+
+    if (!inBulletSection) continue;
+    if (text.length < 15) continue;
+    if (METADATA_LINE.test(text)) continue;
+
+    const isIndented = line.x > leftMargin + INDENT_THRESHOLD;
+    if (!line.isBulletChar && !isIndented) continue;
+
+    // Strip leading bullet char
+    const stripped = text.replace(BULLET_CHAR_RE, '').trim();
+    // Require at least 4 words and starts with uppercase
+    if (stripped.split(/\s+/).length >= 4 && /^[A-Z]/.test(stripped)) {
+      bullets.push(stripped);
+    }
+  }
+
+  // Fallback: no section headers found — collect any explicit-bullet-char line
+  if (bullets.length === 0) {
+    for (const line of lines) {
+      const text = line.text.trim();
+      if (!text || text.length < 15) continue;
+      if (SECTION_HEADERS.test(text) || METADATA_LINE.test(text)) continue;
+      if (!line.isBulletChar) continue;
+      const stripped = text.replace(BULLET_CHAR_RE, '').trim();
+      if (stripped.split(/\s+/).length >= 4 && /^[A-Z]/.test(stripped)) {
+        bullets.push(stripped);
+      }
+    }
+  }
+
+  return bullets;
+}
+
+// ─── Bullet extraction — raw text string (fallback for past resumes) ──────────
+
+/**
+ * Extract bullets from a raw text string (used when structured lines are
+ * unavailable, e.g. when re-opening a past resume that only has rawText in DB).
  */
 function extractBulletsFromRawText(rawText: string): string[] {
   const lines = rawText.split('\n');
@@ -164,21 +242,13 @@ function extractBulletsFromRawText(rawText: string): string[] {
     const trimmed = line.trim();
     if (!trimmed) continue;
 
-    // Strip bullet characters from the start
-    const stripped = trimmed.replace(/^[•\-\*▸◦▪►‣·]\s+/, '').trim();
+    const stripped = trimmed.replace(BULLET_CHAR_RE, '').trim();
 
-    // Skip if too short
     if (stripped.length < 15) continue;
-
-    // Skip section headers
     if (SECTION_HEADERS.test(stripped)) continue;
-
-    // Skip metadata lines (dates, locations, company names)
     if (METADATA_LINE.test(stripped)) continue;
 
-    // Only include if original line had a bullet character, OR
-    // if it's a genuine sentence (starts uppercase, has multiple words, not a name/title)
-    const hasBulletChar = /^[•\-\*▸◦▪►‣·]/.test(trimmed);
+    const hasBulletChar = BULLET_CHAR_RE.test(trimmed);
     const looksLikeBullet = hasBulletChar && /^[A-Z]/.test(stripped) && stripped.split(/\s+/).length >= 4;
 
     if (looksLikeBullet) {
@@ -191,13 +261,12 @@ function extractBulletsFromRawText(rawText: string): string[] {
 
 /**
  * Fallback: extract bullets from structured experience[].context.
- * Less accurate but works when raw text is unavailable.
+ * Less accurate but works when neither raw text nor lines are available.
  */
 function extractBulletsFromAnalysis(analysis: CVAnalysis): string[] {
   const bullets: string[] = [];
   for (const exp of analysis.experience ?? []) {
     if (!exp.context) continue;
-    // Split on periods followed by space+capital, or newlines
     const parts = exp.context
       .split(/(?<=\.)\s+(?=[A-Z])|[\n]+/)
       .map((s) => s.trim())
@@ -207,11 +276,18 @@ function extractBulletsFromAnalysis(analysis: CVAnalysis): string[] {
   return bullets;
 }
 
-function extractBullets(analysis: CVAnalysis, rawText?: string): string[] {
-  if (rawText && rawText.trim().length > 100) {
-    const fromRaw = extractBulletsFromRawText(rawText);
+function extractBullets(analysis: CVAnalysis, extracted?: ExtractedCV): string[] {
+  // Primary: structured lines with positional metadata
+  if (extracted?.lines && extracted.lines.length > 0) {
+    const fromLines = extractBulletsFromLines(extracted.lines);
+    if (fromLines.length >= 2) return fromLines;
+  }
+  // Secondary: raw text string (past resumes loaded from DB)
+  if (extracted?.rawText && extracted.rawText.trim().length > 100) {
+    const fromRaw = extractBulletsFromRawText(extracted.rawText);
     if (fromRaw.length >= 2) return fromRaw;
   }
+  // Last resort: structured analysis
   return extractBulletsFromAnalysis(analysis);
 }
 
@@ -302,11 +378,8 @@ function checkVerbTense(analysis: CVAnalysis, rawText?: string): CheckerResult {
     if (!exp.context && !rawText) continue;
     const current = isCurrent(exp.duration ?? '');
 
-    // Get bullets for this experience entry
     let bullets: string[];
     if (rawText && rawText.length > 100) {
-      // Use raw text bullets but filter to only those roughly in this job section
-      // Heuristic: use all bullets (tense checking across the whole doc is still valuable)
       bullets = extractBulletsFromRawText(rawText);
     } else {
       bullets = (exp.context ?? '')
@@ -342,7 +415,6 @@ function checkVerbTense(analysis: CVAnalysis, rawText?: string): CheckerResult {
         good.push({ text: bullet, issue: '' });
       }
     }
-    // When using raw text, one pass is enough (bullets not segmented per job)
     if (rawText && rawText.length > 100) break;
   }
 
@@ -431,17 +503,19 @@ function checkSpelling(bullets: string[]): CheckerResult {
 
 /**
  * Run all 5 client-side checkers.
- * Pass rawText (extracted from the PDF/DOCX) for accurate bullet parsing.
- * Falls back to structured analysis if rawText is absent.
+ * Pass extracted (from extractTextFromFile) for best accuracy:
+ *   - New uploads: full ExtractedCV with lines[] → structural parsing
+ *   - Past resumes: { rawText, lines: [] } → string-based fallback
+ *   - No text available: falls back to structured CVAnalysis
  */
-export function runClientCheckers(analysis: CVAnalysis, rawText?: string): CheckerResult[] {
-  const bullets = extractBullets(analysis, rawText);
+export function runClientCheckers(analysis: CVAnalysis, extracted?: ExtractedCV): CheckerResult[] {
+  const bullets = extractBullets(analysis, extracted);
   if (bullets.length === 0) return [];
 
   return [
     checkBulletLength(bullets),
     checkWeakVerbs(bullets),
-    checkVerbTense(analysis, rawText),
+    checkVerbTense(analysis, extracted?.rawText),
     checkRepetition(bullets),
     checkSpelling(bullets),
   ];

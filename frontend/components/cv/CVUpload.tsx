@@ -26,7 +26,7 @@ export default function CVUpload({ sessionId, onUploadSuccess, onUploadError }: 
     // Extract text client-side before uploading so the backend can skip
     // pdfplumber / Textract for standard (non-scanned) files.
     setExtracting(true);
-    const extractedText = await extractTextFromFile(file);
+    const { rawText } = await extractTextFromFile(file);
     setExtracting(false);
 
     setUploading(true);
@@ -36,8 +36,8 @@ export default function CVUpload({ sessionId, onUploadSuccess, onUploadError }: 
       formData.append('file', file);
       // Only send pre-extracted text if it's substantial (>200 chars).
       // For scanned PDFs pdfjs returns nothing — backend will fall back to Textract.
-      if (extractedText.trim().length > 200) {
-        formData.append('extracted_text', extractedText);
+      if (rawText.trim().length > 200) {
+        formData.append('extracted_text', rawText);
       }
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/interviews/${sessionId}/upload-cv`, {
