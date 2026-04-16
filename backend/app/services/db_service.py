@@ -549,6 +549,7 @@ async def get_user_cv_analyses(user_id: str) -> list:
                 ca.session_id::text,
                 ca.skills,
                 ca.structured_data,
+                ca.raw_text,
                 cd.filename,
                 cd.created_at AS uploaded_at
             FROM cv_analysis ca
@@ -580,6 +581,7 @@ async def get_user_cv_analyses(user_id: str) -> list:
             "analysis": skills,
             "corrections": structured,
             "ai_suggestions": ai_suggestions,
+            "raw_text": row.get("raw_text") or "",
             **job_metadata,
         })
     return result

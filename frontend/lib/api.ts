@@ -135,6 +135,7 @@ export async function getUserResumes(): Promise<{ resumes: Array<{
   uploaded_at: string;
   analysis: Record<string, unknown>;
   corrections: Record<string, unknown>;
+  raw_text?: string;
   job_title?: string;
   job_description?: string;
   ats_score?: number;

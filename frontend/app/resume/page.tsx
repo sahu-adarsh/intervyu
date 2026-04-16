@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import {
   FileText, Upload, X, Sparkles, AlertCircle, CheckCircle2,
@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import DashboardLayout from '@/components/DashboardLayout';
 import { createSession, uploadCV, getCVPresignedUrl, getUserResumes, saveCVMetadata, getCVCorrections, deleteCV } from '@/lib/api';
+import { extractTextFromFile } from '@/lib/cv-extractor';
 import type { CVCorrections, CheckerResult, StructuredSuggestion } from '@/components/cv-reviewer/types';
 import { runClientCheckers, mergeCorrections } from '@/lib/cv-checkers';
 import { scoreResume, buildScoringInput } from '@/lib/ats-engine';
@@ -39,6 +40,7 @@ interface StoredResume {
   uploadedAt: string;
   analysis: CVAnalysis;
   corrections?: CVCorrections;
+  rawText?: string;
   jobTitle?: string;
   jobDescription?: string;
   atsScore?: number;
@@ -196,7 +198,7 @@ function PastResumesGrid({ resumes, onView, onNew, onDelete }: {
 // ─── Upload Phase ─────────────────────────────────────────────────────────────
 
 function UploadPhase({ onComplete, compact }: {
-  onComplete: (resume: StoredResume, file: File, sessionId: string, results: ScoreResult[]) => void;
+  onComplete: (resume: StoredResume, file: File, sessionId: string, results: ScoreResult[], rawText: string) => void;
   compact?: boolean;
 }) {
   const [file, setFile] = useState<File | null>(null);
@@ -227,6 +229,9 @@ function UploadPhase({ onComplete, compact }: {
     if (!jobTitle.trim()) { setError('Please enter a target job title.'); return; }
     setUploading(true); setError(null);
     try {
+      // Extract text client-side for accurate bullet parsing in correction checkers
+      const rawText = await extractTextFromFile(file);
+
       const { session_id } = await createSession({
         interview_type: 'behavioral',
         candidate_name: 'Resume Analysis',
@@ -245,6 +250,7 @@ function UploadPhase({ onComplete, compact }: {
         uploadedAt: new Date().toISOString(),
         analysis: data.analysis,
         corrections: undefined,
+        rawText,
         jobTitle: jobTitle.trim() || undefined,
         jobDescription: jobDescription.trim() || undefined,
         atsScore: score,
@@ -261,7 +267,7 @@ function UploadPhase({ onComplete, compact }: {
         missing_keywords: missing,
       }).catch(() => {});
 
-      onComplete(newResume, file, session_id, results);
+      onComplete(newResume, file, session_id, results, rawText);
     } catch (err) {
       setError((err as Error).message || 'Something went wrong. Please try again.');
     } finally {
@@ -448,6 +454,7 @@ export default function ResumePage() {
           uploadedAt: r.uploaded_at,
           analysis: r.analysis as CVAnalysis,
           corrections: r.corrections as unknown as CVCorrections,
+          rawText: r.raw_text || undefined,
           jobTitle: r.job_title,
           jobDescription: r.job_description,
           atsScore: r.ats_score,
@@ -464,8 +471,8 @@ export default function ResumePage() {
       });
   }, []);
 
-  const runAndSetClientCheckers = useCallback((analysis: CVAnalysis) => {
-    const results = runClientCheckers(analysis as Parameters<typeof runClientCheckers>[0]);
+  const runAndSetClientCheckers = useCallback((analysis: CVAnalysis, rawText?: string) => {
+    const results = runClientCheckers(analysis as Parameters<typeof runClientCheckers>[0], rawText);
     setClientCorrections(results);
   }, []);
 
@@ -490,14 +497,14 @@ export default function ResumePage() {
     poll();
   }, []);
 
-  const handleComplete = (resume: StoredResume, file: File, sessionId: string, results: ScoreResult[]) => {
+  const handleComplete = (resume: StoredResume, file: File, sessionId: string, results: ScoreResult[], rawText: string) => {
     setResumes(prev => [resume, ...prev]);
     setActiveResume(resume);
     setActiveFile(file);
     setAtsResults(results);
     setShowUploadModal(false);
     setView('review');
-    runAndSetClientCheckers(resume.analysis);
+    runAndSetClientCheckers(resume.analysis, rawText);
     pollCorrections(sessionId);
   };
 
@@ -508,8 +515,8 @@ export default function ResumePage() {
     // Recompute 6-platform ATS scores client-side from stored analysis + jobDescription
     const { results } = computeAtsResults(r.analysis, r.jobDescription);
     setAtsResults(results);
-    // Run 5 client-side checkers immediately — no spinner wait for these
-    runAndSetClientCheckers(r.analysis);
+    // Run 5 client-side checkers immediately — use rawText from API if available
+    runAndSetClientCheckers(r.analysis, r.rawText);
     // Poll for 4 AI-only checkers if not yet cached
     if (!r.corrections?.checkers?.length && r.sessionId) {
       pollCorrections(r.sessionId);

@@ -1,8 +1,8 @@
 /**
  * Client-side CV correction checkers.
- * 5 of 9 checkers run entirely in the browser (<100 ms) using structured CVAnalysis.
- * The 4 AI-only checkers (quantification, bullet_improver, skill_checker, section_checker)
- * are still handled by the Lambda backend.
+ * 5 of 9 checkers run entirely in the browser (<100 ms).
+ * Prefers raw CV text for accurate bullet extraction; falls back to
+ * structured CVAnalysis.experience[].context if raw text is unavailable.
  */
 
 import type { CVAnalysis, CheckerResult, CVCorrections } from '@/components/cv-reviewer/types';
@@ -31,10 +31,7 @@ const WEAK_VERBS = new Set([
   'tasked',
   'assigned',
   'utilized', 'utilize', 'utilizes',
-  'involved',
-  'helped',
   'ensured', 'ensure', 'ensures',
-  'worked',
 ]);
 
 // ~80 most common resume misspellings
@@ -47,8 +44,6 @@ const COMMON_MISSPELLINGS: Record<string, string> = {
   accomodate: 'accommodate',
   accomodated: 'accommodated',
   managment: 'management',
-  managements: 'management',
-  developement: 'development',
   developement: 'development',
   implemenation: 'implementation',
   implementaion: 'implementation',
@@ -88,9 +83,6 @@ const COMMON_MISSPELLINGS: Record<string, string> = {
   proffessional: 'professional',
   profesional: 'professional',
   programing: 'programming',
-  programmed: 'programmed',
-  analysing: 'analyzing',
-  analysed: 'analyzed',
   optimisation: 'optimization',
   optimise: 'optimize',
   optimised: 'optimized',
@@ -109,7 +101,6 @@ const COMMON_MISSPELLINGS: Record<string, string> = {
   intergration: 'integration',
   intergrate: 'integrate',
   intergrated: 'integrated',
-  automate: 'automate',
   automted: 'automated',
   improvment: 'improvement',
   improvments: 'improvements',
@@ -128,17 +119,15 @@ const COMMON_MISSPELLINGS: Record<string, string> = {
   stratagy: 'strategy',
   strategey: 'strategy',
   technolgy: 'technology',
-  technolgy: 'technology',
   infrasturcture: 'infrastructure',
   infrastracture: 'infrastructure',
   desicion: 'decision',
   decison: 'decision',
   assesment: 'assessment',
-  assesment: 'assessment',
   documentaion: 'documentation',
 };
 
-const CHECKER_ORDER: Array<CVCorrections['checkers'][0]['id']> = [
+const CHECKER_ORDER: CheckerResult['id'][] = [
   'quantification',
   'bullet_length',
   'bullet_improver',
@@ -150,21 +139,80 @@ const CHECKER_ORDER: Array<CVCorrections['checkers'][0]['id']> = [
   'spelling',
 ];
 
-const CLIENT_SIDE_IDS = new Set(['bullet_length', 'weak_verb', 'verb_tense', 'repetition', 'spelling']);
+const CLIENT_SIDE_IDS = new Set<CheckerResult['id']>([
+  'bullet_length', 'weak_verb', 'verb_tense', 'repetition', 'spelling',
+]);
 
 // ─── Bullet extraction ────────────────────────────────────────────────────────
 
-function extractBullets(analysis: CVAnalysis): string[] {
+// Section-header patterns — skip these lines, they're not bullets
+const SECTION_HEADERS = /^(work\s+experience|experience|education|skills|projects?|certifications?|awards?|publications?|summary|objective|profile|contact|references?|volunteer|activities|interests?|languages?|honors?)\s*$/i;
+
+// Lines that look like metadata (company, date, location)
+const METADATA_LINE = /^\d{4}|present|remote|bangalore|mumbai|delhi|hyderabad|pune|chennai|kolkata|london|new york|san francisco|^[A-Z][a-z]+,\s+[A-Z]{2}$/i;
+
+/**
+ * Extract individual bullet points from raw CV text.
+ * Handles common bullet characters (•, -, *, ▸, ◦, ▪, ►).
+ * Falls back gracefully to structured analysis if raw text is empty.
+ */
+function extractBulletsFromRawText(rawText: string): string[] {
+  const lines = rawText.split('\n');
+  const bullets: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // Strip bullet characters from the start
+    const stripped = trimmed.replace(/^[•\-\*▸◦▪►‣·]\s+/, '').trim();
+
+    // Skip if too short
+    if (stripped.length < 15) continue;
+
+    // Skip section headers
+    if (SECTION_HEADERS.test(stripped)) continue;
+
+    // Skip metadata lines (dates, locations, company names)
+    if (METADATA_LINE.test(stripped)) continue;
+
+    // Only include if original line had a bullet character, OR
+    // if it's a genuine sentence (starts uppercase, has multiple words, not a name/title)
+    const hasBulletChar = /^[•\-\*▸◦▪►‣·]/.test(trimmed);
+    const looksLikeBullet = hasBulletChar && /^[A-Z]/.test(stripped) && stripped.split(/\s+/).length >= 4;
+
+    if (looksLikeBullet) {
+      bullets.push(stripped);
+    }
+  }
+
+  return bullets;
+}
+
+/**
+ * Fallback: extract bullets from structured experience[].context.
+ * Less accurate but works when raw text is unavailable.
+ */
+function extractBulletsFromAnalysis(analysis: CVAnalysis): string[] {
   const bullets: string[] = [];
   for (const exp of analysis.experience ?? []) {
     if (!exp.context) continue;
+    // Split on periods followed by space+capital, or newlines
     const parts = exp.context
-      .split(/[.\n]+/)
+      .split(/(?<=\.)\s+(?=[A-Z])|[\n]+/)
       .map((s) => s.trim())
-      .filter((s) => s.length >= 10);
+      .filter((s) => s.length >= 15 && /^[A-Z]/.test(s));
     bullets.push(...parts);
   }
   return bullets;
+}
+
+function extractBullets(analysis: CVAnalysis, rawText?: string): string[] {
+  if (rawText && rawText.trim().length > 100) {
+    const fromRaw = extractBulletsFromRawText(rawText);
+    if (fromRaw.length >= 2) return fromRaw;
+  }
+  return extractBulletsFromAnalysis(analysis);
 }
 
 // ─── Individual checkers ──────────────────────────────────────────────────────
@@ -180,13 +228,13 @@ function checkBulletLength(bullets: string[]): CheckerResult {
       needsFix.push({
         text: bullet,
         issue: `Too short — ${count} word${count !== 1 ? 's' : ''}`,
-        suggestion: 'Expand with context, tools used, or measurable outcome to reach 8–20 words.',
+        suggestion: 'Expand with context, tools used, or a measurable outcome. Aim for 8–20 words.',
       });
     } else if (count > 25) {
       needsFix.push({
         text: bullet,
         issue: `Too long — ${count} words`,
-        suggestion: 'Split into two bullets or trim filler words. Aim for 8–20 words per bullet.',
+        suggestion: 'Split into two bullets or trim filler phrases. Aim for 8–20 words per bullet.',
       });
     } else {
       good.push({ text: bullet, issue: '' });
@@ -215,7 +263,7 @@ function checkWeakVerbs(bullets: string[]): CheckerResult {
       needsFix.push({
         text: bullet,
         issue: `Weak opening verb: "${firstWord}"`,
-        suggestion: 'Replace with a strong action verb: Led, Built, Designed, Optimised, Delivered, etc.',
+        suggestion: 'Replace with a strong action verb: Led, Built, Designed, Delivered, Optimized, etc.',
       });
     } else {
       good.push({ text: bullet, issue: '' });
@@ -233,33 +281,39 @@ function checkWeakVerbs(bullets: string[]): CheckerResult {
   };
 }
 
-function checkVerbTense(experience: CVAnalysis['experience']): CheckerResult {
+function checkVerbTense(analysis: CVAnalysis, rawText?: string): CheckerResult {
   const needsFix: CheckerResult['needsFix'] = [];
   const good: CheckerResult['good'] = [];
 
-  // Detect if a duration string indicates a current role
   const isCurrent = (duration: string) =>
     /present|current|now|ongoing/i.test(duration);
 
-  // Heuristic: does a verb look like past tense?
-  // Past tense verbs typically end in -ed (or common irregular: led, built, drove, grew, etc.)
   const IRREGULAR_PAST = new Set([
     'led', 'built', 'drove', 'grew', 'ran', 'wrote', 'made', 'held', 'kept',
     'sent', 'set', 'won', 'cut', 'hit', 'left', 'met', 'paid', 'sold', 'told',
-    'took', 'gave', 'got', 'put', 'brought', 'caught', 'found', 'got', 'lost',
+    'took', 'gave', 'got', 'put', 'brought', 'caught', 'found', 'lost',
     'read', 'sat', 'saw', 'said', 'stood', 'taught', 'thought', 'understood',
   ]);
 
   const isPastTense = (verb: string) =>
     verb.endsWith('ed') || IRREGULAR_PAST.has(verb);
 
-  for (const exp of experience ?? []) {
-    if (!exp.context) continue;
+  for (const exp of analysis.experience ?? []) {
+    if (!exp.context && !rawText) continue;
     const current = isCurrent(exp.duration ?? '');
-    const bullets = exp.context
-      .split(/[.\n]+/)
-      .map((s) => s.trim())
-      .filter((s) => s.length >= 10);
+
+    // Get bullets for this experience entry
+    let bullets: string[];
+    if (rawText && rawText.length > 100) {
+      // Use raw text bullets but filter to only those roughly in this job section
+      // Heuristic: use all bullets (tense checking across the whole doc is still valuable)
+      bullets = extractBulletsFromRawText(rawText);
+    } else {
+      bullets = (exp.context ?? '')
+        .split(/(?<=\.)\s+(?=[A-Z])|[\n]+/)
+        .map((s) => s.trim())
+        .filter((s) => s.length >= 15 && /^[A-Z]/.test(s));
+    }
 
     for (const bullet of bullets) {
       const firstWord = bullet.split(/\s+/)[0]?.toLowerCase().replace(/[^a-z]/g, '') ?? '';
@@ -271,17 +325,15 @@ function checkVerbTense(experience: CVAnalysis['experience']): CheckerResult {
         needsFix.push({
           text: bullet,
           issue: 'Past tense used for current role — use present tense',
-          suggestion: `Change "${firstWord}" to present tense (e.g. "${firstWord.replace(/ed$/, '')}").`,
+          suggestion: `Change "${firstWord}" to present tense.`,
         });
-      } else if (!current && !past && /^[a-z]/.test(firstWord)) {
-        // Potential present-tense verb in a past role
-        // Only flag if it looks like a verb (ends in common verb endings or matches simple present)
-        const looksLikePresentVerb = /(?:ize|ise|ate|ect|ign|ure|ive|ish|age|uce|ove|ule|ail|ain|eal|ess|ect)s?$|^(?:manage|lead|develop|design|build|create|implement|deploy|optimize|analyze|coordinate|deliver|drive|maintain|scale|automate|migrate|architect|own|run|handle|support|review|mentor|define|establish|launch|improve|reduce|increase)$/.test(firstWord);
+      } else if (!current && !past) {
+        const looksLikePresentVerb = /(?:ize|ise|ate|ect|ign|ure|ive|ish|age|uce|ove|ule|ail|ain|eal|ess)s?$/.test(firstWord);
         if (looksLikePresentVerb) {
           needsFix.push({
             text: bullet,
             issue: 'Present tense used for past role — use past tense',
-            suggestion: `Change "${firstWord}" to past tense (e.g. "${firstWord}d" or "${firstWord}ed").`,
+            suggestion: `Change "${firstWord}" to past tense.`,
           });
         } else {
           good.push({ text: bullet, issue: '' });
@@ -290,6 +342,8 @@ function checkVerbTense(experience: CVAnalysis['experience']): CheckerResult {
         good.push({ text: bullet, issue: '' });
       }
     }
+    // When using raw text, one pass is enough (bullets not segmented per job)
+    if (rawText && rawText.length > 100) break;
   }
 
   const total = (needsFix.length + good.length) || 1;
@@ -307,13 +361,10 @@ function checkRepetition(bullets: string[]): CheckerResult {
   const needsFix: CheckerResult['needsFix'] = [];
   const good: CheckerResult['good'] = [];
 
-  // Count frequency of each opening verb
   const verbFreq: Map<string, number> = new Map();
   for (const bullet of bullets) {
     const verb = bullet.split(/\s+/)[0]?.toLowerCase().replace(/[^a-z]/g, '') ?? '';
-    if (verb.length >= 3) {
-      verbFreq.set(verb, (verbFreq.get(verb) ?? 0) + 1);
-    }
+    if (verb.length >= 3) verbFreq.set(verb, (verbFreq.get(verb) ?? 0) + 1);
   }
 
   for (const bullet of bullets) {
@@ -323,7 +374,7 @@ function checkRepetition(bullets: string[]): CheckerResult {
       needsFix.push({
         text: bullet,
         issue: `Opening verb "${verb}" used ${freq} times`,
-        suggestion: `Vary your action verbs — replace some occurrences of "${verb}" with synonyms.`,
+        suggestion: `Vary your verbs — replace some "${verb}" occurrences with synonyms.`,
       });
     } else {
       good.push({ text: bullet, issue: '' });
@@ -358,7 +409,7 @@ function checkSpelling(bullets: string[]): CheckerResult {
       needsFix.push({
         text: bullet,
         issue: `Possible misspelling: ${issues.join(', ')}`,
-        suggestion: `Correct: ${issues.join(', ')}.`,
+        suggestion: `Correct spelling: ${issues.join(', ')}.`,
       });
     } else {
       good.push({ text: bullet, issue: '' });
@@ -379,17 +430,18 @@ function checkSpelling(bullets: string[]): CheckerResult {
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Run all 5 client-side checkers on the given structured CVAnalysis.
- * Returns instantly (<10 ms).
+ * Run all 5 client-side checkers.
+ * Pass rawText (extracted from the PDF/DOCX) for accurate bullet parsing.
+ * Falls back to structured analysis if rawText is absent.
  */
-export function runClientCheckers(analysis: CVAnalysis): CheckerResult[] {
-  const bullets = extractBullets(analysis);
+export function runClientCheckers(analysis: CVAnalysis, rawText?: string): CheckerResult[] {
+  const bullets = extractBullets(analysis, rawText);
   if (bullets.length === 0) return [];
 
   return [
     checkBulletLength(bullets),
     checkWeakVerbs(bullets),
-    checkVerbTense(analysis.experience ?? []),
+    checkVerbTense(analysis, rawText),
     checkRepetition(bullets),
     checkSpelling(bullets),
   ];
@@ -398,8 +450,7 @@ export function runClientCheckers(analysis: CVAnalysis): CheckerResult[] {
 /**
  * Merge client-side CheckerResults with AI-generated ones.
  * Client-side results take precedence for the 5 client checkers.
- * AI results are used for quantification, bullet_improver, skill_checker, section_checker.
- * Result is sorted in canonical display order.
+ * Returns null only if both inputs are empty.
  */
 export function mergeCorrections(
   clientCheckers: CheckerResult[],
@@ -409,15 +460,9 @@ export function mergeCorrections(
 
   const byId = new Map<string, CheckerResult>();
 
-  // AI first (lower priority for client-side IDs)
-  for (const c of aiCheckers) {
-    byId.set(c.id, c);
-  }
-  // Client-side overwrites for the 5 client checkers
+  for (const c of aiCheckers) byId.set(c.id, c);
   for (const c of clientCheckers) {
-    if (CLIENT_SIDE_IDS.has(c.id)) {
-      byId.set(c.id, c);
-    }
+    if (CLIENT_SIDE_IDS.has(c.id)) byId.set(c.id, c);
   }
 
   const checkers = CHECKER_ORDER
