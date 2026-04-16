@@ -405,7 +405,6 @@ function AISummary({ analysis }: { analysis: CVAnalysis }) {
           <Bot size={10} className="text-violet-400" />
         </div>
         <span className="text-[10px] font-bold text-violet-400/70 uppercase tracking-widest">Candidate Profile</span>
-        <span className="ml-auto text-[9px] text-slate-700 font-medium">For recruiters</span>
       </div>
       {/* Body */}
       <div className="px-4 py-3" style={{ background: 'rgba(8,10,20,0.85)' }}>

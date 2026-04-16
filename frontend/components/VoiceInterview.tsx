@@ -18,6 +18,7 @@ if (typeof window !== 'undefined') {
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCVAnalysis, endInterview } from '@/lib/api';
+import { useSupabaseSession, getUserAvatarUrl } from '@/lib/supabase/auth';
 import { posthog } from '@/lib/posthog';
 import dynamic from 'next/dynamic';
 import { useMicVAD } from '@ricky0123/vad-react';
@@ -67,6 +68,8 @@ function float32ToWav(samples: Float32Array, sampleRate = 16000): Blob {
 
 export default function VoiceInterview({ sessionId, interviewType, candidateName, wsUrl: propWsUrl }: VoiceInterviewProps) {
   const router = useRouter();
+  const { user } = useSupabaseSession();
+  const avatarUrl = getUserAvatarUrl(user);
   const [isActive, setIsActive] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentResponse, setCurrentResponse] = useState('');
@@ -444,8 +447,11 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="relative w-36 h-36">
             {/* Avatar circle */}
-            <div className="w-full h-full rounded-full bg-slate-700 flex items-center justify-center text-5xl font-bold select-none">
-              {candidateName.charAt(0).toUpperCase()}
+            <div className="w-full h-full rounded-full bg-slate-700 flex items-center justify-center text-5xl font-bold select-none overflow-hidden">
+              {avatarUrl
+                ? <img src={avatarUrl} alt={candidateName} className="w-full h-full object-cover" />
+                : candidateName.charAt(0).toUpperCase()
+              }
             </div>
             {/* Radiating border overlay — mirrors interviewer's absolute inset-0 approach */}
             {isRecording && (
@@ -590,7 +596,9 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
                   msg.role === 'user' ? 'bg-teal-600 text-white' : 'bg-gray-100'
                 }`}>
                   {msg.role === 'user'
-                    ? candidateName.charAt(0).toUpperCase()
+                    ? avatarUrl
+                      ? <img src={avatarUrl} alt={candidateName} className="w-full h-full object-cover" />
+                      : candidateName.charAt(0).toUpperCase()
                     : <img src="/women-icon.svg" className="w-full h-full object-cover" alt="AI" />
                   }
                 </div>
@@ -615,8 +623,11 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
             {/* In-progress user speech */}
             {currentTranscript && (
               <div className="flex items-end gap-2 flex-row-reverse">
-                <div className="w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold bg-teal-500 text-white">
-                  {candidateName.charAt(0).toUpperCase()}
+                <div className="w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold bg-teal-500 text-white overflow-hidden">
+                  {avatarUrl
+                    ? <img src={avatarUrl} alt={candidateName} className="w-full h-full object-cover" />
+                    : candidateName.charAt(0).toUpperCase()
+                  }
                 </div>
                 <div className="max-w-[75%] px-3.5 py-2.5 rounded-2xl rounded-br-sm text-sm bg-purple-400/70 text-white italic">
                   {currentTranscript}
