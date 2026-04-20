@@ -1,8 +1,10 @@
 import hashlib
+import ssl
 import time
 import logging
 from typing import Optional
 
+import certifi
 import jwt
 from jwt import PyJWKClient
 
@@ -12,7 +14,8 @@ logger = logging.getLogger(__name__)
 
 # JWKS client — caches the signing key from Supabase's well-known endpoint
 _JWKS_URL = f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json"
-_jwks_client = PyJWKClient(_JWKS_URL, cache_keys=True)
+_ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+_jwks_client = PyJWKClient(_JWKS_URL, cache_keys=True, ssl_context=_ssl_ctx)
 
 # Short-lived in-memory token cache: {token_hash: (payload, expires_at)}
 _token_cache: dict[str, tuple[dict, float]] = {}

@@ -380,6 +380,8 @@ async def get_cv_corrections(
         if not corrections or "generatedAt" not in corrections:
             return JSONResponse(content={"status": "pending"})
 
+        checker_count = len(corrections.get("checkers") or [])
+        logger.info(f"CV corrections ready for {session_id}: {checker_count} checkers")
         return JSONResponse(content={"status": "ready", "corrections": corrections})
 
     except HTTPException:

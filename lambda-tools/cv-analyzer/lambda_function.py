@@ -245,7 +245,7 @@ RESUME TEXT:
             modelId='us.anthropic.claude-sonnet-4-6',
             body=json.dumps({
                 'anthropic_version': 'bedrock-2023-05-31',
-                'max_tokens': 4000,
+                'max_tokens': 8192,
                 'messages': [{'role': 'user', 'content': prompt}]
             }),
             contentType='application/json',
