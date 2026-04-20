@@ -155,6 +155,10 @@ export default function HomePage() {
                 inter<span className="text-indigo-600">vyu</span>
               </span>
             </Link>
+            {/* Mobile-only: Star */}
+            <div className="flex md:hidden">
+              <GitHubStarLink />
+            </div>
             <nav className="hidden items-center gap-6 text-sm text-slate-600 md:flex">
               <a href="#features" className="transition hover:text-slate-950">Features</a>
               <a href="#story" className="transition hover:text-slate-950">Story</a>
