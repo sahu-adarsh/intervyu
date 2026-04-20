@@ -27,14 +27,16 @@ interface CheckerSidebarProps {
   onSelect: (id: CheckerID) => void;
   onDeselect: () => void;
   onItemHighlight?: (text: string) => void;
+  aiPending?: boolean;
 }
 
-function CheckerBox({ id, checker, onClick, dimmed, pending }: {
+function CheckerBox({ id, checker, onClick, dimmed, pending, aiDone }: {
   id: CheckerID;
   checker: CheckerResult | null;
   onClick?: () => void;
   dimmed?: boolean;
   pending?: boolean;
+  aiDone?: boolean;
 }) {
   const meta = CHECKER_META[id];
   const issueCount = checker?.needsFix.length ?? 0;
@@ -90,6 +92,10 @@ function CheckerBox({ id, checker, onClick, dimmed, pending }: {
             {issueCount} fix{issueCount !== 1 ? 'es' : ''}
           </span>
         )
+      ) : aiDone && meta.ai ? (
+        <span className="text-[9px] text-slate-700 bg-slate-800/40 border border-slate-700/30 px-1.5 py-0.5 rounded-md">
+          N/A
+        </span>
       ) : null}
 
       {/* Score bar at bottom */}
@@ -105,7 +111,7 @@ function CheckerBox({ id, checker, onClick, dimmed, pending }: {
   );
 }
 
-export default function CheckerSidebar({ corrections, activeChecker, onSelect, onDeselect, onItemHighlight }: CheckerSidebarProps) {
+export default function CheckerSidebar({ corrections, activeChecker, onSelect, onDeselect, onItemHighlight, aiPending = false }: CheckerSidebarProps) {
   // corrections === null  → everything still loading (just uploaded)
   // corrections !== null  → at least client checkers are done; AI ones may be missing
   const isLoading = corrections === null;
@@ -170,7 +176,9 @@ export default function CheckerSidebar({ corrections, activeChecker, onSelect, o
       >
         {CHECKER_IDS.map((id) => {
           const checker = byId.get(id) ?? null;
-          const isPending = !isLoading && checker === null; // corrections arrived but this AI checker isn't ready
+          const meta = CHECKER_META[id];
+          // Only show AI spinner while we're actively polling; once done, show N/A
+          const isPending = !isLoading && checker === null && meta.ai && aiPending;
           return (
             <CheckerBox
               key={id}
@@ -179,6 +187,7 @@ export default function CheckerSidebar({ corrections, activeChecker, onSelect, o
               onClick={checker != null ? () => onSelect(id) : undefined}
               dimmed={isLoading}
               pending={isPending}
+              aiDone={!aiPending}
             />
           );
         })}

@@ -430,6 +430,8 @@ export default function ResumePage() {
   const [view, setView] = useState<View>('grid');
   // Client-side checkers (5 of 9) — computed instantly from structured analysis
   const [clientCorrections, setClientCorrections] = useState<CheckerResult[]>([]);
+  // true while pollCorrections is actively waiting for AI results
+  const [aiPending, setAiPending] = useState(false);
   // Suggestions cache: keyed by sessionId, persists across re-opens within the same page session
   const suggestionsCache = useRef(new Map<string, StructuredSuggestion[]>());
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -478,6 +480,7 @@ export default function ResumePage() {
   }, []);
 
   const pollCorrections = useCallback((sessionId: string) => {
+    setAiPending(true);
     const poll = async () => {
       for (let i = 0; i < 40; i++) {
         await new Promise(r => setTimeout(r, 3000));
@@ -487,13 +490,15 @@ export default function ResumePage() {
             const corrections = res.corrections as unknown as CVCorrections;
             setActiveResume(prev => prev ? { ...prev, corrections } : prev);
             setResumes(prev => prev.map(r => r.sessionId === sessionId ? { ...r, corrections } : r));
+            setAiPending(false);
             return;
           }
         } catch { /* non-fatal, keep polling */ }
       }
-      // Polling exhausted — clear the spinner with an empty corrections object
+      // Polling exhausted — mark AI as done (with no results)
       const empty = { checkers: [] } as unknown as CVCorrections;
       setActiveResume(prev => prev ? { ...prev, corrections: empty } : prev);
+      setAiPending(false);
     };
     poll();
   }, []);
@@ -510,6 +515,7 @@ export default function ResumePage() {
   };
 
   const handleViewResume = (r: StoredResume) => {
+    setAiPending(false); // reset before potentially starting a new poll
     setActiveResume(r);
     setActiveFile(null);
     setView('review');
@@ -518,7 +524,7 @@ export default function ResumePage() {
     setAtsResults(results);
     // Run 5 client-side checkers immediately — use rawText from API if available
     runAndSetClientCheckers(r.analysis, r.rawText ? { rawText: r.rawText, lines: [] } : undefined);
-    // Poll for 4 AI-only checkers if not yet cached
+    // Poll for 4 AI-only checkers if not yet cached (pollCorrections sets aiPending = true)
     if (!r.corrections?.checkers?.length && r.sessionId) {
       pollCorrections(r.sessionId);
     }
@@ -530,6 +536,7 @@ export default function ResumePage() {
     setActiveFile(null);
     setAtsResults([]);
     setClientCorrections([]);
+    setAiPending(false);
   };
 
   const handleDelete = (id: string) => {
@@ -640,6 +647,7 @@ export default function ResumePage() {
               atsResults={atsResults}
               jobDescription={activeResume.jobDescription}
               localPdfFile={activeFile}
+              aiPending={aiPending}
               suggestionsCache={suggestionsCache.current}
               onSuggestionsCached={(sid, items) => suggestionsCache.current.set(sid, items)}
             />

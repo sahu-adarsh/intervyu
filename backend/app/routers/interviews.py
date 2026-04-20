@@ -219,6 +219,15 @@ async def _generate_corrections_background(session_id: str, cv_text: str) -> Non
         logger.info(f"CV corrections saved for session {session_id}")
     except Exception as e:
         logger.error(f"Background corrections failed for {session_id}: {e}")
+        # Write failure sentinel so the polling endpoint returns "ready" instead of
+        # "pending" indefinitely. Empty checkers list signals the AI pass failed.
+        try:
+            await db_service.update_cv_corrections(session_id, {
+                "checkers": [],
+                "generatedAt": datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception:
+            pass
 
 
 @router.post("/{session_id}/upload-cv")
@@ -365,7 +374,10 @@ async def get_cv_corrections(
             raise HTTPException(status_code=404, detail="No CV analysis found")
 
         corrections = cv_data.get("structured_data", {})
-        if not corrections or not corrections.get("checkers"):
+        # "generatedAt" is set by the Lambda (and by the failure sentinel above) whenever
+        # the AI pass has finished — even when it produced zero checkers.
+        # Absence of "generatedAt" means the background task hasn't completed yet.
+        if not corrections or "generatedAt" not in corrections:
             return JSONResponse(content={"status": "pending"})
 
         return JSONResponse(content={"status": "ready", "corrections": corrections})

@@ -17,6 +17,7 @@ interface CVReviewerProps {
   atsResults: ScoreResult[];
   jobDescription?: string;
   localPdfFile?: File | null;
+  aiPending?: boolean;
   suggestionsCache?: Map<string, StructuredSuggestion[]>;
   onSuggestionsCached?: (sessionId: string, items: StructuredSuggestion[]) => void;
 }
@@ -28,6 +29,7 @@ export default function CVReviewer({
   atsResults,
   jobDescription,
   localPdfFile,
+  aiPending = false,
   suggestionsCache,
   onSuggestionsCached,
 }: CVReviewerProps) {
@@ -167,6 +169,7 @@ export default function CVReviewer({
               onSelect={handleCheckerSelect}
               onDeselect={handleCheckerDeselect}
               onItemHighlight={handleItemHighlight}
+              aiPending={aiPending}
             />
           </div>
         </div>
