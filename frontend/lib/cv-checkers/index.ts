@@ -374,12 +374,18 @@ function checkVerbTense(analysis: CVAnalysis, rawText?: string): CheckerResult {
   const isPastTense = (verb: string) =>
     verb.endsWith('ed') || IRREGULAR_PAST.has(verb);
 
+  // Past tense is correct for ALL bullet points (current and past roles alike).
+  // Each bullet describes a completed action or achievement, even in an active job.
+  // Only flag verbs that look like present-tense in a past role, where past tense
+  // is strictly required.
   for (const exp of analysis.experience ?? []) {
     if (!exp.context && !rawText) continue;
     const current = isCurrent(exp.duration ?? '');
 
+    // When rawText is available, bullets span the entire CV — only use rawText
+    // for past roles to avoid incorrectly attributing cross-role bullets.
     let bullets: string[];
-    if (rawText && rawText.length > 100) {
+    if (!current && rawText && rawText.length > 100) {
       bullets = extractBulletsFromRawText(rawText);
     } else {
       bullets = (exp.context ?? '')
@@ -394,13 +400,7 @@ function checkVerbTense(analysis: CVAnalysis, rawText?: string): CheckerResult {
 
       const past = isPastTense(firstWord);
 
-      if (current && past) {
-        needsFix.push({
-          text: bullet,
-          issue: 'Past tense used for current role — use present tense',
-          suggestion: `Change "${firstWord}" to present tense.`,
-        });
-      } else if (!current && !past) {
+      if (!current && !past) {
         const looksLikePresentVerb = /(?:ize|ise|ate|ect|ign|ure|ive|ish|age|uce|ove|ule|ail|ain|eal|ess)s?$/.test(firstWord);
         if (looksLikePresentVerb) {
           needsFix.push({
@@ -415,7 +415,7 @@ function checkVerbTense(analysis: CVAnalysis, rawText?: string): CheckerResult {
         good.push({ text: bullet, issue: '' });
       }
     }
-    if (rawText && rawText.length > 100) break;
+    if (!current && rawText && rawText.length > 100) break;
   }
 
   const total = (needsFix.length + good.length) || 1;
