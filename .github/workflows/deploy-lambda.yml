@@ -1,0 +1,43 @@
+name: Deploy Lambda
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'lambda-tools/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to AWS Lambda (SAM)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install AWS SAM CLI
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: SAM Build
+        working-directory: lambda-tools
+        run: sam build
+
+      - name: SAM Deploy
+        working-directory: lambda-tools
+        run: sam deploy --no-confirm-changeset --no-fail-on-empty-changeset
