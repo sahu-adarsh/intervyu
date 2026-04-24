@@ -20,6 +20,7 @@ _jwks_client = PyJWKClient(_JWKS_URL, cache_keys=True, ssl_context=_ssl_ctx)
 # Short-lived in-memory token cache: {token_hash: (payload, expires_at)}
 _token_cache: dict[str, tuple[dict, float]] = {}
 _CACHE_TTL_SECONDS = 60
+_CACHE_MAX_SIZE = 1000
 
 
 def _cache_key(token: str) -> str:
@@ -38,6 +39,11 @@ def _get_cached(token: str) -> Optional[dict]:
 
 def _set_cached(token: str, payload: dict) -> None:
     key = _cache_key(token)
+    if len(_token_cache) >= _CACHE_MAX_SIZE:
+        # Evict oldest 10% by insertion order (dicts are ordered in Python 3.7+)
+        evict_count = _CACHE_MAX_SIZE // 10
+        for old_key in list(_token_cache.keys())[:evict_count]:
+            _token_cache.pop(old_key, None)
     _token_cache[key] = (payload, time.monotonic() + _CACHE_TTL_SECONDS)
 
 

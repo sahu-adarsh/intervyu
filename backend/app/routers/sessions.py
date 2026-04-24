@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from app.models.session import CreateSessionRequest, SessionResponse, EndSessionResponse
 from app.dependencies.auth import CurrentUser, get_current_user
 from app.services import db_service
@@ -25,7 +25,10 @@ _TYPE_MAP = {
 }
 
 def _normalize_type(t: str) -> str:
-    return _TYPE_MAP.get(t, t)
+    normalized = _TYPE_MAP.get(t)
+    if normalized is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid interview type: {t!r}")
+    return normalized
 
 @router.post("", response_model=SessionResponse)
 @limiter.limit("10/hour")

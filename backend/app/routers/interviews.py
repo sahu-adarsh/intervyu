@@ -251,7 +251,18 @@ async def upload_cv(
         session_data = await _verify_session_owner(session_id, current_user.user_id)
 
         content = await file.read()
-        file_extension = file.filename.lower().split('.')[-1]
+
+        # Server-side file size check (10 MB limit)
+        if len(content) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="File too large. Maximum size is 10 MB.")
+
+        # Sanitize file extension — derive only from the final suffix, allow-list only
+        import pathlib
+        _allowed_exts = {"pdf", "doc", "docx", "txt"}
+        raw_suffix = pathlib.Path(file.filename or "").suffix.lstrip(".").lower()
+        file_extension = raw_suffix if raw_suffix in _allowed_exts else ""
+        if not file_extension:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type. Supported: PDF, DOCX, TXT")
 
         # Use client-extracted text when the frontend sends it (>200 chars check
         # is done on the client; we re-validate here with a slightly lower bar).
@@ -263,32 +274,28 @@ async def upload_cv(
             )
         else:
             cv_text = ""
-            if file_extension == 'pdf':
-                cv_text = textract_service.extract_text_from_pdf(content)
-            elif file_extension in ['doc', 'docx']:
+            if file_extension in ('pdf', 'doc', 'docx'):
                 cv_text = textract_service.extract_text_from_pdf(content)
             elif file_extension == 'txt':
                 try:
                     cv_text = content.decode('utf-8')
                 except Exception:
                     raise HTTPException(status_code=400, detail="Unable to decode text file")
-            else:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Unsupported file type: {file_extension}. Supported: PDF, DOCX, TXT",
-                )
 
         if not cv_text.strip():
             raise HTTPException(status_code=400, detail="No text extracted from file")
 
-        # Upload binary to S3
-        s3_key = s3_service.upload_cv(session_id, content, file.filename)
+        # Upload binary to S3 — use UUID key to avoid path traversal via user filename
+        import uuid as _uuid
+        safe_s3_filename = f"{_uuid.uuid4()}.{file_extension}"
+        s3_key = s3_service.upload_cv(session_id, content, safe_s3_filename)
 
-        # Save document record to DB
+        # Save document record to DB (store original display name, not S3 key)
+        original_display_name = pathlib.Path(file.filename or "cv").name[:255]
         await db_service.save_cv_document(
             session_id=session_id,
-            filename=file.filename,
-            s3_key=s3_key or f"cvs/{session_id}/{file.filename}",
+            filename=original_display_name,
+            s3_key=s3_key or f"cvs/{session_id}/{safe_s3_filename}",
             file_size_bytes=len(content),
             mime_type=file.content_type,
         )

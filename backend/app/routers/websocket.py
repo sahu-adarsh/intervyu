@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.services.bedrock_service import BedrockService
 from app.services.s3_service import S3Service
 from app.config.settings import DEEPGRAM_API_KEY, AZURE_SPEECH_KEY, AZURE_SPEECH_REGION
+import ast
 import azure.cognitiveservices.speech as speechsdk
 import httpx
 import io
@@ -83,10 +84,10 @@ def _generate_initial_code(test_cases: list) -> str:
     n_args = 1
     if test_cases:
         try:
-            first_input = eval(test_cases[0]['input'], {"__builtins__": {}})
+            first_input = ast.literal_eval(test_cases[0]['input'])
             if isinstance(first_input, (list, tuple)):
                 n_args = len(first_input)
-        except Exception:
+        except (ValueError, SyntaxError):
             pass
 
     arg_names = {
@@ -218,25 +219,46 @@ def validate_and_truncate_response(text: str) -> str:
 async def voice_interview_websocket(
     websocket: WebSocket,
     session_id: str,
-    token: str = Query(..., description="Supabase access token for authentication"),
 ):
     """
     WebSocket endpoint for real-time voice interviews
     Handles: Audio streaming, Speech-to-Text, LLM interaction, Text-to-Speech
+
+    Auth: client sends {"type":"auth","token":"<jwt>"} as the first frame within 10s.
+    Token is NOT accepted as a URL query param (prevents exposure in server/proxy logs).
     """
-    # Verify JWT before accepting the connection
+    await websocket.accept()
+
+    # --- Auth via first frame (token never in URL / logs) ---
     from app.services.auth_service import verify_supabase_jwt
+    from app.services import db_service as _db_auth
     try:
-        jwt_payload = verify_supabase_jwt(token)
+        raw = await asyncio.wait_for(websocket.receive_text(), timeout=10.0)
+        auth_msg = json.loads(raw)
+        if auth_msg.get("type") != "auth" or not auth_msg.get("token"):
+            await websocket.close(code=4001, reason="Unauthorized: expected auth frame")
+            return
+        jwt_payload = verify_supabase_jwt(auth_msg["token"])
         ws_user_id: str = jwt_payload["sub"]
-    except ValueError as exc:
+    except asyncio.TimeoutError:
+        await websocket.close(code=4001, reason="Unauthorized: auth timeout")
+        return
+    except (ValueError, KeyError, json.JSONDecodeError) as exc:
         await websocket.close(code=4001, reason=f"Unauthorized: {exc}")
         return
 
+    # --- Verify session ownership ---
     try:
-        # Accept connection FIRST for faster perceived performance
-        await websocket.accept()
+        session_row = await _db_auth.get_session(session_id)
+        if not session_row or session_row.get("user_id") != ws_user_id:
+            await websocket.close(code=4003, reason="Forbidden: session not found or access denied")
+            return
+    except Exception as exc:
+        logger.error("Session ownership check failed: %s", exc)
+        await websocket.close(code=1011, reason="Internal error during auth")
+        return
 
+    try:
         # Initialize services
         bedrock_service = BedrockService()
         s3_service = S3Service()
@@ -611,9 +633,12 @@ async def voice_interview_websocket(
                     years = cv_analysis.get("years_of_experience", "")
                     summary = cv_analysis.get("summary", "")
                     skills_str = ", ".join(skills[:15]) if skills else "not listed"
-                    cv_context = f" Candidate CV: {years} yrs exp. Skills: {skills_str}. {summary}"
+                    def _safe(s: str) -> str:
+                    return re.sub(r'[\[\]\n\r]', ' ', str(s))[:300]
 
-                context_prefix = f"[CONTEXT: Interviewing {candidate_name} for {display_name}. Focus: {focus_areas}. Topics: {key_topics}. Difficulty: {difficulty}. Current phase: {current_phase}.{cv_context}]\n"
+                cv_context = f" Candidate CV: {_safe(years)} yrs exp. Skills: {_safe(skills_str)}. {_safe(summary)}"
+
+                context_prefix = f"[CONTEXT: Interviewing {_safe(candidate_name)} for {display_name}. Focus: {focus_areas}. Topics: {key_topics}. Difficulty: {difficulty}. Current phase: {current_phase}.{cv_context}]\n"
                 constraint_reminder = "[REMINDER: Respond with MAXIMUM 2-3 sentences. Ask EXACTLY ONE question. NO bullet points, NO lists, NO asterisks.]\n\n"
                 enhanced_input = context_prefix + constraint_reminder + transcript
 
