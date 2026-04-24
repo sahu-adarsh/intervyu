@@ -4,12 +4,16 @@ Executes candidate code submissions in a sandboxed environment
 Supports Python and JavaScript
 """
 
+import ast
 import json
+import logging
 import sys
 import io
 import time
 import traceback
 from typing import Dict, Any, List
+
+logger = logging.getLogger(__name__)
 
 def lambda_handler(event, context):
     """
@@ -79,10 +83,10 @@ def lambda_handler(event, context):
         return format_response(event, result, 200)
 
     except Exception as e:
+        logger.error("lambda_handler error: %s", traceback.format_exc())
         error_response = {
             'success': False,
-            'error': f'Execution error: {str(e)}',
-            'traceback': traceback.format_exc()
+            'error': 'Execution error — please try again',
         }
         return format_response(event, error_response, 500)
 
@@ -186,9 +190,9 @@ def execute_python(code: str, test_cases: List[Dict], function_name: str, timeou
             }
 
             try:
-                # Parse input (eval safely)
-                test_input = eval(test_case['input'], {"__builtins__": {}})
-                expected_output = eval(test_case['expected'], {"__builtins__": {}})
+                # Parse input — ast.literal_eval only accepts Python literals (safe)
+                test_input = ast.literal_eval(test_case['input'])
+                expected_output = ast.literal_eval(test_case['expected'])
 
                 # Call function with timeout
                 if isinstance(test_input, (list, tuple)):
@@ -264,18 +268,27 @@ def execute_javascript(code: str, test_cases: List[Dict], function_name: str, ti
             }
 
             try:
-                # Create JavaScript test runner
-                test_input = test_case.get('input', '')
-                expected_output = test_case.get('expected', '')
+                # Parse test values then re-serialize as JSON — safe against JS injection
+                try:
+                    test_input_val = ast.literal_eval(test_case.get('input', 'null'))
+                except (ValueError, SyntaxError):
+                    test_input_val = test_case.get('input', '')
+                try:
+                    expected_val = ast.literal_eval(test_case.get('expected', 'null'))
+                except (ValueError, SyntaxError):
+                    expected_val = test_case.get('expected', '')
 
-                # Build JavaScript test code
+                safe_input_json = json.dumps(test_input_val)
+                safe_expected_json = json.dumps(expected_val)
+
+                # Build JavaScript test code — no raw string interpolation of user data
                 js_test_code = f"""
 {code}
 
 // Test runner
 try {{
-    const input = {test_input};
-    const expected = {expected_output};
+    const input = {safe_input_json};
+    const expected = {safe_expected_json};
 
     let actual;
     if (Array.isArray(input)) {{

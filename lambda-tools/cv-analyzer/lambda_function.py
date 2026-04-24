@@ -18,19 +18,8 @@ s3_client = boto3.client('s3')
 
 
 def get_bedrock_client():
-    """Create Bedrock Runtime client using Textract account credentials."""
-    key_id = os.environ.get('TEXTRACT_AWS_ACCESS_KEY', '')
-    secret = os.environ.get('TEXTRACT_AWS_SECRET_ACCESS_KEY', '')
+    """Create Bedrock Runtime client using the Lambda execution IAM role."""
     region = os.environ.get('BEDROCK_AWS_REGION', 'us-east-1')
-
-    if key_id and secret:
-        return boto3.client(
-            'bedrock-runtime',
-            region_name=region,
-            aws_access_key_id=key_id,
-            aws_secret_access_key=secret
-        )
-    # Fallback: use Lambda execution role credentials
     return boto3.client('bedrock-runtime', region_name=region)
 
 
@@ -302,6 +291,8 @@ def format_response(event: Dict, body: Dict, status_code: int = 200) -> Dict:
 
 
 def download_cv_from_s3(bucket: str, key: str) -> str:
+    if not key.startswith("cvs/"):
+        raise ValueError(f"Rejected S3 key outside allowed prefix: {key!r}")
     response = s3_client.get_object(Bucket=bucket, Key=key)
     file_content = response['Body'].read()
     if key.lower().endswith('.pdf'):
