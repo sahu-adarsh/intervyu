@@ -17,7 +17,7 @@ if (typeof window !== 'undefined') {
 
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { getCVAnalysis, endInterview } from '@/lib/api';
+import { getCVAnalysis, endInterview, buildWsUrl, getWsAuthToken } from '@/lib/api';
 import { useSupabaseSession, getUserAvatarUrl } from '@/lib/supabase/auth';
 import { posthog } from '@/lib/posthog';
 import dynamic from 'next/dynamic';
@@ -152,10 +152,15 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
   });
 
   useEffect(() => {
-    const wsUrl = propWsUrl || `${process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000'}/ws/interview/${sessionId}`;
+    const wsUrl = propWsUrl || buildWsUrl(sessionId);
     wsRef.current = new WebSocket(wsUrl);
 
-    wsRef.current.onopen = () => {
+    wsRef.current.onopen = async () => {
+      // Send auth frame first — token never travels in the URL
+      const token = await getWsAuthToken();
+      if (token && wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'auth', token }));
+      }
       initializeInterview();
     };
 

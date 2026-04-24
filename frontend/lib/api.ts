@@ -228,11 +228,15 @@ export async function getMe() {
 
 // ─── WebSocket helper ─────────────────────────────────────────────────────────
 
-/** Build the authenticated WebSocket URL (token passed as query param). */
-export async function buildWsUrl(sessionId: string): Promise<string> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
+/** Build the WebSocket URL (no token in URL — auth sent as first frame). */
+export function buildWsUrl(sessionId: string): string {
   const wsBase = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
-  const url = `${wsBase}/ws/interview/${sessionId}`;
-  return token ? `${url}?token=${token}` : url;
+  return `${wsBase}/ws/interview/${sessionId}`;
+}
+
+/** Retrieve the current Supabase access token for the WS auth frame. */
+export async function getWsAuthToken(): Promise<string | null> {
+  if (_latestToken) return _latestToken;
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? null;
 }

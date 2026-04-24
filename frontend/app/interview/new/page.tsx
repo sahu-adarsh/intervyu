@@ -34,7 +34,7 @@ function InterviewSessionContent() {
     // If session was pre-created on the home page (with CV upload), use it directly
     if (existingSession) {
       setSessionId(existingSession);
-      buildWsUrl(existingSession).then(setWsUrl);
+      setWsUrl(buildWsUrl(existingSession));
       setLoading(false);
       return;
     }
@@ -47,7 +47,7 @@ function InterviewSessionContent() {
           candidate_name: candidateName,
         });
         setSessionId(data.session_id);
-        const url = await buildWsUrl(data.session_id);
+        const url = buildWsUrl(data.session_id);
         setWsUrl(url);
         setLoading(false);
       } catch (err) {
