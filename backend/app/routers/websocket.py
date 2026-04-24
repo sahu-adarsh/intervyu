@@ -634,7 +634,7 @@ async def voice_interview_websocket(
                     summary = cv_analysis.get("summary", "")
                     skills_str = ", ".join(skills[:15]) if skills else "not listed"
                     def _safe(s: str) -> str:
-                    return re.sub(r'[\[\]\n\r]', ' ', str(s))[:300]
+                        return re.sub(r'[\[\]\n\r]', ' ', str(s))[:300]
 
                 cv_context = f" Candidate CV: {_safe(years)} yrs exp. Skills: {_safe(skills_str)}. {_safe(summary)}"
 

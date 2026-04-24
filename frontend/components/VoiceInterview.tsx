@@ -258,7 +258,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
       wsRef.current?.close();
       if (timerRef.current) clearInterval(timerRef.current);
       if (wordRevealRef.current) clearInterval(wordRevealRef.current);
-      if (audioContextRef.current) audioContextRef.current.close();
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') audioContextRef.current.close();
       vad.pause();
     };
   }, [sessionId]);
@@ -304,7 +304,7 @@ export default function VoiceInterview({ sessionId, interviewType, candidateName
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     if (wordRevealRef.current) { clearInterval(wordRevealRef.current); wordRevealRef.current = null; }
     // Close AudioContext to release mic/speaker resources
-    audioContextRef.current?.close();
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') audioContextRef.current.close();
   };
 
   const stopAudioPlayback = () => {
