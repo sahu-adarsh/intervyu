@@ -16,23 +16,34 @@ interface PDFViewerProps {
 }
 
 type TextItems = Array<{ str: string }>;
+type HighlightRange = { start: number; end: number };
+type HighlightMap = Map<number, HighlightRange[]>;
 
-const EMPTY_SET = new Set<number>();
+const EMPTY_MAP: HighlightMap = new Map();
 
 const MARK_STYLE = 'background:rgba(251,191,36,0.55);border-radius:2px;color:transparent;';
 
+function addRange(map: HighlightMap, idx: number, range: HighlightRange) {
+  const existing = map.get(idx);
+  if (existing) existing.push(range);
+  else map.set(idx, [range]);
+}
+
 /**
- * Given all text items for a page and phrases to find, returns the set of item
- * indices that should be highlighted.
+ * Given all text items for a page and phrases to find, returns a map of item
+ * indices → character ranges to highlight within that item.
  *
  * Two-pass strategy:
  *  1. Join spans with spaces and do indexOf — handles the common case where PDF
- *     splits at word/token boundaries.
+ *     splits at word/token boundaries. Character-level ranges are computed so
+ *     only the exact matched portion within each span is highlighted (avoids
+ *     highlighting bullet "•" preceding a matched sentence, etc.).
  *  2. Sliding-window word coverage — catches phrases split mid-span (ligatures,
  *     font changes). Requires ≥65% of significant words (>2 chars) in window.
+ *     Only items that contain at least one phrase word are included.
  */
-function computeHighlightedItems(items: TextItems, phrases: string[]): Set<number> {
-  const highlighted = new Set<number>();
+function computeHighlightedItems(items: TextItems, phrases: string[]): HighlightMap {
+  const highlighted: HighlightMap = new Map();
   if (!phrases.length || !items.length) return highlighted;
 
   // Build char-position map for each item in the joined string
@@ -49,12 +60,17 @@ function computeHighlightedItems(items: TextItems, phrases: string[]): Set<numbe
     const norm = phrase.toLowerCase().replace(/\s+/g, ' ').trim();
     if (!norm) continue;
 
-    // Pass 1: exact substring (covers most PDFs where spans split at word boundaries)
+    // Pass 1: exact substring — compute character-level ranges within each item
     const matchStart = pageText.indexOf(norm);
     if (matchStart !== -1) {
       const matchEnd = matchStart + norm.length;
       for (const b of boundaries) {
-        if (b.start < matchEnd && b.end > matchStart) highlighted.add(b.idx);
+        if (b.start < matchEnd && b.end > matchStart) {
+          addRange(highlighted, b.idx, {
+            start: Math.max(0, matchStart - b.start),
+            end: Math.min(b.end - b.start, matchEnd - b.start),
+          });
+        }
       }
       continue;
     }
@@ -86,11 +102,48 @@ function computeHighlightedItems(items: TextItems, phrases: string[]): Set<numbe
     }
 
     if (bestScore >= 0.65 && bestStart !== -1) {
-      for (let i = bestStart; i < bestEnd; i++) highlighted.add(i);
+      for (let i = bestStart; i < bestEnd; i++) {
+        const itemText = items[i].str.toLowerCase();
+        // Skip items that don't contain any phrase word to avoid over-highlighting
+        if (words.some((w) => itemText.includes(w))) {
+          addRange(highlighted, i, { start: 0, end: items[i].str.length });
+        }
+      }
     }
   }
 
   return highlighted;
+}
+
+/**
+ * Applies character ranges to a string, wrapping each range in a <mark>.
+ * Overlapping ranges are merged before rendering.
+ */
+function applyHighlightRanges(str: string, ranges: HighlightRange[]): string {
+  const sorted = [...ranges].sort((a, b) => a.start - b.start);
+
+  // Merge overlapping/adjacent ranges
+  const merged: HighlightRange[] = [];
+  for (const r of sorted) {
+    if (merged.length && r.start <= merged[merged.length - 1].end) {
+      merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, r.end);
+    } else {
+      merged.push({ start: r.start, end: r.end });
+    }
+  }
+
+  let result = '';
+  let lastEnd = 0;
+  for (const r of merged) {
+    const start = Math.max(r.start, lastEnd);
+    const end = Math.min(r.end, str.length);
+    if (start > lastEnd) result += str.substring(lastEnd, start);
+    if (start < end)
+      result += `<mark style="${MARK_STYLE}">${str.substring(start, end)}</mark>`;
+    lastEnd = end;
+  }
+  result += str.substring(lastEnd);
+  return result;
 }
 
 export default function PDFViewer({
@@ -104,7 +157,7 @@ export default function PDFViewer({
   const [loadError, setLoadError] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [highlightedItemsByPage, setHighlightedItemsByPage] = useState<
-    Map<number, Set<number>>
+    Map<number, HighlightMap>
   >(new Map());
 
   // Scroll container — used for auto-scroll to first mark
@@ -123,7 +176,7 @@ export default function PDFViewer({
       setHighlightedItemsByPage(new Map());
       return;
     }
-    const next = new Map<number, Set<number>>();
+    const next = new Map<number, HighlightMap>();
     for (const [pageIdx, items] of pageTextsRef.current) {
       next.set(pageIdx, computeHighlightedItems(items, highlightTexts));
     }
@@ -243,8 +296,8 @@ export default function PDFViewer({
       >
         {Array.from({ length: numPages }, (_, i) => {
           const pageIndex = i;
-          const highlightedSet =
-            highlightedItemsByPage.get(pageIndex) ?? EMPTY_SET;
+          const highlightedMap =
+            highlightedItemsByPage.get(pageIndex) ?? EMPTY_MAP;
 
           return (
             <div
@@ -263,10 +316,10 @@ export default function PDFViewer({
                   str: string;
                   itemIndex: number;
                 }) => {
-                  if (!str.trim() || !highlightedSet.size) return str;
-                  return highlightedSet.has(itemIndex)
-                    ? `<mark style="${MARK_STYLE}">${str}</mark>`
-                    : str;
+                  if (!str.trim() || !highlightedMap.size) return str;
+                  const ranges = highlightedMap.get(itemIndex);
+                  if (!ranges?.length) return str;
+                  return applyHighlightRanges(str, ranges);
                 }}
                 renderTextLayer={true}
                 renderAnnotationLayer={false}
