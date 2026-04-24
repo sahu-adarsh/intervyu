@@ -142,9 +142,14 @@ def _llm_evaluation(
 
     # Format transcript
     lines = []
+    # Strip prompt-injection tokens from user content before embedding in the eval prompt
+    _inject_pattern = re.compile(r'\[(INSTRUCTION|SYSTEM|CONTEXT|REMINDER)[^\]]*\]', re.IGNORECASE)
+
     for msg in history:
         role = 'Interviewer' if msg.get('role') == 'assistant' else candidate_name
         content = (msg.get('content') or '').strip()
+        if msg.get('role') != 'assistant':
+            content = _inject_pattern.sub('', content).strip()
         if content:
             lines.append(f'{role}: {content}')
     transcript = '\n\n'.join(lines)

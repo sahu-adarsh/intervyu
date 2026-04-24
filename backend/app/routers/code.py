@@ -6,7 +6,7 @@ Handles code submission, execution, and tracking
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from app.limiter import limiter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 import logging
 from datetime import datetime
@@ -33,11 +33,11 @@ class TestCaseRequest(BaseModel):
 
 
 class CodeExecutionRequest(BaseModel):
-    sessionId: str
-    code: str
-    language: str
-    testCases: List[TestCaseRequest]
-    functionName: str = "solution"
+    sessionId: str = Field(..., max_length=200)
+    code: str = Field(..., max_length=50_000)
+    language: str = Field(..., max_length=20)
+    testCases: List[TestCaseRequest] = Field(..., max_length=50)
+    functionName: str = Field(default="solution", max_length=100)
 
 
 @router.post("/execute")
