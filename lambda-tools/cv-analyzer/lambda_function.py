@@ -1,6 +1,6 @@
 """
 CV Analyzer Lambda Function
-Uses Claude Sonnet 4.6 (via Bedrock) for accurate structured CV parsing.
+Uses Claude Haiku 4.5 (via Bedrock) for fast, cost-efficient CV parsing.
 Falls back to regex extraction if Bedrock is unavailable.
 """
 
@@ -19,8 +19,8 @@ s3_client = boto3.client('s3')
 
 def get_bedrock_client():
     """Create Bedrock Runtime client using Textract account credentials."""
-    key_id = os.environ.get('BEDROCK_AWS_ACCESS_KEY_ID', '')
-    secret = os.environ.get('BEDROCK_AWS_SECRET_ACCESS_KEY', '')
+    key_id = os.environ.get('TEXTRACT_AWS_ACCESS_KEY', '')
+    secret = os.environ.get('TEXTRACT_AWS_SECRET_ACCESS_KEY', '')
     region = os.environ.get('BEDROCK_AWS_REGION', 'us-east-1')
 
     if key_id and secret:
@@ -71,7 +71,7 @@ def lambda_handler(event, context):
 
 def analyze_cv_with_claude(cv_text: str) -> Dict[str, Any]:
     """
-    Parse CV text using Claude Sonnet 4.6 for accurate structured extraction.
+    Parse CV text using Claude Haiku 4.5 for fast structured extraction.
     Falls back to regex if Bedrock call fails.
     """
     prompt = f"""You are a CV/resume parser. Extract structured information from the following CV text and return ONLY a valid JSON object with no extra text or markdown.
@@ -116,7 +116,7 @@ Rules:
     try:
         bedrock = get_bedrock_client()
         response = bedrock.invoke_model(
-            modelId='us.anthropic.claude-sonnet-4-6',
+            modelId='us.anthropic.claude-haiku-4-5-20251001-v1:0',
             body=json.dumps({
                 'anthropic_version': 'bedrock-2023-05-31',
                 'max_tokens': 2000,
@@ -242,7 +242,7 @@ RESUME TEXT:
     try:
         bedrock = get_bedrock_client()
         response = bedrock.invoke_model(
-            modelId='us.anthropic.claude-sonnet-4-6',
+            modelId='us.anthropic.claude-haiku-4-5-20251001-v1:0',
             body=json.dumps({
                 'anthropic_version': 'bedrock-2023-05-31',
                 'max_tokens': 8192,
