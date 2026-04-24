@@ -56,19 +56,37 @@ function computeHighlightedItems(items: TextItems, phrases: string[]): Highlight
   }
   const pageText = items.map((x) => x.str).join(' ').toLowerCase();
 
+  // Build a whitespace-normalised view of pageText for indexOf matching.
+  // PDF items with different fonts (bold, italic) are separate text items; joining
+  // them with a single space creates double-spaces at font boundaries, causing
+  // indexOf to miss the phrase. Collapsing runs of spaces fixes that while the
+  // normToRaw mapping lets us translate match positions back to raw boundary coords.
+  let normPageText = '';
+  const normToRaw: number[] = [];
+  let prevSpace = false;
+  for (let ri = 0; ri < pageText.length; ri++) {
+    if (pageText[ri] === ' ') {
+      if (!prevSpace) { normPageText += ' '; normToRaw.push(ri); prevSpace = true; }
+    } else {
+      normPageText += pageText[ri]; normToRaw.push(ri); prevSpace = false;
+    }
+  }
+  normToRaw.push(pageText.length); // sentinel: normToRaw[normPageText.length]
+
   for (const phrase of phrases) {
     const norm = phrase.toLowerCase().replace(/\s+/g, ' ').trim();
     if (!norm) continue;
 
-    // Pass 1: exact substring — compute character-level ranges within each item
-    const matchStart = pageText.indexOf(norm);
-    if (matchStart !== -1) {
-      const matchEnd = matchStart + norm.length;
+    // Pass 1: exact substring in whitespace-normalised text — character-level ranges
+    const normMatchStart = normPageText.indexOf(norm);
+    if (normMatchStart !== -1) {
+      const rawMatchStart = normToRaw[normMatchStart];
+      const rawMatchEnd   = normToRaw[normMatchStart + norm.length];
       for (const b of boundaries) {
-        if (b.start < matchEnd && b.end > matchStart) {
+        if (b.start < rawMatchEnd && b.end > rawMatchStart) {
           addRange(highlighted, b.idx, {
-            start: Math.max(0, matchStart - b.start),
-            end: Math.min(b.end - b.start, matchEnd - b.start),
+            start: Math.max(0, rawMatchStart - b.start),
+            end: Math.min(b.end - b.start, rawMatchEnd - b.start),
           });
         }
       }
