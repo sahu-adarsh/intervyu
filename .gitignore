@@ -83,3 +83,6 @@ database/
 docs/ARCHITECTURE_GUIDE.md
 OPTIMIZATION_CHANGES.md
 .claudeFoloUp-main/
+
+# Local implementation plans (not for repo)
+CV_IMPROVEMENT_PLAN.md

@@ -645,6 +645,7 @@ export default function ResumePage() {
               analysis={activeResume.analysis}
               corrections={mergeCorrections(clientCorrections, activeResume.corrections?.checkers ?? [])}
               atsResults={atsResults}
+              jobTitle={activeResume.jobTitle}
               jobDescription={activeResume.jobDescription}
               localPdfFile={activeFile}
               aiPending={aiPending}

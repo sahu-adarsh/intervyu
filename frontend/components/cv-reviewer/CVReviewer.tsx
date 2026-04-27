@@ -6,6 +6,7 @@ import { getCVPresignedUrl } from '@/lib/api';
 import { CVAnalysis, CVCorrections, CheckerID, CheckerResult, ScoreResult, StructuredSuggestion } from './types';
 import AtsScorePanel from './AtsScorePanel';
 import CheckerSidebar from './CheckerSidebar';
+import JobMatchPanel from './JobMatchPanel';
 import { FileText, BarChart2, ZoomIn, ZoomOut } from 'lucide-react';
 
 const PDFViewer = dynamic(() => import('./PDFViewer'), { ssr: false });
@@ -15,6 +16,7 @@ interface CVReviewerProps {
   analysis: CVAnalysis;
   corrections: CVCorrections | null;
   atsResults: ScoreResult[];
+  jobTitle?: string;
   jobDescription?: string;
   localPdfFile?: File | null;
   aiPending?: boolean;
@@ -27,6 +29,7 @@ export default function CVReviewer({
   analysis,
   corrections,
   atsResults,
+  jobTitle,
   jobDescription,
   localPdfFile,
   aiPending = false,
@@ -170,6 +173,11 @@ export default function CVReviewer({
               onDeselect={handleCheckerDeselect}
               onItemHighlight={handleItemHighlight}
               aiPending={aiPending}
+            />
+            <JobMatchPanel
+              sessionId={sessionId}
+              jobTitle={jobTitle}
+              jobDescription={jobDescription}
             />
           </div>
         </div>

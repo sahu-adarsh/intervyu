@@ -86,6 +86,16 @@ class LambdaService:
 
         return self._invoke_lambda(LAMBDA_CV_ANALYZER, payload)
 
+    def invoke_cv_jd_gap(self, cv_text: str, job_title: str, job_description: str) -> Dict[str, Any]:
+        """Invoke CV Analyzer Lambda in jd_gap mode. Returns structured gap report."""
+        payload = {
+            "cvText": cv_text,
+            "mode": "jd_gap",
+            "jobTitle": job_title,
+            "jobDescription": job_description,
+        }
+        return self._invoke_lambda(LAMBDA_CV_ANALYZER, payload)
+
     def invoke_cv_corrections(self, cv_text: str) -> Dict[str, Any]:
         """
         Invoke CV Analyzer Lambda in corrections mode (Sonnet).
