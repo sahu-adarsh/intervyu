@@ -152,6 +152,11 @@ Browser (Next.js 15)
 - Supabase project
 - Deepgram API key, Azure Speech key
 
+### Database
+1. Create a [Supabase](https://supabase.com) project
+2. In the Supabase SQL Editor, run `database/supabase_schema.sql` to create all tables and RLS policies
+3. Copy the project URL, anon key, service role key, JWT secret, and connection string; you'll need them in the backend `.env`
+
 ### Backend
 ```bash
 cd backend
