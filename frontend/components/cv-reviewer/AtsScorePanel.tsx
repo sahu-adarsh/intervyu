@@ -182,6 +182,10 @@ const PLATFORM_WEIGHTS: Record<string, Record<DimKey, number>> = {
   Lever:          { formatting: 0.08, keywords: 0.22, sections: 0.10, experience: 0.30, education: 0.10 },
 };
 
+const PASSING_SCORES: Record<string, number> = {
+  Workday: 70, Taleo: 65, SuccessFactors: 65, iCIMS: 60, Greenhouse: 55, Lever: 50,
+};
+
 const DIM_KEY_MAP: Record<string, DimKey> = {
   Formatting: 'formatting', Keywords: 'keywords', Sections: 'sections',
   Experience: 'experience', Education: 'education',
@@ -516,7 +520,8 @@ export default function AtsScorePanel({
         if (!w) return r;
         const delta = (jdKeywordScore - r.breakdown.keywordMatch.score) * w.keywords;
         const newScore = Math.max(0, Math.min(100, Math.round(r.overallScore + delta)));
-        return { ...r, overallScore: newScore };
+        const passingScore = PASSING_SCORES[r.system] ?? 70;
+        return { ...r, overallScore: newScore, passesFilter: newScore >= passingScore };
       })
     : atsResults;
 

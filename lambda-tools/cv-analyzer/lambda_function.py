@@ -71,7 +71,8 @@ def analyze_cv_with_claude(cv_text: str) -> Dict[str, Any]:
     Parse CV text using Claude Haiku 4.5 for fast structured extraction.
     Falls back to regex if Bedrock call fails.
     """
-    prompt = f"""You are a CV/resume parser. Extract structured information from the following CV text and return ONLY a valid JSON object with no extra text or markdown.
+    today = datetime.now().strftime('%B %Y')
+    prompt = f"""You are a CV/resume parser. Today's date is {today}. Extract structured information from the following CV text and return ONLY a valid JSON object with no extra text or markdown.
 
 CV TEXT:
 {cv_text[:8000]}
@@ -106,7 +107,7 @@ Return this exact JSON structure:
 
 Rules:
 - Extract ALL technical skills mentioned anywhere in the CV
-- For totalYearsExperience: sum up actual working years (exclude education, internships under 6 months)
+- For totalYearsExperience: sum ONLY paid work experience months from the Experience/Work History section (never count education/college/university years). Return as a decimal rounded to 1 place (e.g. 1.9 for 1 yr 11 mos). Never return 0 for a candidate with any work history.
 - If a field is not found, use null for strings and [] for arrays
 - Return ONLY the JSON, no markdown, no explanation"""
 
@@ -132,6 +133,11 @@ Rules:
 
         analysis = json.loads(text)
         analysis['success'] = True
+        # Always recompute from actual dates — Claude's date arithmetic is unreliable
+        exp_section = extract_section(cv_text, ['experience', 'work history', 'employment'])
+        computed = calculate_years_experience(exp_section or cv_text)
+        if computed > 0:
+            analysis['totalYearsExperience'] = computed
         return analysis
 
     except Exception as e:
@@ -501,17 +507,49 @@ def extract_section(text: str, keywords: List[str]) -> str:
     return ""
 
 
+_MONTH_MAP = {
+    'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+    'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+}
+_MONTH_NAMES = r'Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?'
+
+
 def calculate_years_experience(text: str) -> float:
-    current_year = datetime.now().year
-    total = 0
-    for match in re.finditer(r'(\d{4})\s*[-–]\s*(\d{4}|Present|Current)', text, re.IGNORECASE):
-        start = int(match.group(1))
-        end_str = match.group(2).lower()
-        end = current_year if end_str in ('present', 'current') else int(end_str)
-        years = end - start
-        if 0 < years < 50:
-            total += years
-    return round(total, 1)
+    now = datetime.now()
+    cur_year, cur_month = now.year, now.month
+    total_months = 0
+
+    # "Month YYYY – Present/Current" or "Month YYYY – Month YYYY"
+    pat = re.compile(
+        rf'({_MONTH_NAMES})\s+(\d{{4}})\s*[-–]\s*'
+        rf'(Present|Current|(?:{_MONTH_NAMES})\s+(\d{{4}}))',
+        re.IGNORECASE,
+    )
+    for m in pat.finditer(text):
+        s_mon = _MONTH_MAP.get(m.group(1)[:3].lower(), 1)
+        s_yr = int(m.group(2))
+        end_raw = m.group(3)
+        if end_raw.lower() in ('present', 'current'):
+            e_yr, e_mon = cur_year, cur_month
+        else:
+            # "Month YYYY" captured in group 3 with year in group 4
+            e_yr = int(m.group(4))
+            e_mon = _MONTH_MAP.get(end_raw[:3].lower(), 1)
+        months = (e_yr - s_yr) * 12 + (e_mon - s_mon)
+        if 0 < months < 600:
+            total_months += months
+
+    # Fallback: plain "YYYY – YYYY" or "YYYY – Present"
+    if total_months == 0:
+        for m in re.finditer(r'(\d{4})\s*[-–]\s*(\d{4}|Present|Current)', text, re.IGNORECASE):
+            s_yr = int(m.group(1))
+            end_raw = m.group(2).lower()
+            e_yr = cur_year if end_raw in ('present', 'current') else int(end_raw)
+            months = (e_yr - s_yr) * 12
+            if 0 < months < 600:
+                total_months += months
+
+    return round(total_months / 12, 1)
 
 
 def generate_summary(text: str) -> str:
