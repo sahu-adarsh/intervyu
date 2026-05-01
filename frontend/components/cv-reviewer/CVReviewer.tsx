@@ -43,7 +43,10 @@ export default function CVReviewer({
   const [highlightTexts, setHighlightTexts] = useState<string[]>([]);
   const [pdfScale, setPdfScale] = useState(1);
   const [mobileTab, setMobileTab] = useState<'cv' | 'analysis'>('analysis');
-  const [jdSkills, setJdSkills] = useState<JdGapSkillItem[] | null>(null);
+  // undefined = no JD (show keyword chips), null = JD loading, [] = loaded
+  const [jdSkills, setJdSkills] = useState<JdGapSkillItem[] | null | undefined>(
+    jobDescription ? null : undefined
+  );
 
   const handleReportLoaded = useCallback((report: JdGapReport) => {
     setJdSkills([...report.required_skills, ...report.preferred_skills]);
@@ -55,7 +58,7 @@ export default function CVReviewer({
     setHighlightTexts([]);
     setPdfUrl(null);
     setMimeType(undefined);
-    setJdSkills(null);
+    setJdSkills(jobDescription ? null : undefined);
 
     if (localPdfFile) {
       const url = URL.createObjectURL(localPdfFile);

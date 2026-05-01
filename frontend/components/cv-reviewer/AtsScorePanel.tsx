@@ -620,7 +620,7 @@ export default function AtsScorePanel({
         </div>
 
         {/* Keywords chips — only shown when no jd_gap data; Job Match panel covers this semantically */}
-        {hasKeywords && !jdSkills && (
+        {hasKeywords && jdSkills === undefined && (
           <>
             <Divider />
             <div className="px-4 py-3.5">
