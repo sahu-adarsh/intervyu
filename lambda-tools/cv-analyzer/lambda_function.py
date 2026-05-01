@@ -47,7 +47,8 @@ def lambda_handler(event, context):
             cv_text = download_cv_from_s3(s3_bucket, s3_key)
 
         if mode == 'corrections':
-            corrections = generate_corrections_with_claude(cv_text)
+            job_description = params.get('jobDescription', '')
+            corrections = generate_corrections_with_claude(cv_text, job_description)
             return format_response(event, corrections, 200)
 
         if mode == 'jd_gap':
@@ -145,14 +146,22 @@ Rules:
         return analyze_cv_regex_fallback(cv_text)
 
 
-def generate_corrections_with_claude(cv_text: str) -> Dict[str, Any]:
+def generate_corrections_with_claude(cv_text: str, job_description: str = '') -> Dict[str, Any]:
     """
     Second Claude call: analyze CV for 9 types of corrections.
     Uses Haiku (faster, cheaper) — corrections are pattern-matching tasks
     that don't require Sonnet-level reasoning.
     Each correction item includes the exact verbatim text for PDF highlighting.
+    When job_description is provided, weak_verb/quantification/bullet_improver rewrites
+    incorporate JD terminology.
     Returns empty checkers list on any failure so upload is never blocked.
     """
+    jd_section = (
+        "- The target job description is provided below - naturally mirror its"
+        " terminology in rewrites where relevant\n\nTARGET JOB DESCRIPTION:\n"
+        + job_description[:2000]
+    ) if job_description else ""
+
     prompt = f"""You are a professional resume reviewer. Analyze the following resume and identify issues across exactly 9 dimensions.
 
 CRITICAL RULES:
@@ -167,7 +176,7 @@ Return this exact JSON structure:
       "id": "quantification",
       "label": "Quantification Checker",
       "description": "Bullet points that lack measurable metrics, numbers, or percentages",
-      "needsFix": [{{"text": "<exact verbatim bullet>", "issue": "Missing quantifiable metric", "suggestion": "Add a specific number, percentage, or scale"}}],
+      "needsFix": [{{"text": "<exact verbatim bullet>", "issue": "Missing quantifiable metric", "suggestion": "Add a specific number, percentage, or scale", "rewrite": "<improved bullet — use [X%] or [N] placeholders if metric is unknown>"}}],
       "good": [{{"text": "<exact verbatim bullet>", "issue": ""}}],
       "score": <0-100 based on % of bullets that have metrics>
     }},
@@ -183,7 +192,7 @@ Return this exact JSON structure:
       "id": "bullet_improver",
       "label": "Bullet Points Improver",
       "description": "Weak or generic bullet points that lack impact or specificity",
-      "needsFix": [{{"text": "<exact verbatim bullet>", "issue": "Generic description", "suggestion": "<specific improved version>"}}],
+      "needsFix": [{{"text": "<exact verbatim bullet>", "issue": "Generic description", "suggestion": "<specific improved version>", "rewrite": "<rewritten bullet — strong verb, specific outcome, [X%] placeholders for unknown metrics>"}}],
       "good": [{{"text": "<exact verbatim bullet>", "issue": ""}}],
       "score": <0-100>
     }},
@@ -199,7 +208,7 @@ Return this exact JSON structure:
       "id": "weak_verb",
       "label": "Weak Verb Checker",
       "description": "Bullets starting with weak verbs like 'Worked on', 'Helped', 'Assisted', 'Supported', 'Participated in'",
-      "needsFix": [{{"text": "<exact verbatim bullet>", "issue": "Weak opening verb: 'Helped'", "suggestion": "Replace with strong verb like 'Led', 'Built', 'Delivered'"}}],
+      "needsFix": [{{"text": "<exact verbatim bullet>", "issue": "Weak opening verb: 'Helped'", "suggestion": "Replace with strong verb like 'Led', 'Built', 'Delivered'", "rewrite": "<rewritten bullet opening with a strong action verb>"}}],
       "good": [{{"text": "<exact verbatim bullet>", "issue": ""}}],
       "score": <0-100>
     }},
@@ -239,6 +248,11 @@ Return this exact JSON structure:
   "generatedAt": "{datetime.utcnow().isoformat()}Z"
 }}
 
+REWRITE RULES (for weak_verb, quantification, bullet_improver needsFix items):
+- Always include a 'rewrite' field with an improved bullet
+- Never fabricate specific metrics — use [X%], [N], or [timeframe] as placeholders
+- Keep the rewrite roughly the same length as the original
+{jd_section}
 RESUME TEXT:
 {cv_text[:8000]}"""
 

@@ -214,11 +214,14 @@ async def end_interview(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def _generate_corrections_background(session_id: str, cv_text: str) -> None:
-    """Generate Sonnet CV corrections in background and persist to DB."""
+async def _generate_corrections_background(session_id: str, cv_text: str, job_description: str = '') -> None:
+    """Generate CV corrections in background and persist to DB.
+    When job_description is provided, rewrites for weak_verb/quantification/bullet_improver
+    are aligned to JD terminology.
+    """
     try:
         corrections = await asyncio.to_thread(
-            lambda: lambda_service.invoke_cv_corrections(cv_text=cv_text)
+            lambda: lambda_service.invoke_cv_corrections(cv_text=cv_text, job_description=job_description)
         )
         await db_service.update_cv_corrections(session_id, corrections)
         logger.info(f"CV corrections saved for session {session_id}")
@@ -682,7 +685,7 @@ async def save_cv_metadata(
             missing_keywords=body.get("missing_keywords"),
         )
 
-        # Fire gap analysis in background when JD is provided and CV exists
+        # Fire gap analysis + JD-aligned corrections in background when JD is provided and CV exists
         job_title = body.get("job_title", "").strip()
         job_description = body.get("job_description", "").strip()
         if job_title and job_description:
@@ -691,6 +694,10 @@ async def save_cv_metadata(
             if raw_text:
                 asyncio.create_task(
                     _generate_jd_gap_background(session_id, raw_text, job_title, job_description)
+                )
+                # Re-run corrections so rewrites incorporate JD terminology
+                asyncio.create_task(
+                    _generate_corrections_background(session_id, raw_text, job_description)
                 )
 
         return JSONResponse(content={"success": True})

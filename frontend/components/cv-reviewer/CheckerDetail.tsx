@@ -2,12 +2,32 @@
 
 import { useState } from 'react';
 import { CheckerResult, CorrectionItem } from './types';
-import { ChevronDown, ChevronRight, ArrowLeft, Lightbulb, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ChevronRight, ArrowLeft, Lightbulb, CheckCircle2, AlertCircle, Copy, Check } from 'lucide-react';
 
 interface CheckerDetailProps {
   checker: CheckerResult;
   onBack: () => void;
   onHighlight?: (text: string) => void;
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <button
+      onClick={handleCopy}
+      className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors bg-emerald-900/40 hover:bg-emerald-800/60 border border-emerald-700/40 text-emerald-400"
+    >
+      {copied ? <Check size={10} /> : <Copy size={10} />}
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  );
 }
 
 function CorrectionCard({ item, variant, onHighlight }: {
@@ -50,6 +70,17 @@ function CorrectionCard({ item, variant, onHighlight }: {
             <div className="flex items-start gap-1.5 rounded-lg bg-violet-950/30 border border-violet-800/30 px-2.5 py-2">
               <Lightbulb size={11} className="text-violet-400 mt-0.5 shrink-0" />
               <p className="text-xs text-violet-300 leading-relaxed">{item.suggestion}</p>
+            </div>
+          )}
+          {item.rewrite && (
+            <div className="rounded-lg bg-emerald-950/30 border border-emerald-800/40 px-2.5 py-2">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wide">
+                  Suggested rewrite
+                </span>
+                <CopyButton text={item.rewrite} />
+              </div>
+              <p className="text-xs text-emerald-200/90 leading-relaxed">{item.rewrite}</p>
             </div>
           )}
         </div>
