@@ -13,6 +13,7 @@ export interface CorrectionItem {
   text: string;
   issue: string;
   suggestion?: string;
+  rewrite?: string;
 }
 
 export interface CheckerResult {

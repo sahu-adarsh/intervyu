@@ -36,6 +36,11 @@ class CvSuggestionsRequest(BaseModel):
     job_description: Optional[str] = None
 
 
+class JdGapRequest(BaseModel):
+    job_title: str
+    job_description: str
+
+
 def _build_suggestions_prompt(raw_text: str, job_description: Optional[str], avg_score: int) -> str:
     jd_section = (
         f"\n<JOB_DESCRIPTION>\n{job_description[:3000]}\n</JOB_DESCRIPTION>\n\nMODE: targeted — match against this JD. Extract required and preferred skills. Suggestions must address actual gaps between the resume and JD requirements.\n"
@@ -209,11 +214,14 @@ async def end_interview(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def _generate_corrections_background(session_id: str, cv_text: str) -> None:
-    """Generate Sonnet CV corrections in background and persist to DB."""
+async def _generate_corrections_background(session_id: str, cv_text: str, job_description: str = '') -> None:
+    """Generate CV corrections in background and persist to DB.
+    When job_description is provided, rewrites for weak_verb/quantification/bullet_improver
+    are aligned to JD terminology.
+    """
     try:
         corrections = await asyncio.to_thread(
-            lambda: lambda_service.invoke_cv_corrections(cv_text=cv_text)
+            lambda: lambda_service.invoke_cv_corrections(cv_text=cv_text, job_description=job_description)
         )
         await db_service.update_cv_corrections(session_id, corrections)
         logger.info(f"CV corrections saved for session {session_id}")
@@ -535,6 +543,96 @@ async def get_cv_ai_suggestions(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def _generate_jd_gap_background(session_id: str, cv_text: str, job_title: str, job_description: str) -> None:
+    """Run JD gap analysis in background and persist result to DB."""
+    try:
+        gap_report = await asyncio.to_thread(
+            lambda: lambda_service.invoke_cv_jd_gap(
+                cv_text=cv_text,
+                job_title=job_title,
+                job_description=job_description,
+            )
+        )
+        await db_service.update_cv_jd_gap(session_id, gap_report)
+        logger.info(f"JD gap report saved for session {session_id}")
+    except Exception as e:
+        logger.error(f"Background JD gap analysis failed for {session_id}: {e}")
+
+
+@router.post("/{session_id}/jd-gap")
+async def trigger_jd_gap(
+    session_id: str,
+    body: JdGapRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Trigger JD gap analysis for a session. Requires an uploaded CV."""
+    try:
+        await _verify_session_owner(session_id, current_user.user_id)
+
+        cv_data = await db_service.get_cv_analysis(session_id)
+        if not cv_data:
+            raise HTTPException(status_code=404, detail="No CV found for this session — upload a CV first")
+
+        raw_text = cv_data.get("raw_text", "").strip()
+        if not raw_text:
+            raise HTTPException(status_code=400, detail="CV text not available — re-upload the CV")
+
+        # Run synchronously so we return the result immediately (caller is waiting for it)
+        loop = asyncio.get_event_loop()
+        gap_report = await loop.run_in_executor(
+            None,
+            lambda: lambda_service.invoke_cv_jd_gap(
+                cv_text=raw_text,
+                job_title=body.job_title,
+                job_description=body.job_description,
+            )
+        )
+
+        # Persist so the GET endpoint can serve it without re-running
+        asyncio.create_task(db_service.update_cv_jd_gap(session_id, gap_report))
+
+        return JSONResponse(content={"success": True, "gap_report": gap_report})
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"JD gap trigger error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{session_id}/jd-gap")
+async def get_jd_gap(
+    session_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Return cached JD gap report. Returns 404 if analysis hasn't been run yet."""
+    try:
+        await _verify_session_owner(session_id, current_user.user_id)
+
+        cv_data = await db_service.get_cv_analysis(session_id)
+        if not cv_data:
+            raise HTTPException(status_code=404, detail="No CV analysis found")
+
+        structured = cv_data.get("structured_data", {})
+        gap_report = structured.get("jd_gap_report")
+        generated_at = structured.get("jd_gap_generated_at")
+
+        if not gap_report:
+            raise HTTPException(status_code=404, detail="No JD gap report found — call POST /jd-gap first")
+
+        return JSONResponse(content={
+            "success": True,
+            "gap_report": gap_report,
+            "generated_at": generated_at,
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"JD gap get error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/{session_id}/cv")
 async def delete_cv(
     session_id: str,
@@ -572,7 +670,10 @@ async def save_cv_metadata(
     body: dict = Body(...),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Persist job metadata (title, description, ATS score, keywords) for a CV analysis."""
+    """Persist job metadata (title, description, ATS score, keywords) for a CV analysis.
+    When both job_title and job_description are present, also fires JD gap analysis
+    as a background task so the gap report is ready before the user navigates to it.
+    """
     try:
         await _verify_session_owner(session_id, current_user.user_id)
         await db_service.update_cv_job_metadata(
@@ -583,6 +684,22 @@ async def save_cv_metadata(
             matched_keywords=body.get("matched_keywords"),
             missing_keywords=body.get("missing_keywords"),
         )
+
+        # Fire gap analysis + JD-aligned corrections in background when JD is provided and CV exists
+        job_title = body.get("job_title", "").strip()
+        job_description = body.get("job_description", "").strip()
+        if job_title and job_description:
+            cv_data = await db_service.get_cv_analysis(session_id)
+            raw_text = (cv_data or {}).get("raw_text", "").strip()
+            if raw_text:
+                asyncio.create_task(
+                    _generate_jd_gap_background(session_id, raw_text, job_title, job_description)
+                )
+                # Re-run corrections so rewrites incorporate JD terminology
+                asyncio.create_task(
+                    _generate_corrections_background(session_id, raw_text, job_description)
+                )
+
         return JSONResponse(content={"success": True})
     except HTTPException:
         raise

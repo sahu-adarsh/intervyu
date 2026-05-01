@@ -493,6 +493,25 @@ async def update_cv_corrections(session_id: str, corrections: dict) -> None:
         )
 
 
+async def update_cv_jd_gap(session_id: str, gap_report: dict) -> None:
+    """Merge jd_gap_report into structured_data without overwriting corrections or suggestions."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE cv_analysis
+            SET structured_data = COALESCE(structured_data, '{}'::jsonb) || $2::jsonb,
+                updated_at = NOW()
+            WHERE session_id = $1::uuid
+            """,
+            session_id,
+            json.dumps({
+                "jd_gap_report": gap_report,
+                "jd_gap_generated_at": datetime.now(timezone.utc).isoformat(),
+            }),
+        )
+
+
 async def update_cv_ai_suggestions(session_id: str, ai_suggestions: list) -> None:
     """Merge ai_suggestions into structured_data without overwriting corrections.
     Uses JSONB || operator to merge at the top level."""

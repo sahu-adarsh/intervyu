@@ -9,6 +9,7 @@ import {
 import type { ScoreResult, Suggestion, StructuredSuggestion } from './types';
 import type { CVAnalysis } from './types';
 import { getCvAiSuggestions } from '@/lib/api';
+import type { JdGapSkillItem } from '@/lib/api';
 
 // ─── Props ─────────────────────────────────────────────────────────────────────
 
@@ -17,6 +18,7 @@ interface AtsScorePanelProps {
   analysis: CVAnalysis;
   sessionId?: string;
   jobDescription?: string;
+  jdSkills?: JdGapSkillItem[] | null;
   // Page-level cache: keyed by sessionId so suggestions survive re-opens
   suggestionsCache?: Map<string, StructuredSuggestion[]>;
   onSuggestionsCached?: (sessionId: string, items: StructuredSuggestion[]) => void;
@@ -178,6 +180,10 @@ const PLATFORM_WEIGHTS: Record<string, Record<DimKey, number>> = {
   iCIMS:          { formatting: 0.15, keywords: 0.30, sections: 0.15, experience: 0.25, education: 0.15 },
   Greenhouse:     { formatting: 0.10, keywords: 0.25, sections: 0.10, experience: 0.25, education: 0.10 },
   Lever:          { formatting: 0.08, keywords: 0.22, sections: 0.10, experience: 0.30, education: 0.10 },
+};
+
+const PASSING_SCORES: Record<string, number> = {
+  Workday: 70, Taleo: 65, SuccessFactors: 65, iCIMS: 60, Greenhouse: 55, Lever: 50,
 };
 
 const DIM_KEY_MAP: Record<string, DimKey> = {
@@ -434,7 +440,7 @@ function Divider() {
 // ─── Root component ────────────────────────────────────────────────────────────
 
 export default function AtsScorePanel({
-  atsResults, analysis, sessionId, jobDescription,
+  atsResults, analysis, sessionId, jobDescription, jdSkills,
   suggestionsCache, onSuggestionsCached,
 }: AtsScorePanelProps) {
   const initBest =
@@ -497,16 +503,40 @@ export default function AtsScorePanel({
     );
   }
 
-  const active = atsResults.find((r) => r.system === selected) ?? atsResults[0];
-  const p = getPlatform(active.system);
-  const { breakdown } = active;
+  // When jd_gap data is available, recompute all platform scores using the semantic keyword score.
+  // The raw tokenizer keyword score is replaced with the jd_gap-derived score; the delta is
+  // propagated through each platform's keyword weight to adjust the overall score.
+  const jdKeywordScore = jdSkills
+    ? Math.round(Math.min(100,
+        (jdSkills.filter((s) => s.status === 'present').length +
+         jdSkills.filter((s) => s.status === 'partial').length * 0.8) /
+        Math.max(1, jdSkills.length) * 100
+      ))
+    : null;
 
-  const passCount = atsResults.filter((r) => r.passesFilter).length;
-  const avg = Math.round(atsResults.reduce((s, r) => s + r.overallScore, 0) / atsResults.length);
+  const displayResults = jdKeywordScore != null
+    ? atsResults.map((r) => {
+        const w = PLATFORM_WEIGHTS[r.system];
+        if (!w) return r;
+        const delta = (jdKeywordScore - r.breakdown.keywordMatch.score) * w.keywords;
+        const newScore = Math.max(0, Math.min(100, Math.round(r.overallScore + delta)));
+        const passingScore = PASSING_SCORES[r.system] ?? 70;
+        return { ...r, overallScore: newScore, passesFilter: newScore >= passingScore };
+      })
+    : atsResults;
+
+  const active = displayResults.find((r) => r.system === selected) ?? displayResults[0];
+  // Keep original breakdown for non-keyword dimensions; override keyword score with jd_gap value
+  const activeBreakdown = jdKeywordScore != null
+    ? { ...active.breakdown, keywordMatch: { ...active.breakdown.keywordMatch, score: jdKeywordScore } }
+    : active.breakdown;
+  const p = getPlatform(active.system);
+
+  const passCount = displayResults.filter((r) => r.passesFilter).length;
+  const avg = Math.round(displayResults.reduce((s, r) => s + r.overallScore, 0) / displayResults.length);
 
   // Normalise suggestions and sort by priority: critical → high → medium → low
   const PRIORITY: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-  // Deterministic fallback suggestions (per active platform)
   const deterministicSuggestions: StructuredSuggestion[] = (active.suggestions ?? [])
     .slice(0, 6)
     .map((s): StructuredSuggestion =>
@@ -521,9 +551,9 @@ export default function AtsScorePanel({
     : deterministicSuggestions;
 
   const hasKeywords =
-    breakdown.keywordMatch.matched.length > 0 ||
-    breakdown.keywordMatch.missing.length > 0 ||
-    breakdown.keywordMatch.synonymMatched.length > 0;
+    activeBreakdown.keywordMatch.matched.length > 0 ||
+    activeBreakdown.keywordMatch.missing.length > 0 ||
+    activeBreakdown.keywordMatch.synonymMatched.length > 0;
 
   return (
     <div className="space-y-3">
@@ -534,14 +564,14 @@ export default function AtsScorePanel({
           <p className="text-xs font-bold text-slate-100 tracking-tight">ATS Compatibility</p>
           <p
             className={`text-[10px] mt-0.5 font-medium ${
-              passCount === atsResults.length
+              passCount === displayResults.length
                 ? 'text-emerald-400'
                 : passCount >= 4
                 ? 'text-amber-400'
                 : 'text-rose-400'
             }`}
           >
-            {passCount}/{atsResults.length} platforms pass
+            {passCount}/{displayResults.length} platforms pass
           </p>
         </div>
         <div className="text-right">
@@ -552,7 +582,7 @@ export default function AtsScorePanel({
 
       {/* ── Platform tabs ───────────────────────────────────────────────── */}
       <div className="flex gap-1.5">
-        {atsResults.map((r) => (
+        {displayResults.map((r) => (
           <PlatformTab
             key={r.system}
             result={r}
@@ -580,38 +610,38 @@ export default function AtsScorePanel({
             <p className="text-sm font-bold text-white leading-none">{active.system}</p>
             <p className="text-[10px] text-slate-600 mt-0.5 mb-4">{active.vendor}</p>
             <div className="space-y-[9px]">
-              <DimensionRow label="Formatting"  score={breakdown.formatting.score}  resetKey={active.system} system={active.system} />
-              <DimensionRow label="Keywords"    score={breakdown.keywordMatch.score} resetKey={active.system} system={active.system} />
-              <DimensionRow label="Sections"    score={breakdown.sections.score}     resetKey={active.system} system={active.system} />
-              <DimensionRow label="Experience"  score={breakdown.experience.score}   resetKey={active.system} system={active.system} />
-              <DimensionRow label="Education"   score={breakdown.education.score}    resetKey={active.system} system={active.system} />
+              <DimensionRow label="Formatting"  score={activeBreakdown.formatting.score}        resetKey={active.system} system={active.system} />
+              <DimensionRow label="Keywords"    score={activeBreakdown.keywordMatch.score}      resetKey={active.system} system={active.system} />
+              <DimensionRow label="Sections"    score={activeBreakdown.sections.score}          resetKey={active.system} system={active.system} />
+              <DimensionRow label="Experience"  score={activeBreakdown.experience.score}        resetKey={active.system} system={active.system} />
+              <DimensionRow label="Education"   score={activeBreakdown.education.score}         resetKey={active.system} system={active.system} />
             </div>
           </div>
         </div>
 
-        {/* Keywords */}
-        {hasKeywords && (
+        {/* Keywords chips — only shown when no jd_gap data; Job Match panel covers this semantically */}
+        {hasKeywords && jdSkills === undefined && (
           <>
             <Divider />
             <div className="px-4 py-3.5">
               <SectionLabel icon={Target} label="Keywords" />
               <KeywordChips
-                matched={breakdown.keywordMatch.matched}
-                missing={breakdown.keywordMatch.missing}
-                synonymMatched={breakdown.keywordMatch.synonymMatched}
+                matched={activeBreakdown.keywordMatch.matched}
+                missing={activeBreakdown.keywordMatch.missing}
+                synonymMatched={activeBreakdown.keywordMatch.synonymMatched}
               />
             </div>
           </>
         )}
 
         {/* Formatting issues */}
-        {breakdown.formatting.issues.length > 0 && (
+        {activeBreakdown.formatting.issues.length > 0 && (
           <>
             <Divider />
             <div className="px-4 py-3.5">
               <SectionLabel icon={AlertCircle} label="Formatting Issues" />
               <div className="space-y-1.5">
-                {breakdown.formatting.issues.map((iss, i) => (
+                {activeBreakdown.formatting.issues.map((iss, i) => (
                   <p key={i} className="text-[10px] text-amber-400/80 flex items-start gap-2">
                     <span className="text-amber-600 flex-shrink-0 mt-0.5">›</span>
                     {iss}

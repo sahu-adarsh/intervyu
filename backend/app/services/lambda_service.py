@@ -86,12 +86,25 @@ class LambdaService:
 
         return self._invoke_lambda(LAMBDA_CV_ANALYZER, payload)
 
-    def invoke_cv_corrections(self, cv_text: str) -> Dict[str, Any]:
+    def invoke_cv_jd_gap(self, cv_text: str, job_title: str, job_description: str) -> Dict[str, Any]:
+        """Invoke CV Analyzer Lambda in jd_gap mode. Returns structured gap report."""
+        payload = {
+            "cvText": cv_text,
+            "mode": "jd_gap",
+            "jobTitle": job_title,
+            "jobDescription": job_description,
+        }
+        return self._invoke_lambda(LAMBDA_CV_ANALYZER, payload)
+
+    def invoke_cv_corrections(self, cv_text: str, job_description: str = '') -> Dict[str, Any]:
         """
-        Invoke CV Analyzer Lambda in corrections mode (Sonnet).
-        Returns the 9-dimension corrections checklist.
+        Invoke CV Analyzer Lambda in corrections mode.
+        When job_description is provided, weak_verb/quantification/bullet_improver
+        rewrites are aligned to JD terminology.
         """
-        payload = {"cvText": cv_text, "mode": "corrections"}
+        payload: Dict[str, Any] = {"cvText": cv_text, "mode": "corrections"}
+        if job_description:
+            payload["jobDescription"] = job_description
         return self._invoke_lambda(LAMBDA_CV_ANALYZER, payload)
 
     def invoke_performance_evaluator(
@@ -152,17 +165,27 @@ class LambdaService:
             # Parse response
             response_payload = json.loads(response['Payload'].read())
 
+            # AWS Lambda wraps unhandled exceptions in this format
+            if response.get('FunctionError') or 'errorMessage' in response_payload:
+                error_msg = response_payload.get('errorMessage', 'Unknown Lambda error')
+                error_type = response_payload.get('errorType', '')
+                logger.error(f"Lambda {function_name} threw: [{error_type}] {error_msg}")
+                raise Exception(f"Lambda function error: {error_msg}")
+
             # Handle both direct invocation and Bedrock Agent response formats
             if 'statusCode' in response_payload:
                 # Direct invocation format
                 if response_payload['statusCode'] == 200:
-                    return json.loads(response_payload['body'])
+                    body = response_payload['body']
+                    return json.loads(body) if isinstance(body, str) else body
                 else:
-                    error_body = json.loads(response_payload['body'])
+                    error_body = response_payload['body']
+                    if isinstance(error_body, str):
+                        error_body = json.loads(error_body)
                     raise Exception(f"Lambda error: {error_body.get('error', 'Unknown error')}")
             else:
-                # Unexpected format
-                raise Exception(f"Unexpected response format from Lambda")
+                logger.error(f"Unexpected Lambda response for {function_name}: {response_payload}")
+                raise Exception(f"Unexpected response format from Lambda: {list(response_payload.keys())}")
 
         except Exception as e:
             logger.error(f"Error invoking Lambda {function_name}: {e}")

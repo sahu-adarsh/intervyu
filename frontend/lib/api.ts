@@ -163,6 +163,52 @@ export async function saveCVMetadata(sessionId: string, metadata: {
   return res.json();
 }
 
+export interface JdGapSkillItem {
+  skill: string;
+  status: 'present' | 'partial' | 'missing';
+  resume_evidence: string | null;
+  category: 'hard_skill' | 'soft_skill' | 'domain_knowledge' | 'tool';
+}
+
+export interface JdGapReport {
+  match_score: number;
+  match_score_reason: string;
+  seniority_fit: 'under-qualified' | 'good-fit' | 'over-qualified';
+  seniority_reason: string;
+  required_skills: JdGapSkillItem[];
+  preferred_skills: JdGapSkillItem[];
+  transferable_bridges: Array<{ jd_requires: string; candidate_has: string; bridge: string }>;
+  top_strengths: string[];
+  critical_gaps: string[];
+  interview_preparation: Array<{
+    gap: string;
+    resume_bridge: string;
+    expected_question: string;
+    framing_advice: string;
+  }>;
+}
+
+export async function triggerJdGapAnalysis(
+  sessionId: string,
+  jobTitle: string,
+  jobDescription: string
+): Promise<{ success: boolean; gap_report: JdGapReport }> {
+  const res = await authFetch(`/api/interviews/${sessionId}/jd-gap`, {
+    method: 'POST',
+    body: JSON.stringify({ job_title: jobTitle, job_description: jobDescription }),
+  });
+  if (!res.ok) throw new Error(`Failed to run JD gap analysis: ${res.status}`);
+  return res.json();
+}
+
+export async function getJdGapReport(
+  sessionId: string
+): Promise<{ success: boolean; gap_report: JdGapReport; generated_at: string }> {
+  const res = await authFetch(`/api/interviews/${sessionId}/jd-gap`);
+  if (!res.ok) throw new Error(`Failed to get JD gap report: ${res.status}`);
+  return res.json();
+}
+
 export async function getCVPresignedUrl(sessionId: string): Promise<{ url: string; filename: string }> {
   const res = await authFetch(`/api/interviews/${sessionId}/cv-url`);
   if (!res.ok) throw new Error(`Failed to get CV URL: ${res.status}`);

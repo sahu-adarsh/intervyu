@@ -57,6 +57,15 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatExperience(years: number): string {
+  const yrs = Math.floor(years);
+  const mos = Math.round((years - yrs) * 12);
+  if (yrs === 0 && mos === 0) return '< 1 yr';
+  if (yrs === 0) return `${mos} mos`;
+  if (mos === 0) return `${yrs} yr${yrs !== 1 ? 's' : ''}`;
+  return `${yrs} yr${yrs !== 1 ? 's' : ''} ${mos} mos`;
+}
+
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
@@ -580,7 +589,7 @@ export default function ResumePage() {
                     <span className="mx-1.5 text-slate-600">·</span>
                   )}
                   {activeResume.analysis.totalYearsExperience != null && (
-                    <span>{activeResume.analysis.totalYearsExperience} yrs · {activeResume.analysis.industry ?? 'Software Engineering'}</span>
+                    <span>{formatExperience(activeResume.analysis.totalYearsExperience)} · {activeResume.analysis.industry ?? 'Software Engineering'}</span>
                   )}
                 </p>
               ) : (
@@ -645,6 +654,7 @@ export default function ResumePage() {
               analysis={activeResume.analysis}
               corrections={mergeCorrections(clientCorrections, activeResume.corrections?.checkers ?? [])}
               atsResults={atsResults}
+              jobTitle={activeResume.jobTitle}
               jobDescription={activeResume.jobDescription}
               localPdfFile={activeFile}
               aiPending={aiPending}

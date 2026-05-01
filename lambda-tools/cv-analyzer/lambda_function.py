@@ -47,8 +47,17 @@ def lambda_handler(event, context):
             cv_text = download_cv_from_s3(s3_bucket, s3_key)
 
         if mode == 'corrections':
-            corrections = generate_corrections_with_claude(cv_text)
+            job_description = params.get('jobDescription', '')
+            corrections = generate_corrections_with_claude(cv_text, job_description)
             return format_response(event, corrections, 200)
+
+        if mode == 'jd_gap':
+            job_title = params.get('jobTitle', '')
+            job_description = params.get('jobDescription', '')
+            if not job_title and not job_description:
+                return format_response(event, {'success': False, 'error': 'jobTitle or jobDescription required for jd_gap mode'}, 400)
+            gap_report = analyze_jd_gap_with_claude(cv_text, job_title, job_description)
+            return format_response(event, gap_report, 200)
 
         analysis = analyze_cv_with_claude(cv_text)
         return format_response(event, analysis, 200)
@@ -63,7 +72,8 @@ def analyze_cv_with_claude(cv_text: str) -> Dict[str, Any]:
     Parse CV text using Claude Haiku 4.5 for fast structured extraction.
     Falls back to regex if Bedrock call fails.
     """
-    prompt = f"""You are a CV/resume parser. Extract structured information from the following CV text and return ONLY a valid JSON object with no extra text or markdown.
+    today = datetime.now().strftime('%B %Y')
+    prompt = f"""You are a CV/resume parser. Today's date is {today}. Extract structured information from the following CV text and return ONLY a valid JSON object with no extra text or markdown.
 
 CV TEXT:
 {cv_text[:8000]}
@@ -98,7 +108,7 @@ Return this exact JSON structure:
 
 Rules:
 - Extract ALL technical skills mentioned anywhere in the CV
-- For totalYearsExperience: sum up actual working years (exclude education, internships under 6 months)
+- For totalYearsExperience: sum ONLY paid work experience months from the Experience/Work History section (never count education/college/university years). Return as a decimal rounded to 1 place (e.g. 1.9 for 1 yr 11 mos). Never return 0 for a candidate with any work history.
 - If a field is not found, use null for strings and [] for arrays
 - Return ONLY the JSON, no markdown, no explanation"""
 
@@ -124,6 +134,11 @@ Rules:
 
         analysis = json.loads(text)
         analysis['success'] = True
+        # Always recompute from actual dates — Claude's date arithmetic is unreliable
+        exp_section = extract_section(cv_text, ['experience', 'work history', 'employment'])
+        computed = calculate_years_experience(exp_section or cv_text)
+        if computed > 0:
+            analysis['totalYearsExperience'] = computed
         return analysis
 
     except Exception as e:
@@ -131,14 +146,22 @@ Rules:
         return analyze_cv_regex_fallback(cv_text)
 
 
-def generate_corrections_with_claude(cv_text: str) -> Dict[str, Any]:
+def generate_corrections_with_claude(cv_text: str, job_description: str = '') -> Dict[str, Any]:
     """
     Second Claude call: analyze CV for 9 types of corrections.
     Uses Haiku (faster, cheaper) — corrections are pattern-matching tasks
     that don't require Sonnet-level reasoning.
     Each correction item includes the exact verbatim text for PDF highlighting.
+    When job_description is provided, weak_verb/quantification/bullet_improver rewrites
+    incorporate JD terminology.
     Returns empty checkers list on any failure so upload is never blocked.
     """
+    jd_section = (
+        "- The target job description is provided below - naturally mirror its"
+        " terminology in rewrites where relevant\n\nTARGET JOB DESCRIPTION:\n"
+        + job_description[:2000]
+    ) if job_description else ""
+
     prompt = f"""You are a professional resume reviewer. Analyze the following resume and identify issues across exactly 9 dimensions.
 
 CRITICAL RULES:
@@ -153,7 +176,7 @@ Return this exact JSON structure:
       "id": "quantification",
       "label": "Quantification Checker",
       "description": "Bullet points that lack measurable metrics, numbers, or percentages",
-      "needsFix": [{{"text": "<exact verbatim bullet>", "issue": "Missing quantifiable metric", "suggestion": "Add a specific number, percentage, or scale"}}],
+      "needsFix": [{{"text": "<exact verbatim bullet>", "issue": "Missing quantifiable metric", "suggestion": "Add a specific number, percentage, or scale", "rewrite": "<improved bullet — use [X%] or [N] placeholders if metric is unknown>"}}],
       "good": [{{"text": "<exact verbatim bullet>", "issue": ""}}],
       "score": <0-100 based on % of bullets that have metrics>
     }},
@@ -169,7 +192,7 @@ Return this exact JSON structure:
       "id": "bullet_improver",
       "label": "Bullet Points Improver",
       "description": "Weak or generic bullet points that lack impact or specificity",
-      "needsFix": [{{"text": "<exact verbatim bullet>", "issue": "Generic description", "suggestion": "<specific improved version>"}}],
+      "needsFix": [{{"text": "<exact verbatim bullet>", "issue": "Generic description", "suggestion": "<specific improved version>", "rewrite": "<rewritten bullet — strong verb, specific outcome, [X%] placeholders for unknown metrics>"}}],
       "good": [{{"text": "<exact verbatim bullet>", "issue": ""}}],
       "score": <0-100>
     }},
@@ -185,7 +208,7 @@ Return this exact JSON structure:
       "id": "weak_verb",
       "label": "Weak Verb Checker",
       "description": "Bullets starting with weak verbs like 'Worked on', 'Helped', 'Assisted', 'Supported', 'Participated in'",
-      "needsFix": [{{"text": "<exact verbatim bullet>", "issue": "Weak opening verb: 'Helped'", "suggestion": "Replace with strong verb like 'Led', 'Built', 'Delivered'"}}],
+      "needsFix": [{{"text": "<exact verbatim bullet>", "issue": "Weak opening verb: 'Helped'", "suggestion": "Replace with strong verb like 'Led', 'Built', 'Delivered'", "rewrite": "<rewritten bullet opening with a strong action verb>"}}],
       "good": [{{"text": "<exact verbatim bullet>", "issue": ""}}],
       "score": <0-100>
     }},
@@ -225,6 +248,11 @@ Return this exact JSON structure:
   "generatedAt": "{datetime.utcnow().isoformat()}Z"
 }}
 
+REWRITE RULES (for weak_verb, quantification, bullet_improver needsFix items):
+- Always include a 'rewrite' field with an improved bullet
+- Never fabricate specific metrics — use [X%], [N], or [timeframe] as placeholders
+- Keep the rewrite roughly the same length as the original
+{jd_section}
 RESUME TEXT:
 {cv_text[:8000]}"""
 
@@ -255,6 +283,115 @@ RESUME TEXT:
         return {
             "checkers": [],
             "generatedAt": datetime.utcnow().isoformat() + "Z"
+        }
+
+
+def analyze_jd_gap_with_claude(cv_text: str, job_title: str, job_description: str) -> Dict[str, Any]:
+    """
+    Compare a resume against a job description and return a structured gap report.
+    Uses Haiku for speed; the prompt is structured enough that Haiku handles it well.
+    Returns a safe empty-ish report on any failure so the endpoint never 500s.
+    """
+    prompt = f"""You are a technical recruiter analyzing a candidate's resume against a job description.
+Return ONLY a valid JSON object — no markdown, no explanation.
+
+JOB TITLE: {job_title}
+
+JOB DESCRIPTION:
+{job_description[:4000]}
+
+CANDIDATE RESUME:
+{cv_text[:4000]}
+
+Return this exact JSON structure:
+{{
+  "success": true,
+  "match_score": <0-100 integer — honest score based on actual overlap>,
+  "match_score_reason": "<2-3 sentences explaining what drove this score>",
+  "seniority_fit": "<under-qualified | good-fit | over-qualified>",
+  "seniority_reason": "<1 sentence comparing candidate YOE/scope vs JD level>",
+  "required_skills": [
+    {{
+      "skill": "<exact requirement from JD>",
+      "status": "<present | partial | missing>",
+      "resume_evidence": "<verbatim quote from resume showing this skill, or null>",
+      "category": "<hard_skill | soft_skill | domain_knowledge | tool>"
+    }}
+  ],
+  "preferred_skills": [
+    {{
+      "skill": "<preferred/nice-to-have requirement from JD>",
+      "status": "<present | partial | missing>",
+      "resume_evidence": "<verbatim quote or null>",
+      "category": "<hard_skill | soft_skill | domain_knowledge | tool>"
+    }}
+  ],
+  "transferable_bridges": [
+    {{
+      "jd_requires": "<what the JD asks for>",
+      "candidate_has": "<what the resume shows instead>",
+      "bridge": "<1 sentence on how the candidate experience transfers>"
+    }}
+  ],
+  "top_strengths": ["<3 specific things candidate does well for THIS role>"],
+  "critical_gaps": ["<top 3 genuine gaps — be honest, not encouraging>"],
+  "interview_preparation": [
+    {{
+      "gap": "<the missing or partial skill>",
+      "resume_bridge": "<closest matching experience in resume>",
+      "expected_question": "<the most likely interview question that will expose this gap>",
+      "framing_advice": "<2-3 sentences on how to answer using their actual experience>"
+    }}
+  ]
+}}
+
+Rules:
+- required_skills: extract up to 10 hard requirements from the JD (must-have qualifications, years, skills)
+- preferred_skills: extract up to 6 nice-to-have items
+- transferable_bridges: only include for missing/partial required skills where a real bridge exists
+- interview_preparation: only for missing or partial required_skills — max 4 items
+- match_score must be realistic: a junior dev vs Staff Engineer JD should score <30
+- resume_evidence must be a verbatim substring from the resume or null — never paraphrase
+- Return ONLY the JSON"""
+
+    try:
+        bedrock = get_bedrock_client()
+        response = bedrock.invoke_model(
+            modelId='us.anthropic.claude-haiku-4-5-20251001-v1:0',
+            body=json.dumps({
+                'anthropic_version': 'bedrock-2023-05-31',
+                'max_tokens': 4096,
+                'messages': [{'role': 'user', 'content': prompt}]
+            }),
+            contentType='application/json',
+            accept='application/json'
+        )
+        result = json.loads(response['body'].read())
+        text = result['content'][0]['text'].strip()
+
+        if text.startswith('```'):
+            text = re.sub(r'^```[a-z]*\n?', '', text)
+            text = re.sub(r'\n?```$', '', text)
+
+        gap_report = json.loads(text)
+        gap_report['success'] = True
+        return gap_report
+
+    except Exception as e:
+        logger.error(f"JD gap analysis failed: {e}")
+        return {
+            'success': False,
+            'error': str(e),
+            'match_score': 0,
+            'match_score_reason': 'Analysis failed',
+            'seniority_fit': 'good-fit',
+            'seniority_reason': '',
+            'required_skills': [],
+            'preferred_skills': [],
+            'transferable_bridges': [],
+            'top_strengths': [],
+            'critical_gaps': [],
+            'interview_preparation': [],
         }
 
 
@@ -384,17 +521,49 @@ def extract_section(text: str, keywords: List[str]) -> str:
     return ""
 
 
+_MONTH_MAP = {
+    'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+    'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+}
+_MONTH_NAMES = r'Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?'
+
+
 def calculate_years_experience(text: str) -> float:
-    current_year = datetime.now().year
-    total = 0
-    for match in re.finditer(r'(\d{4})\s*[-–]\s*(\d{4}|Present|Current)', text, re.IGNORECASE):
-        start = int(match.group(1))
-        end_str = match.group(2).lower()
-        end = current_year if end_str in ('present', 'current') else int(end_str)
-        years = end - start
-        if 0 < years < 50:
-            total += years
-    return round(total, 1)
+    now = datetime.now()
+    cur_year, cur_month = now.year, now.month
+    total_months = 0
+
+    # "Month YYYY – Present/Current" or "Month YYYY – Month YYYY"
+    pat = re.compile(
+        rf'({_MONTH_NAMES})\s+(\d{{4}})\s*[-–]\s*'
+        rf'(Present|Current|(?:{_MONTH_NAMES})\s+(\d{{4}}))',
+        re.IGNORECASE,
+    )
+    for m in pat.finditer(text):
+        s_mon = _MONTH_MAP.get(m.group(1)[:3].lower(), 1)
+        s_yr = int(m.group(2))
+        end_raw = m.group(3)
+        if end_raw.lower() in ('present', 'current'):
+            e_yr, e_mon = cur_year, cur_month
+        else:
+            # "Month YYYY" captured in group 3 with year in group 4
+            e_yr = int(m.group(4))
+            e_mon = _MONTH_MAP.get(end_raw[:3].lower(), 1)
+        months = (e_yr - s_yr) * 12 + (e_mon - s_mon)
+        if 0 < months < 600:
+            total_months += months
+
+    # Fallback: plain "YYYY – YYYY" or "YYYY – Present"
+    if total_months == 0:
+        for m in re.finditer(r'(\d{4})\s*[-–]\s*(\d{4}|Present|Current)', text, re.IGNORECASE):
+            s_yr = int(m.group(1))
+            end_raw = m.group(2).lower()
+            e_yr = cur_year if end_raw in ('present', 'current') else int(end_raw)
+            months = (e_yr - s_yr) * 12
+            if 0 < months < 600:
+                total_months += months
+
+    return round(total_months / 12, 1)
 
 
 def generate_summary(text: str) -> str:

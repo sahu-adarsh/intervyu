@@ -4,8 +4,10 @@ import { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { getCVPresignedUrl } from '@/lib/api';
 import { CVAnalysis, CVCorrections, CheckerID, CheckerResult, ScoreResult, StructuredSuggestion } from './types';
+import { JdGapReport, JdGapSkillItem } from '@/lib/api';
 import AtsScorePanel from './AtsScorePanel';
 import CheckerSidebar from './CheckerSidebar';
+import JobMatchPanel from './JobMatchPanel';
 import { FileText, BarChart2, ZoomIn, ZoomOut } from 'lucide-react';
 
 const PDFViewer = dynamic(() => import('./PDFViewer'), { ssr: false });
@@ -15,6 +17,7 @@ interface CVReviewerProps {
   analysis: CVAnalysis;
   corrections: CVCorrections | null;
   atsResults: ScoreResult[];
+  jobTitle?: string;
   jobDescription?: string;
   localPdfFile?: File | null;
   aiPending?: boolean;
@@ -27,6 +30,7 @@ export default function CVReviewer({
   analysis,
   corrections,
   atsResults,
+  jobTitle,
   jobDescription,
   localPdfFile,
   aiPending = false,
@@ -39,6 +43,14 @@ export default function CVReviewer({
   const [highlightTexts, setHighlightTexts] = useState<string[]>([]);
   const [pdfScale, setPdfScale] = useState(1);
   const [mobileTab, setMobileTab] = useState<'cv' | 'analysis'>('analysis');
+  // undefined = no JD (show keyword chips), null = JD loading, [] = loaded
+  const [jdSkills, setJdSkills] = useState<JdGapSkillItem[] | null | undefined>(
+    jobDescription ? null : undefined
+  );
+
+  const handleReportLoaded = useCallback((report: JdGapReport) => {
+    setJdSkills([...report.required_skills, ...report.preferred_skills]);
+  }, []);
 
   // Unified PDF loading: localPdfFile takes priority, else fetch presigned URL
   useEffect(() => {
@@ -46,6 +58,7 @@ export default function CVReviewer({
     setHighlightTexts([]);
     setPdfUrl(null);
     setMimeType(undefined);
+    setJdSkills(jobDescription ? null : undefined);
 
     if (localPdfFile) {
       const url = URL.createObjectURL(localPdfFile);
@@ -160,6 +173,7 @@ export default function CVReviewer({
               analysis={analysis}
               sessionId={sessionId}
               jobDescription={jobDescription}
+              jdSkills={jdSkills}
               suggestionsCache={suggestionsCache}
               onSuggestionsCached={onSuggestionsCached}
             />
@@ -170,6 +184,12 @@ export default function CVReviewer({
               onDeselect={handleCheckerDeselect}
               onItemHighlight={handleItemHighlight}
               aiPending={aiPending}
+            />
+            <JobMatchPanel
+              sessionId={sessionId}
+              jobTitle={jobTitle}
+              jobDescription={jobDescription}
+              onReportLoaded={handleReportLoaded}
             />
           </div>
         </div>
