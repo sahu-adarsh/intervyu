@@ -25,7 +25,24 @@ export function matchKeywords(
 	const jdTokens = tokenize(jobDescription);
 
 	const resumeTerms = new Set(resumeTokens.map((t) => t.normalized));
-	const jdTerms = [...new Set(jdTokens.map((t) => t.normalized))];
+	// Only surface JD terms that look like meaningful skills/tools/domain terms:
+	// - length >= 3 (filters noise like "rx", "go" ambiguity)
+	// - AND: originally capitalised in the JD (proper noun / product name),
+	//        OR contains a digit (Python3, ES6), special tech chars (+, #, .),
+	//        OR is long enough to be domain-specific (>= 6 chars)
+	const allJdTerms = [...new Set(jdTokens.map((t) => t.normalized))];
+	const jdTerms = allJdTerms.filter((term) => {
+		if (term.length < 3) return false;
+		// acronyms preserved as-is (e.g. sql → SQL check skipped since already lowercase)
+		if (/\d/.test(term)) return true;                          // contains digit
+		if (/[+#.]/.test(term)) return true;                       // tech special chars
+		if (term.includes('-')) return true;                       // compound term
+		if (term.length >= 6) return true;                         // long enough to be specific
+		// short term (3-5 chars): only keep if it was capitalised in original JD text
+		// (e.g. "React", "Swift", "Redis", "AWS", "SQL" appear capitalised)
+		const capitalised = new RegExp(`\\b${term[0].toUpperCase()}${term.slice(1)}\\b`);
+		return capitalised.test(jobDescription);
+	});
 
 	// also extract canonical forms for synonym matching
 	const resumeCanonicals = new Set(resumeTokens.map((t) => getCanonical(t.normalized)));

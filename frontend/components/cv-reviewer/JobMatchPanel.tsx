@@ -12,6 +12,7 @@ interface JobMatchPanelProps {
   sessionId: string;
   jobTitle?: string;
   jobDescription?: string;
+  onReportLoaded?: (report: JdGapReport) => void;
 }
 
 // ── tiny sub-components ───────────────────────────────────────────────────────
@@ -54,7 +55,7 @@ function ScoreRing({ score }: { score: number }) {
 
 type State = 'idle' | 'loading' | 'ready' | 'error';
 
-export default function JobMatchPanel({ sessionId, jobTitle, jobDescription }: JobMatchPanelProps) {
+export default function JobMatchPanel({ sessionId, jobTitle, jobDescription, onReportLoaded }: JobMatchPanelProps) {
   const [state, setState] = useState<State>('idle');
   const [report, setReport] = useState<JdGapReport | null>(null);
   const [openSection, setOpenSection] = useState<'required' | 'preferred' | 'bridges' | 'prep' | null>('required');
@@ -64,13 +65,15 @@ export default function JobMatchPanel({ sessionId, jobTitle, jobDescription }: J
 
     setState('loading');
 
+    const apply = (r: JdGapReport) => { setReport(r); setState('ready'); onReportLoaded?.(r); };
+
     // First check if background task already produced a cached report
     getJdGapReport(sessionId)
-      .then(({ gap_report }) => { setReport(gap_report); setState('ready'); })
+      .then(({ gap_report }) => apply(gap_report))
       .catch(() => {
         // Not cached yet — trigger it now
         triggerJdGapAnalysis(sessionId, jobTitle?.trim() ?? '', jobDescription.trim())
-          .then(({ gap_report }) => { setReport(gap_report); setState('ready'); })
+          .then(({ gap_report }) => apply(gap_report))
           .catch(() => setState('error'));
       });
   // Run only when sessionId changes (re-opening a different resume)

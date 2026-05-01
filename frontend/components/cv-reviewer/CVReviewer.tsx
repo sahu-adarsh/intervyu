@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { getCVPresignedUrl } from '@/lib/api';
 import { CVAnalysis, CVCorrections, CheckerID, CheckerResult, ScoreResult, StructuredSuggestion } from './types';
+import { JdGapReport, JdGapSkillItem } from '@/lib/api';
 import AtsScorePanel from './AtsScorePanel';
 import CheckerSidebar from './CheckerSidebar';
 import JobMatchPanel from './JobMatchPanel';
@@ -42,6 +43,11 @@ export default function CVReviewer({
   const [highlightTexts, setHighlightTexts] = useState<string[]>([]);
   const [pdfScale, setPdfScale] = useState(1);
   const [mobileTab, setMobileTab] = useState<'cv' | 'analysis'>('analysis');
+  const [jdSkills, setJdSkills] = useState<JdGapSkillItem[] | null>(null);
+
+  const handleReportLoaded = useCallback((report: JdGapReport) => {
+    setJdSkills([...report.required_skills, ...report.preferred_skills]);
+  }, []);
 
   // Unified PDF loading: localPdfFile takes priority, else fetch presigned URL
   useEffect(() => {
@@ -49,6 +55,7 @@ export default function CVReviewer({
     setHighlightTexts([]);
     setPdfUrl(null);
     setMimeType(undefined);
+    setJdSkills(null);
 
     if (localPdfFile) {
       const url = URL.createObjectURL(localPdfFile);
@@ -163,6 +170,7 @@ export default function CVReviewer({
               analysis={analysis}
               sessionId={sessionId}
               jobDescription={jobDescription}
+              jdSkills={jdSkills}
               suggestionsCache={suggestionsCache}
               onSuggestionsCached={onSuggestionsCached}
             />
@@ -178,6 +186,7 @@ export default function CVReviewer({
               sessionId={sessionId}
               jobTitle={jobTitle}
               jobDescription={jobDescription}
+              onReportLoaded={handleReportLoaded}
             />
           </div>
         </div>
