@@ -626,6 +626,9 @@ async def voice_interview_websocket(
                 key_topics = interview_config.get("key_topics", "general topics")
                 difficulty = interview_config.get("difficulty_range", "medium")
 
+                def _safe(s: str) -> str:
+                    return re.sub(r'[\[\]\n\r]', ' ', str(s))[:300]
+
                 cv_analysis = session_data.get("cv_analysis") if session_data else None
                 cv_context = ""
                 if cv_analysis:
@@ -633,10 +636,7 @@ async def voice_interview_websocket(
                     years = cv_analysis.get("years_of_experience", "")
                     summary = cv_analysis.get("summary", "")
                     skills_str = ", ".join(skills[:15]) if skills else "not listed"
-                    def _safe(s: str) -> str:
-                        return re.sub(r'[\[\]\n\r]', ' ', str(s))[:300]
-
-                cv_context = f" Candidate CV: {_safe(years)} yrs exp. Skills: {_safe(skills_str)}. {_safe(summary)}"
+                    cv_context = f" Candidate CV: {_safe(years)} yrs exp. Skills: {_safe(skills_str)}. {_safe(summary)}"
 
                 context_prefix = f"[CONTEXT: Interviewing {_safe(candidate_name)} for {display_name}. Focus: {focus_areas}. Topics: {key_topics}. Difficulty: {difficulty}. Current phase: {current_phase}.{cv_context}]\n"
                 constraint_reminder = "[REMINDER: Respond with MAXIMUM 2-3 sentences. Ask EXACTLY ONE question. NO bullet points, NO lists, NO asterisks.]\n\n"
