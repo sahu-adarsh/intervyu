@@ -188,6 +188,13 @@ sam build && sam local start-lambda --port 3001
 
 ---
 
+## Show Your Support 🌟
+
+If you find intervyu helpful, please consider giving it a star on GitHub! It helps the project reach more developers.
+
+
+---
+
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
