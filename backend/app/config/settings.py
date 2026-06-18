@@ -13,8 +13,8 @@ TEXTRACT_AWS_ACCESS_KEY = os.getenv("TEXTRACT_AWS_ACCESS_KEY", AWS_ACCESS_KEY)
 TEXTRACT_AWS_SECRET_ACCESS_KEY = os.getenv("TEXTRACT_AWS_SECRET_ACCESS_KEY", AWS_SECRET_ACCESS_KEY)
 
 # S3 Configuration
-S3_BUCKET_USER_DATA = os.getenv("S3_BUCKET_USER_DATA", "prepai-user-data")
-S3_BUCKET_KNOWLEDGE_BASE = os.getenv("S3_BUCKET_KNOWLEDGE_BASE", "prepai-knowledge-base")
+S3_BUCKET_USER_DATA = os.getenv("S3_BUCKET_USER_DATA", "intervyu-user-data")
+S3_BUCKET_KNOWLEDGE_BASE = os.getenv("S3_BUCKET_KNOWLEDGE_BASE", "intervyu-knowledge-base")
 
 # Bedrock Configuration
 BEDROCK_AGENT_ID = os.getenv("BEDROCK_AGENT_ID", "")
@@ -37,9 +37,9 @@ SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 # Lambda Configuration
-LAMBDA_CODE_EXECUTOR = os.getenv("LAMBDA_CODE_EXECUTOR", "prepai-code-executor")
-LAMBDA_CV_ANALYZER = os.getenv("LAMBDA_CV_ANALYZER", "prepai-cv-analyzer")
-LAMBDA_PERFORMANCE_EVALUATOR = os.getenv("LAMBDA_PERFORMANCE_EVALUATOR", "prepai-performance-evaluator")
+LAMBDA_CODE_EXECUTOR = os.getenv("LAMBDA_CODE_EXECUTOR", "intervyu-code-executor")
+LAMBDA_CV_ANALYZER = os.getenv("LAMBDA_CV_ANALYZER", "intervyu-cv-analyzer")
+LAMBDA_PERFORMANCE_EVALUATOR = os.getenv("LAMBDA_PERFORMANCE_EVALUATOR", "intervyu-performance-evaluator")
 LAMBDA_ENDPOINT_URL = os.getenv("LAMBDA_ENDPOINT_URL", None)  # None = use real AWS; set to http://127.0.0.1:3001 for sam local
 
 # WebSocket Configuration

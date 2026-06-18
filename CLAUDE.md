@@ -87,9 +87,9 @@ intervyu/
 - **TTS**: Azure Cognitive Services Speech SDK (`azure-cognitiveservices-speech`, `en-IN-NeerjaNeural` voice, MP3 output `Audio24Khz48KBitRateMonoMp3`, pool of 3 persistent `SpeechSynthesizer` instances, SSML `<prosody rate="+20%">`, MP3 chunks streamed via asyncio.Queue concurrent sender)
 - **AI**: AWS bedrock-runtime `converse_stream` (Claude Haiku 4.5 — `us.anthropic.claude-haiku-4-5-20251001-v1:0`); conversation history managed manually in `_session_cache`
 - **Auth**: Supabase JWT verification (`auth_service.py`, PyJWT HS256, `audience="authenticated"`); `get_current_user` FastAPI dependency on all endpoints; WebSocket auth via `?token=` query param
-- **Storage**: Supabase PostgreSQL (structured data) + S3 `prepai-user-data-2026` (binary: CVs at `cvs/{session_id}/`, audio at `recordings/{session_id}/`)
+- **Storage**: Supabase PostgreSQL (structured data) + S3 `intervyu-user-data-2026` (binary: CVs at `cvs/{session_id}/`, audio at `recordings/{session_id}/`)
 - **DB Driver**: asyncpg pool (min=5, max=20) in `db_service.py`; transcript writes are asyncio background tasks (off WebSocket critical path)
-- **CV Parsing**: AWS Textract + `prepai-cv-analyzer` Lambda
+- **CV Parsing**: AWS Textract + `intervyu-cv-analyzer` Lambda
 - **Real-time**: WebSocket at `/ws/interview/{session_id}?token=<supabase_jwt>`
 
 ### Frontend (Next.js 15)
@@ -100,17 +100,22 @@ intervyu/
 - **Audio**: Silero VAD (`@ricky0123/vad-react`, ONNX model in Web Worker) → single WAV blob per utterance to backend; `onnxruntime-web` 1.17.3, `numThreads=1` (no SharedArrayBuffer/COOP/COEP required)
 
 ### AWS Lambda Functions (3)
-1. `prepai-code-executor` — Python/JS sandboxed execution, test case runner
-2. `prepai-cv-analyzer` — PDF/DOCX parsing, skills extraction by category
-3. `prepai-performance-evaluator` — 5-dimension scoring, HIRE/NO_HIRE recommendation
+1. `intervyu-code-executor` — Python/JS sandboxed execution, test case runner
+2. `intervyu-cv-analyzer` — PDF/DOCX parsing, skills extraction by category
+3. `intervyu-performance-evaluator` — 5-dimension scoring, HIRE/NO_HIRE recommendation
 
 ## Deployment (Current — Production)
 
-- **Frontend**: S3 (`prepai-frontend-1773670407`) + CloudFront (`EEQ8MGLCMSZXT`)
+> **MIGRATION IN PROGRESS (2026-06):** Old AWS account closed; resources are being recreated under
+> new account `207423186601`. The block below still reflects the OLD account's resource IDs
+> (frontend bucket, CloudFront distro, EC2 instance, ACM cert) — update each line once that
+> resource is recreated in Steps 4/5 of the migration (EC2 backend deploy, frontend+CloudFront deploy, ACM re-issue).
+
+- **Frontend**: S3 (`prepai-frontend-1773670407`) + CloudFront (`EEQ8MGLCMSZXT`) — TODO: replace with new bucket/distro after Step 5
 - **Custom Domain**: `https://intervyu.io` (Namecheap BasicDNS → CloudFront)
-- **SSL**: ACM cert `b4030462-0a7e-4ede-a076-09da4f122dc2` attached to CloudFront
-- **Backend**: EC2 `i-032c3535f7a8f1d89` (t3.small, Ubuntu), IP `44.200.25.1`, port 8000
-- **EC2 SSH**: `ssh -i ~/.ssh/prepai-backend-key.pem ubuntu@44.200.25.1`
+- **SSL**: ACM cert `b4030462-0a7e-4ede-a076-09da4f122dc2` attached to CloudFront — TODO: re-issue in new account
+- **Backend**: EC2 `i-032c3535f7a8f1d89` (t3.small, Ubuntu), IP `44.200.25.1`, port 8000 — TODO: replace after Step 4
+- **EC2 SSH**: `ssh -i ~/.ssh/prepai-backend-key.pem ubuntu@44.200.25.1` — TODO: update key name/path + IP after Step 4
 - **Restart backend**: `sudo systemctl restart intervyu-backend`
 - **Redeploy frontend**: `cd intervyu && bash scripts/redeploy-frontend.sh` — do NOT use a bare `aws s3 sync` (see warning)
   ```bash
@@ -193,17 +198,17 @@ Binary frames = WAV TTS audio chunks
 AWS_ACCESS_KEY=...
 AWS_SECRET_ACCESS_KEY=...
 AWS_REGION=us-east-1
-S3_BUCKET_USER_DATA=prepai-user-data-2026
-S3_BUCKET_KNOWLEDGE_BASE=prepai-knowledge-base-2026
+S3_BUCKET_USER_DATA=intervyu-user-data-2026
+S3_BUCKET_KNOWLEDGE_BASE=intervyu-knowledge-base-2026
 BEDROCK_AGENT_ID=QWKJJLWIUO
 BEDROCK_AGENT_ALIAS_ID=TSTALIASID
 BEDROCK_KNOWLEDGE_BASE_ID=FGBOJOTC4C
 DEEPGRAM_API_KEY=...
 AZURE_SPEECH_KEY=...
 AZURE_SPEECH_REGION=eastus
-LAMBDA_CODE_EXECUTOR=prepai-code-executor
-LAMBDA_CV_ANALYZER=prepai-cv-analyzer
-LAMBDA_PERFORMANCE_EVALUATOR=prepai-performance-evaluator
+LAMBDA_CODE_EXECUTOR=intervyu-code-executor
+LAMBDA_CV_ANALYZER=intervyu-cv-analyzer
+LAMBDA_PERFORMANCE_EVALUATOR=intervyu-performance-evaluator
 CORS_ORIGINS=http://localhost:3000,https://intervyu.io,https://www.intervyu.io
 HOST=0.0.0.0
 PORT=8000

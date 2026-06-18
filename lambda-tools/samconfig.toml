@@ -1,9 +1,9 @@
 version = 0.1
 
 [default.deploy.parameters]
-stack_name = "prepai-lambda"
+stack_name = "intervyu-lambda"
 resolve_s3 = true
-s3_prefix = "prepai-lambda"
+s3_prefix = "intervyu-lambda"
 confirm_changeset = true
 capabilities = "CAPABILITY_NAMED_IAM"
 parameter_overrides = "BedrockAgentRoleArn=\"\""

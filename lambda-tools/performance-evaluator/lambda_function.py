@@ -399,7 +399,7 @@ def _count_questions(history: List[Dict]) -> int:
 
 def _save_to_s3(session_id: str, report: Dict) -> None:
     try:
-        bucket = os.environ.get('S3_BUCKET_USER_DATA', 'prepai-user-data-2026')
+        bucket = os.environ.get('S3_BUCKET_USER_DATA', 'intervyu-user-data-2026')
         key = f'reports/{session_id}/performance_report.json'
         s3_client.put_object(
             Bucket=bucket,

@@ -33,11 +33,12 @@ class BedrockService:
             config=config
         )
         # Direct bedrock-runtime client for converse_stream (no KB overhead, true token streaming)
+        # Uses HCL/Textract credentials which have Claude Haiku access
         self.bedrock_runtime_client = boto3.client(
             'bedrock-runtime',
             region_name=AWS_REGION,
-            aws_access_key_id=AWS_ACCESS_KEY,
-            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            aws_access_key_id=TEXTRACT_AWS_ACCESS_KEY,
+            aws_secret_access_key=TEXTRACT_AWS_SECRET_ACCESS_KEY,
             config=config
         )
         # Separate client for structured JSON calls (uses Textract creds which have Sonnet/Haiku-3.5 access)
