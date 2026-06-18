@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Deploy PrepAI Lambda Tools using SAM
+# Deploy Intervyu Lambda Tools using SAM
 # This script builds and deploys all Lambda functions
 
 set -e
@@ -11,7 +11,7 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}PrepAI Lambda Tools Deployment${NC}"
+echo -e "${GREEN}Intervyu Lambda Tools Deployment${NC}"
 echo -e "${GREEN}========================================${NC}"
 
 # Check if SAM CLI is installed
@@ -55,7 +55,7 @@ if [ -f samconfig.toml ]; then
 else
     echo "Running guided deployment"
     sam deploy --guided \
-        --stack-name prepai-lambda-tools \
+        --stack-name intervyu-lambda-tools \
         --capabilities CAPABILITY_NAMED_IAM \
         --region $REGION
 fi
@@ -70,7 +70,7 @@ echo -e "${GREEN}✓ Deployment successful${NC}"
 # Get Lambda ARNs
 echo -e "\n${YELLOW}Lambda Function ARNs:${NC}"
 aws cloudformation describe-stacks \
-    --stack-name prepai-lambda-tools \
+    --stack-name intervyu-lambda-tools \
     --region $REGION \
     --query 'Stacks[0].Outputs' \
     --output table

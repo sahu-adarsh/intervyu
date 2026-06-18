@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: PrepAI Lambda Tools - Code Executor, CV Analyzer, and Performance Evaluator
+Description: Intervyu Lambda Tools - Code Executor, CV Analyzer, and Performance Evaluator
 
 Globals:
   Function:
@@ -11,7 +11,7 @@ Globals:
       - x86_64
     Environment:
       Variables:
-        S3_BUCKET_USER_DATA: prepai-user-data-2026
+        S3_BUCKET_USER_DATA: intervyu-user-data-2026
 
 Parameters:
   BedrockAgentRoleArn:
@@ -31,7 +31,7 @@ Parameters:
 
 Resources:
   # IAM Role for Lambda Functions
-  PrepAILambdaRole:
+  IntervyuLambdaRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -54,8 +54,8 @@ Resources:
                   - s3:PutObject
                   - s3:ListBucket
                 Resource:
-                  - arn:aws:s3:::prepai-user-data-2026/*
-                  - arn:aws:s3:::prepai-user-data-2026
+                  - arn:aws:s3:::intervyu-user-data-2026/*
+                  - arn:aws:s3:::intervyu-user-data-2026
         - PolicyName: BedrockAccess
           PolicyDocument:
             Version: '2012-10-17'
@@ -72,11 +72,11 @@ Resources:
   CodeExecutorFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: prepai-code-executor
+      FunctionName: intervyu-code-executor
       Description: Execute and validate candidate code submissions
       CodeUri: code-executor/
       Handler: lambda_function.lambda_handler
-      Role: !GetAtt PrepAILambdaRole.Arn
+      Role: !GetAtt IntervyuLambdaRole.Arn
       Timeout: 30
       MemorySize: 512
       Environment:
@@ -87,11 +87,11 @@ Resources:
   CVAnalyzerFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: prepai-cv-analyzer
+      FunctionName: intervyu-cv-analyzer
       Description: Extract and analyze candidate resume/CV information
       CodeUri: cv-analyzer/
       Handler: lambda_function.lambda_handler
-      Role: !GetAtt PrepAILambdaRole.Arn
+      Role: !GetAtt IntervyuLambdaRole.Arn
       Timeout: 90
       MemorySize: 512
       Environment:
@@ -102,11 +102,11 @@ Resources:
   PerformanceEvaluatorFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: prepai-performance-evaluator
+      FunctionName: intervyu-performance-evaluator
       Description: Generate AI-powered interview performance reports using Claude Sonnet
       CodeUri: performance-evaluator/
       Handler: lambda_function.lambda_handler
-      Role: !GetAtt PrepAILambdaRole.Arn
+      Role: !GetAtt IntervyuLambdaRole.Arn
       Timeout: 120
       MemorySize: 512
       Environment:
@@ -145,22 +145,22 @@ Outputs:
     Description: ARN of Code Executor Lambda Function
     Value: !GetAtt CodeExecutorFunction.Arn
     Export:
-      Name: PrepAI-CodeExecutorArn
+      Name: Intervyu-CodeExecutorArn
 
   CVAnalyzerFunctionArn:
     Description: ARN of CV Analyzer Lambda Function
     Value: !GetAtt CVAnalyzerFunction.Arn
     Export:
-      Name: PrepAI-CVAnalyzerArn
+      Name: Intervyu-CVAnalyzerArn
 
   PerformanceEvaluatorFunctionArn:
     Description: ARN of Performance Evaluator Lambda Function
     Value: !GetAtt PerformanceEvaluatorFunction.Arn
     Export:
-      Name: PrepAI-PerformanceEvaluatorArn
+      Name: Intervyu-PerformanceEvaluatorArn
 
   LambdaRoleArn:
     Description: ARN of Lambda Execution Role
-    Value: !GetAtt PrepAILambdaRole.Arn
+    Value: !GetAtt IntervyuLambdaRole.Arn
     Export:
-      Name: PrepAI-LambdaRoleArn
+      Name: Intervyu-LambdaRoleArn
