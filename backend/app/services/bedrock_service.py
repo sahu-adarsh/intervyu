@@ -1,11 +1,12 @@
 import boto3
+import anthropic
 import time
 import json
 import logging
 from typing import Dict, Any, Optional, List, Generator
 from botocore.config import Config
 from botocore.exceptions import ClientError
-from app.config import AWS_REGION, AWS_ACCESS_KEY, AWS_SECRET_ACCESS_KEY, BEDROCK_AGENT_ID, BEDROCK_AGENT_ALIAS_ID, TEXTRACT_AWS_ACCESS_KEY, TEXTRACT_AWS_SECRET_ACCESS_KEY
+from app.config import AWS_REGION, AWS_ACCESS_KEY, AWS_SECRET_ACCESS_KEY, ANTHROPIC_API_KEY, BEDROCK_AGENT_ID, BEDROCK_AGENT_ALIAS_ID
 from app.config.interview_types import get_interview_config, INTERVIEW_PHASES
 
 logger = logging.getLogger(__name__)
@@ -33,22 +34,15 @@ class BedrockService:
             config=config
         )
         # Direct bedrock-runtime client for converse_stream (no KB overhead, true token streaming)
-        # Uses HCL/Textract credentials which have Claude Haiku access
         self.bedrock_runtime_client = boto3.client(
             'bedrock-runtime',
             region_name=AWS_REGION,
-            aws_access_key_id=TEXTRACT_AWS_ACCESS_KEY,
-            aws_secret_access_key=TEXTRACT_AWS_SECRET_ACCESS_KEY,
+            aws_access_key_id=AWS_ACCESS_KEY,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
             config=config
         )
-        # Separate client for structured JSON calls (uses Textract creds which have Sonnet/Haiku-3.5 access)
-        self.bedrock_json_client = boto3.client(
-            'bedrock-runtime',
-            region_name=AWS_REGION,
-            aws_access_key_id=TEXTRACT_AWS_ACCESS_KEY,
-            aws_secret_access_key=TEXTRACT_AWS_SECRET_ACCESS_KEY,
-            config=config
-        )
+        self.bedrock_json_client = self.bedrock_runtime_client
+        self.anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         self.agent_id = BEDROCK_AGENT_ID
         self.agent_alias_id = BEDROCK_AGENT_ALIAS_ID
         self._system_prompt: Optional[str] = None
@@ -264,8 +258,8 @@ class BedrockService:
         user_message: str,
     ):
         """
-        Direct Claude streaming via bedrock-runtime converse_stream.
-        No KB lookup overhead — true token-by-token streaming for low latency TTS pipeline.
+        Direct Claude streaming via Anthropic API.
+        True token-by-token streaming for low latency TTS pipeline.
 
         Args:
             conversation_history: List of prior turns [{"role": "user"/"assistant", "content": "..."}]
@@ -281,25 +275,19 @@ class BedrockService:
             role = msg.get("role")
             content = msg.get("content", "")
             if role in ("user", "assistant") and content:
-                messages.append({"role": role, "content": [{"text": content}]})
+                messages.append({"role": role, "content": content})
 
-        messages.append({"role": "user", "content": [{"text": user_message}]})
+        messages.append({"role": "user", "content": user_message})
 
         try:
-            response = self.bedrock_runtime_client.converse_stream(
-                modelId="us.anthropic.claude-haiku-4-5-20251001-v1:0",
-                system=[{"text": system_prompt}],
+            with self.anthropic_client.messages.stream(
+                model="claude-haiku-4-5-20251001",
+                system=system_prompt,
                 messages=messages,
-                inferenceConfig={
-                    "maxTokens": 300,
-                    "temperature": 0.7,
-                }
-            )
-            stream = response.get("stream", [])
-            for event in stream:
-                delta = event.get("contentBlockDelta", {}).get("delta", {})
-                text = delta.get("text", "")
-                if text:
+                max_tokens=300,
+                temperature=0.7,
+            ) as stream:
+                for text in stream.text_stream:
                     yield text
         except Exception as e:
             logger.error(f"invoke_claude_stream error: {e}")
@@ -310,9 +298,10 @@ class BedrockService:
         Single-turn Claude call for structured JSON output. Not streaming.
         Returns the raw text response (caller parses JSON).
         """
-        response = self.bedrock_runtime_client.converse(
-            modelId="us.anthropic.claude-haiku-4-5-20251001-v1:0",
-            messages=[{"role": "user", "content": [{"text": prompt}]}],
-            inferenceConfig={"maxTokens": max_tokens, "temperature": 0.3},
+        response = self.anthropic_client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_tokens,
+            temperature=0.3,
         )
-        return response["output"]["message"]["content"][0]["text"]
+        return response.content[0].text

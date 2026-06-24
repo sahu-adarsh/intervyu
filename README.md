@@ -97,10 +97,10 @@ Browser (Next.js 15)
 │  JSON control messages (speech_start, speech_end)     │
 │  REST calls: Authorization: Bearer <supabase_jwt>     │
 │                                                       ▼
-│                                    FastAPI  ·  EC2 t3.small  ·  port 8000
+│                                    FastAPI  ·  Azure VM B1ms  ·  port 8000
 │                                    ├── WebSocket /ws/interview/{id}?token=<jwt>
 │                                    │     ├── Deepgram Nova-2  (STT, persistent httpx)
-│                                    │     ├── bedrock-runtime  (Claude Haiku 4.5, streaming)
+│                                    │     ├── Anthropic API  (Claude Haiku 4.5, streaming)
 │                                    │     └── Azure Speech SDK (TTS → MP3 chunks, pool of 3)
 │                                    └── REST /api/*
 │                                          ├── Supabase PostgreSQL  (sessions, transcripts, reports)
@@ -138,8 +138,8 @@ Browser (Next.js 15)
 |-------|-------------|
 | **Frontend** | Next.js 15, React 19, TypeScript, Tailwind CSS 4, Monaco Editor, Recharts |
 | **Backend** | FastAPI (Python 3.11), WebSockets, asyncpg, asyncio |
-| **AI / ML** | Claude Haiku 4.5 (AWS Bedrock), Deepgram Nova-2 (STT), Azure Speech `en-IN-NeerjaNeural` (TTS), Silero VAD (ONNX) |
-| **Infra** | EC2, CloudFront, S3, Lambda (SAM), Textract, ACM |
+| **AI / ML** | Claude Haiku 4.5 (Anthropic API), Deepgram Nova-2 (STT), Azure Speech `en-IN-NeerjaNeural` (TTS), Silero VAD (ONNX) |
+| **Infra** | Azure VM (B1ms), CloudFront, S3, Lambda (SAM), Textract, ACM |
 | **Auth / DB** | Supabase (Google OAuth + Email OTP, JWT, PostgreSQL with RLS) |
 
 ---

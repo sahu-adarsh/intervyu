@@ -85,11 +85,11 @@ intervyu/
 ### Backend (FastAPI)
 - **STT**: Deepgram Nova-2 API (cloud, persistent `httpx.AsyncClient` module-level singleton to `api.deepgram.com/v1/listen`)
 - **TTS**: Azure Cognitive Services Speech SDK (`azure-cognitiveservices-speech`, `en-IN-NeerjaNeural` voice, MP3 output `Audio24Khz48KBitRateMonoMp3`, pool of 3 persistent `SpeechSynthesizer` instances, SSML `<prosody rate="+20%">`, MP3 chunks streamed via asyncio.Queue concurrent sender)
-- **AI**: AWS bedrock-runtime `converse_stream` (Claude Haiku 4.5 — `us.anthropic.claude-haiku-4-5-20251001-v1:0`); conversation history managed manually in `_session_cache`
+- **AI**: Anthropic API direct (`anthropic` SDK, `claude-haiku-4-5-20251001`); conversation history managed manually in `_session_cache`. Previously used AWS Bedrock `converse_stream` — switched 2026-06 when new AWS account couldn't get Bedrock model access approved.
 - **Auth**: Supabase JWT verification (`auth_service.py`, PyJWT HS256, `audience="authenticated"`); `get_current_user` FastAPI dependency on all endpoints; WebSocket auth via `?token=` query param
 - **Storage**: Supabase PostgreSQL (structured data) + S3 `intervyu-user-data-2026` (binary: CVs at `cvs/{session_id}/`, audio at `recordings/{session_id}/`)
 - **DB Driver**: asyncpg pool (min=5, max=20) in `db_service.py`; transcript writes are asyncio background tasks (off WebSocket critical path)
-- **CV Parsing**: AWS Textract + `intervyu-cv-analyzer` Lambda
+- **CV Parsing**: AWS Textract (fallback for scanned PDFs) + `intervyu-cv-analyzer` Lambda (uses Anthropic API directly)
 - **Real-time**: WebSocket at `/ws/interview/{session_id}?token=<supabase_jwt>`
 
 ### Frontend (Next.js 15)
@@ -101,36 +101,35 @@ intervyu/
 
 ### AWS Lambda Functions (3)
 1. `intervyu-code-executor` — Python/JS sandboxed execution, test case runner
-2. `intervyu-cv-analyzer` — PDF/DOCX parsing, skills extraction by category
-3. `intervyu-performance-evaluator` — 5-dimension scoring, HIRE/NO_HIRE recommendation
+2. `intervyu-cv-analyzer` — PDF/DOCX parsing, skills extraction by category (Anthropic API, Claude Haiku 4.5)
+3. `intervyu-performance-evaluator` — 5-dimension scoring, HIRE/NO_HIRE recommendation (Anthropic API, Claude Haiku 4.5; previously Sonnet 4.6 via Bedrock)
 
 ## Deployment (Current — Production)
 
-> **MIGRATION IN PROGRESS (2026-06):** Old AWS account closed; resources are being recreated under
-> new account `207423186601`. The block below still reflects the OLD account's resource IDs
-> (frontend bucket, CloudFront distro, EC2 instance, ACM cert) — update each line once that
-> resource is recreated in Steps 4/5 of the migration (EC2 backend deploy, frontend+CloudFront deploy, ACM re-issue).
+> **AWS account migration complete (2026-06).** New AWS account `207423186601` (`adarsh-intervyu`).
+> Backend moved from EC2 → Azure VM (free tier). CloudFront still pending AWS account verification (support case open).
 
-- **Frontend**: S3 (`prepai-frontend-1773670407`) + CloudFront (`EEQ8MGLCMSZXT`) — TODO: replace with new bucket/distro after Step 5
-- **Custom Domain**: `https://intervyu.io` (Namecheap BasicDNS → CloudFront)
-- **SSL**: ACM cert `b4030462-0a7e-4ede-a076-09da4f122dc2` attached to CloudFront — TODO: re-issue in new account
-- **Backend**: EC2 `i-032c3535f7a8f1d89` (t3.small, Ubuntu), IP `44.200.25.1`, port 8000 — TODO: replace after Step 4
-- **EC2 SSH**: `ssh -i ~/.ssh/prepai-backend-key.pem ubuntu@44.200.25.1` — TODO: update key name/path + IP after Step 4
+- **Frontend**: S3 (`intervyu-frontend-1781778638`) — CloudFront pending account verification; serving directly from S3 in the meantime
+- **Custom Domain**: `https://intervyu.io` (Namecheap BasicDNS → CloudFront, pending)
+- **SSL**: ACM cert pending — re-issue once CloudFront is unblocked
+- **Backend**: Azure VM `intervyu-backend` (Standard B1ms, Ubuntu 24.04), IP `172.210.69.74`, port 8000, resource group `intervyu-rg`
+- **Azure SSH**: `ssh -i ~/Desktop/intervyu/intervyu-backend-key.pem azureuser@172.210.69.74`
 - **Restart backend**: `sudo systemctl restart intervyu-backend`
 - **Redeploy frontend**: `cd intervyu && bash scripts/redeploy-frontend.sh` — do NOT use a bare `aws s3 sync` (see warning)
   ```bash
   cd frontend && npm run build
   # 1. Sync all static assets (hashed filenames — safe to cache)
-  aws s3 sync out/ s3://prepai-frontend-1773670407/ --delete
+  aws s3 sync out/ s3://intervyu-frontend-1781778638/ --delete
   # 2. Force-upload HTML and RSC payload .txt files — sync skips these when file size
   #    is unchanged across builds (same-size files get identical ETags bypassed), which
   #    leaves stale RSC payloads pointing to deleted chunks → Link navigation silently
   #    breaks, buttons appear non-functional, SyntaxErrors on old chunks.
   find frontend/out -name "*.html" -o -name "*.txt" | while read f; do
     key="${f#frontend/out/}"
-    aws s3 cp "$f" "s3://prepai-frontend-1773670407/$key" --cache-control "no-cache, no-store, must-revalidate"
+    aws s3 cp "$f" "s3://intervyu-frontend-1781778638/$key" --cache-control "no-cache, no-store, must-revalidate"
   done
-  aws cloudfront create-invalidation --distribution-id EEQ8MGLCMSZXT --paths "/*"
+  # CloudFront invalidation — run once CloudFront distribution is created:
+  # aws cloudfront create-invalidation --distribution-id <NEW-DISTRO-ID> --paths "/*"
   ```
   **WARNING — `aws s3 sync` alone is not enough.** Next.js App Router generates `*.html` and
   `*.txt` (RSC payload) files alongside hashed JS chunks. When the JS chunk filenames change

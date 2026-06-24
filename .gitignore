@@ -64,6 +64,10 @@ logs/
 # AWS
 .aws/
 
+# Deployment info (contains EC2 IPs, key paths — local only)
+deployment-info.txt
+frontend-deployment-info.txt
+
 # Testing
 .pytest_cache/
 coverage/
@@ -86,3 +90,5 @@ OPTIMIZATION_CHANGES.md
 
 # Local implementation plans (not for repo)
 CV_IMPROVEMENT_PLAN.md
+
+*.pem

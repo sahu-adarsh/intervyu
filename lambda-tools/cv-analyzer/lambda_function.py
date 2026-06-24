@@ -1,11 +1,12 @@
 """
 CV Analyzer Lambda Function
-Uses Claude Haiku 4.5 (via Bedrock) for fast, cost-efficient CV parsing.
-Falls back to regex extraction if Bedrock is unavailable.
+Uses Claude Haiku 4.5 (via Anthropic API) for fast, cost-efficient CV parsing.
+Falls back to regex extraction if the LLM call fails.
 """
 
 import json
 import boto3
+import anthropic
 import re
 import os
 import logging
@@ -15,12 +16,14 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 s3_client = boto3.client('s3')
+_anthropic_client = None
 
 
-def get_bedrock_client():
-    """Create Bedrock Runtime client using the Lambda execution IAM role."""
-    region = os.environ.get('BEDROCK_AWS_REGION', 'us-east-1')
-    return boto3.client('bedrock-runtime', region_name=region)
+def _get_anthropic_client():
+    global _anthropic_client
+    if _anthropic_client is None:
+        _anthropic_client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY', ''))
+    return _anthropic_client
 
 
 def lambda_handler(event, context):
@@ -113,19 +116,13 @@ Rules:
 - Return ONLY the JSON, no markdown, no explanation"""
 
     try:
-        bedrock = get_bedrock_client()
-        response = bedrock.invoke_model(
-            modelId='us.anthropic.claude-haiku-4-5-20251001-v1:0',
-            body=json.dumps({
-                'anthropic_version': 'bedrock-2023-05-31',
-                'max_tokens': 2000,
-                'messages': [{'role': 'user', 'content': prompt}]
-            }),
-            contentType='application/json',
-            accept='application/json'
+        client = _get_anthropic_client()
+        resp = client.messages.create(
+            model='claude-haiku-4-5-20251001',
+            max_tokens=2000,
+            messages=[{'role': 'user', 'content': prompt}]
         )
-        result = json.loads(response['body'].read())
-        text = result['content'][0]['text'].strip()
+        text = resp.content[0].text.strip()
 
         # Strip markdown code fences if present
         if text.startswith('```'):
@@ -257,19 +254,13 @@ RESUME TEXT:
 {cv_text[:8000]}"""
 
     try:
-        bedrock = get_bedrock_client()
-        response = bedrock.invoke_model(
-            modelId='us.anthropic.claude-haiku-4-5-20251001-v1:0',
-            body=json.dumps({
-                'anthropic_version': 'bedrock-2023-05-31',
-                'max_tokens': 8192,
-                'messages': [{'role': 'user', 'content': prompt}]
-            }),
-            contentType='application/json',
-            accept='application/json'
+        client = _get_anthropic_client()
+        resp = client.messages.create(
+            model='claude-haiku-4-5-20251001',
+            max_tokens=8192,
+            messages=[{'role': 'user', 'content': prompt}]
         )
-        result = json.loads(response['body'].read())
-        text = result['content'][0]['text'].strip()
+        text = resp.content[0].text.strip()
 
         if text.startswith('```'):
             text = re.sub(r'^```[a-z]*\n?', '', text)
@@ -355,19 +346,13 @@ Rules:
 - Return ONLY the JSON"""
 
     try:
-        bedrock = get_bedrock_client()
-        response = bedrock.invoke_model(
-            modelId='us.anthropic.claude-haiku-4-5-20251001-v1:0',
-            body=json.dumps({
-                'anthropic_version': 'bedrock-2023-05-31',
-                'max_tokens': 4096,
-                'messages': [{'role': 'user', 'content': prompt}]
-            }),
-            contentType='application/json',
-            accept='application/json'
+        client = _get_anthropic_client()
+        resp = client.messages.create(
+            model='claude-haiku-4-5-20251001',
+            max_tokens=4096,
+            messages=[{'role': 'user', 'content': prompt}]
         )
-        result = json.loads(response['body'].read())
-        text = result['content'][0]['text'].strip()
+        text = resp.content[0].text.strip()
 
         if text.startswith('```'):
             text = re.sub(r'^```[a-z]*\n?', '', text)

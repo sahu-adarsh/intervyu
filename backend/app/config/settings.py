@@ -8,15 +8,15 @@ AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY", "")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")
 
-# Textract-specific credentials (separate account with Textract subscription)
-TEXTRACT_AWS_ACCESS_KEY = os.getenv("TEXTRACT_AWS_ACCESS_KEY", AWS_ACCESS_KEY)
-TEXTRACT_AWS_SECRET_ACCESS_KEY = os.getenv("TEXTRACT_AWS_SECRET_ACCESS_KEY", AWS_SECRET_ACCESS_KEY)
 
 # S3 Configuration
 S3_BUCKET_USER_DATA = os.getenv("S3_BUCKET_USER_DATA", "intervyu-user-data")
 S3_BUCKET_KNOWLEDGE_BASE = os.getenv("S3_BUCKET_KNOWLEDGE_BASE", "intervyu-knowledge-base")
 
-# Bedrock Configuration
+# Anthropic API (direct)
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+
+# Bedrock Configuration (legacy — not used in production)
 BEDROCK_AGENT_ID = os.getenv("BEDROCK_AGENT_ID", "")
 BEDROCK_AGENT_ALIAS_ID = os.getenv("BEDROCK_AGENT_ALIAS_ID", "")
 

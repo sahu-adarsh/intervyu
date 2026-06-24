@@ -6,7 +6,7 @@ resolve_s3 = true
 s3_prefix = "intervyu-lambda"
 confirm_changeset = true
 capabilities = "CAPABILITY_NAMED_IAM"
-parameter_overrides = "BedrockAgentRoleArn=\"\""
+parameter_overrides = "AnthropicApiKey=\"\""
 image_repositories = []
 
 [default.global.parameters]
