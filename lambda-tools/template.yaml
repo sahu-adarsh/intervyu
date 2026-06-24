@@ -14,18 +14,9 @@ Globals:
         S3_BUCKET_USER_DATA: intervyu-user-data-2026
 
 Parameters:
-  BedrockAgentRoleArn:
+  AnthropicApiKey:
     Type: String
-    Description: ARN of the Bedrock Agent role that will invoke these Lambda functions
-    Default: ""
-  BedrockAccessKeyId:
-    Type: String
-    Description: AWS Access Key ID for Bedrock (performance evaluator)
-    NoEcho: true
-    Default: ""
-  BedrockSecretAccessKey:
-    Type: String
-    Description: AWS Secret Access Key for Bedrock (performance evaluator)
+    Description: Anthropic API key for Claude Haiku (cv-analyzer and performance-evaluator)
     NoEcho: true
     Default: ""
 
@@ -96,14 +87,14 @@ Resources:
       MemorySize: 512
       Environment:
         Variables:
-          BEDROCK_AWS_REGION: us-east-1
+          ANTHROPIC_API_KEY: !Ref AnthropicApiKey
 
   # Lambda Function: Performance Evaluator
   PerformanceEvaluatorFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: intervyu-performance-evaluator
-      Description: Generate AI-powered interview performance reports using Claude Sonnet
+      Description: Generate AI-powered interview performance reports using Claude Haiku
       CodeUri: performance-evaluator/
       Handler: lambda_function.lambda_handler
       Role: !GetAtt IntervyuLambdaRole.Arn
@@ -111,9 +102,7 @@ Resources:
       MemorySize: 512
       Environment:
         Variables:
-          BEDROCK_AWS_REGION: us-east-1
-          BEDROCK_AWS_ACCESS_KEY_ID: !Ref BedrockAccessKeyId
-          BEDROCK_AWS_SECRET_ACCESS_KEY: !Ref BedrockSecretAccessKey
+          ANTHROPIC_API_KEY: !Ref AnthropicApiKey
 
   # Lambda Permissions for Bedrock Agent
   CodeExecutorInvokePermission:

@@ -3,6 +3,9 @@
 # AWS SDK (included in Lambda runtime)
 boto3>=1.28.0
 
+# Anthropic API
+anthropic>=0.40.0
+
 # PDF parsing
 PyPDF2>=3.0.0
 

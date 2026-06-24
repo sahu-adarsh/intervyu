@@ -1,6 +1,6 @@
 """
 Performance Evaluator Lambda Function
-Uses Claude Sonnet 4.6 via AWS Bedrock to generate genuine, transcript-grounded evaluations.
+Uses Claude Haiku 4.5 via Anthropic API to generate genuine, transcript-grounded evaluations.
 Falls back to heuristic scoring if the LLM call fails.
 """
 
@@ -8,16 +8,24 @@ import json
 import os
 import re
 import boto3
+import anthropic
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-# ─── AWS clients ──────────────────────────────────────────────────────────────
+# ─── Clients ──────────────────────────────────────────────────────────────────
 
 s3_client = boto3.client('s3')
-bedrock_client = boto3.client('bedrock-runtime', region_name=os.environ.get('BEDROCK_AWS_REGION', 'us-east-1'))
+_anthropic_client = None
 
-# Claude Sonnet 4.6 cross-region inference
-EVALUATION_MODEL_ID = 'us.anthropic.claude-sonnet-4-6'
+
+def _get_anthropic_client():
+    global _anthropic_client
+    if _anthropic_client is None:
+        _anthropic_client = anthropic.Anthropic(api_key=os.environ.get('ANTHROPIC_API_KEY', ''))
+    return _anthropic_client
+
+
+EVALUATION_MODEL_ID = 'claude-haiku-4-5-20251001'
 
 INTERVIEW_TYPE_LABELS: Dict[str, str] = {
     'google_sde': 'Google SDE Interview',
@@ -238,13 +246,14 @@ The detailed_feedback field must be a JSON string (escaped) containing observati
 }}
 </evaluation>"""
 
-    response = bedrock_client.converse(
-        modelId=EVALUATION_MODEL_ID,
-        messages=[{'role': 'user', 'content': [{'text': prompt}]}],
-        inferenceConfig={'maxTokens': 3000, 'temperature': 0.2},
+    resp = _get_anthropic_client().messages.create(
+        model=EVALUATION_MODEL_ID,
+        max_tokens=3000,
+        temperature=0.2,
+        messages=[{'role': 'user', 'content': prompt}],
     )
 
-    raw_text = response['output']['message']['content'][0]['text']
+    raw_text = resp.content[0].text
 
     # Extract JSON from <evaluation> tags
     match = re.search(r'<evaluation>\s*([\s\S]*?)\s*</evaluation>', raw_text)

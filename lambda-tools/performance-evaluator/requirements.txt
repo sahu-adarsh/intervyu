@@ -3,5 +3,5 @@
 # AWS SDK (included in Lambda runtime)
 boto3>=1.28.0
 
-# No additional dependencies needed
-# All logic uses Python stdlib
+# Anthropic API
+anthropic>=0.40.0
