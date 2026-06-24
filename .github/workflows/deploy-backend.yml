@@ -10,28 +10,28 @@ on:
 
 jobs:
   deploy:
-    name: Deploy to EC2
+    name: Deploy to Azure VM
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to EC2 via SSH
+      - name: Deploy to Azure VM via SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}
+          host: ${{ secrets.AZURE_VM_HOST }}
+          username: azureuser
+          key: ${{ secrets.AZURE_VM_SSH_KEY }}
           timeout: 120s
           script: |
             set -e
 
-            cd /home/ubuntu/intervyu
+            cd /home/azureuser/intervyu
 
             echo "Pulling latest changes..."
-            git checkout -- .
-            git pull origin main
+            git fetch origin
+            git reset --hard origin/main
 
             echo "Activating virtual environment..."
             source backend/venv/bin/activate
