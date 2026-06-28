@@ -10,7 +10,7 @@ on:
 
 jobs:
   deploy:
-    name: Build & Deploy to S3 + CloudFront
+    name: Build & Deploy to Azure Blob Storage
     runs-on: ubuntu-latest
 
     steps:
@@ -44,31 +44,20 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
-
-      - name: Sync static assets to S3 (long cache)
+      - name: Upload to Azure Blob Storage
         run: |
-          aws s3 sync frontend/out/ s3://prepai-frontend-1773670407/ \
-            --delete \
-            --cache-control "public, max-age=31536000, immutable" \
-            --exclude "*.html" \
-            --exclude "*.json"
+          az storage blob upload-batch \
+            --account-name intervyufrontend \
+            --account-key "${{ secrets.AZURE_STORAGE_KEY }}" \
+            --source frontend/out \
+            --destination '$web' \
+            --overwrite \
+            --content-cache-control "no-cache, no-store, must-revalidate" \
+            --pattern "*.html"
 
-      - name: Sync HTML/JSON to S3 (no cache)
-        run: |
-          aws s3 sync frontend/out/ s3://prepai-frontend-1773670407/ \
-            --cache-control "public, max-age=0, must-revalidate" \
-            --exclude "*" \
-            --include "*.html" \
-            --include "*.json"
-
-      - name: Invalidate CloudFront cache
-        run: |
-          aws cloudfront create-invalidation \
-            --distribution-id EEQ8MGLCMSZXT \
-            --paths "/*"
+          az storage blob upload-batch \
+            --account-name intervyufrontend \
+            --account-key "${{ secrets.AZURE_STORAGE_KEY }}" \
+            --source frontend/out \
+            --destination '$web' \
+            --overwrite
