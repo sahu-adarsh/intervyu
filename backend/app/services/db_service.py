@@ -33,10 +33,10 @@ async def get_pool() -> asyncpg.Pool:
             raise RuntimeError("DATABASE_URL is not configured")
         _pool = await asyncpg.create_pool(
             DATABASE_URL,
-            min_size=5,
-            max_size=20,
+            min_size=2,
+            max_size=10,
             command_timeout=10,
-            statement_cache_size=100,
+            statement_cache_size=0,
         )
         logger.info("asyncpg pool created (min=5 max=20)")
     return _pool
