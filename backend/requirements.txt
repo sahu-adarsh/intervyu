@@ -10,8 +10,8 @@ websockets
 boto3
 botocore
 
-# Anthropic API (direct — replaces Bedrock for LLM calls)
-anthropic>=0.40.0
+# Azure AI Foundry (replaces Anthropic API for LLM calls)
+openai>=1.0.0
 
 # Voice Processing
 azure-cognitiveservices-speech  # Azure Speech SDK — persistent connection, same Neerja voice, ~50-200ms/sentence
