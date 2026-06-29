@@ -1,12 +1,12 @@
 import boto3
-import anthropic
 import time
 import json
 import logging
 from typing import Dict, Any, Optional, List, Generator
 from botocore.config import Config
 from botocore.exceptions import ClientError
-from app.config import AWS_REGION, AWS_ACCESS_KEY, AWS_SECRET_ACCESS_KEY, ANTHROPIC_API_KEY, BEDROCK_AGENT_ID, BEDROCK_AGENT_ALIAS_ID
+from openai import OpenAI
+from app.config import AWS_REGION, AWS_ACCESS_KEY, AWS_SECRET_ACCESS_KEY, BEDROCK_AGENT_ID, BEDROCK_AGENT_ALIAS_ID, AZURE_INFERENCE_ENDPOINT, AZURE_INFERENCE_KEY, AZURE_INFERENCE_MODEL
 from app.config.interview_types import get_interview_config, INTERVIEW_PHASES
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,11 @@ class BedrockService:
             config=config
         )
         self.bedrock_json_client = self.bedrock_runtime_client
-        self.anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        self.azure_client = OpenAI(
+            base_url=AZURE_INFERENCE_ENDPOINT,
+            api_key=AZURE_INFERENCE_KEY,
+        )
+        self.azure_model = AZURE_INFERENCE_MODEL
         self.agent_id = BEDROCK_AGENT_ID
         self.agent_alias_id = BEDROCK_AGENT_ALIAS_ID
         self._system_prompt: Optional[str] = None
@@ -258,50 +262,43 @@ class BedrockService:
         user_message: str,
     ):
         """
-        Direct Claude streaming via Anthropic API.
-        True token-by-token streaming for low latency TTS pipeline.
-
-        Args:
-            conversation_history: List of prior turns [{"role": "user"/"assistant", "content": "..."}]
-            user_message: The current user message (with injected context prefix)
-
-        Yields:
-            Text tokens as they stream from Claude
+        Streaming chat via Azure AI Foundry (gpt-5.4-mini).
+        Yields text tokens for the TTS pipeline.
         """
         system_prompt = self._load_system_prompt()
 
-        messages = []
+        messages = [{"role": "system", "content": system_prompt}]
         for msg in conversation_history:
             role = msg.get("role")
             content = msg.get("content", "")
             if role in ("user", "assistant") and content:
                 messages.append({"role": role, "content": content})
-
         messages.append({"role": "user", "content": user_message})
 
         try:
-            with self.anthropic_client.messages.stream(
-                model="claude-haiku-4-5-20251001",
-                system=system_prompt,
+            stream = self.azure_client.chat.completions.create(
+                model=self.azure_model,
                 messages=messages,
-                max_tokens=300,
+                max_completion_tokens=300,
                 temperature=0.7,
-            ) as stream:
-                for text in stream.text_stream:
-                    yield text
+                stream=True,
+            )
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
         except Exception as e:
             logger.error(f"invoke_claude_stream error: {e}")
             raise
 
     def invoke_claude_json(self, prompt: str, max_tokens: int = 2000) -> str:
         """
-        Single-turn Claude call for structured JSON output. Not streaming.
+        Single-turn call via Azure AI Foundry for structured JSON output. Not streaming.
         Returns the raw text response (caller parses JSON).
         """
-        response = self.anthropic_client.messages.create(
-            model="claude-haiku-4-5-20251001",
+        response = self.azure_client.chat.completions.create(
+            model=self.azure_model,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=max_tokens,
+            max_completion_tokens=max_tokens,
             temperature=0.3,
         )
-        return response.content[0].text
+        return response.choices[0].message.content
