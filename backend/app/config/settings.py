@@ -16,6 +16,11 @@ S3_BUCKET_KNOWLEDGE_BASE = os.getenv("S3_BUCKET_KNOWLEDGE_BASE", "intervyu-knowl
 # Anthropic API (direct)
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
+# Azure AI Foundry (inference)
+AZURE_INFERENCE_ENDPOINT = os.getenv("AZURE_INFERENCE_ENDPOINT", "")
+AZURE_INFERENCE_KEY = os.getenv("AZURE_INFERENCE_KEY", "")
+AZURE_INFERENCE_MODEL = os.getenv("AZURE_INFERENCE_MODEL", "gpt-5.4-mini")
+
 # Bedrock Configuration (legacy — not used in production)
 BEDROCK_AGENT_ID = os.getenv("BEDROCK_AGENT_ID", "")
 BEDROCK_AGENT_ALIAS_ID = os.getenv("BEDROCK_AGENT_ALIAS_ID", "")
